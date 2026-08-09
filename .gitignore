@@ -4,5 +4,4 @@ node_modules/
 *.tgz
 .agents/sessions/*
 !.agents/sessions/gitignore.asset
-.claude/settings.local.json
 .claude/*.local.json

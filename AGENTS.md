@@ -108,11 +108,14 @@ validaciones compatibles y consultar cualquier conflicto real.
 
 ## Documentación
 
-- README y documentación técnica: `README.md` documenta adopción, la CLI
-  distribuible y su operación avanzada, y `.agents/README.md` documenta el
-  módulo interno; actualizar ambos cuando cambien el inicializador, el
-  ejecutable, sus pruebas o las garantías de distribución.
-- ADRs: No aplica hasta que el propietario declare una ubicación en este
-  contrato.
+- README y documentación técnica: `README.md` documenta adopción, opciones,
+  modos, roles y errores comunes; `CONTEXT.md` fija el glosario del dominio;
+  `docs/arquitectura.md` mantiene la estructura, los flujos y la frontera de
+  distribución; `.agents/README.md` documenta el módulo interno. `CONTEXT.md` y
+  `docs/` no se distribuyen. Actualizar los pertinentes cuando cambien el
+  inicializador, el ejecutable, sus pruebas o las garantías de distribución.
+- ADRs: `docs/adr/`, con numeración secuencial `NNNN-slug.md`; crear una sólo
+  cuando la decisión sea difícil de revertir, sorprendente sin contexto y
+  resultado de un trade-off real.
 
 <!-- AGENTIC_PROJECT_CONTRACT_END -->

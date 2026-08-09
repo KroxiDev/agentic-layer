@@ -115,6 +115,18 @@ const MANAGED_DIRECTORIES = [
   ".claude/skills",
   ".codex/agents",
 ];
+// Rutas que solo existen en el checkout de desarrollo: la distribución no las
+// transporta, así que sus enlaces se comprueban únicamente donde existen.
+const DEVELOPMENT_ONLY_PREFIXES = ["CONTEXT.md", "docs/", "tests/"];
+const ROLE_NAMES = [
+  "documentador",
+  "evaluador",
+  "explorador",
+  "implementador",
+  "planificador",
+  "tester",
+];
+const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)*$/;
 const EXIT_REQUIREMENTS_MISSING = 4;
 
 const IGNORED_SCAN_DIRECTORIES = new Set([
@@ -379,14 +391,13 @@ function objectRecord(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
+// Primer párrafo de prosa del README: la frase que describe el proyecto.
 async function readReadmePurpose(destination, warnings) {
   const readmePath = join(destination, "README.md");
-  if (!existsSync(readmePath)) return { purpose: null, title: null };
+  if (!existsSync(readmePath)) return null;
   try {
     const content = withoutByteOrderMark(await readFile(readmePath, "utf8"));
-    const title = content.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? null;
-    const blocks = content.split(/\r?\n\s*\r?\n/);
-    for (const block of blocks) {
+    for (const block of content.split(/\r?\n\s*\r?\n/)) {
       const normalized = block.replace(/\r?\n/g, " ").trim();
       if (
         !normalized ||
@@ -394,18 +405,15 @@ async function readReadmePurpose(destination, warnings) {
       ) {
         continue;
       }
-      return {
-        purpose: normalized
-          .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-          .replace(/[*_`]/g, "")
-          .trim(),
-        title,
-      };
+      return normalized
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+        .replace(/[*_`]/g, "")
+        .trim();
     }
-    return { purpose: null, title };
+    return null;
   } catch (error) {
     warnings.push(`No se pudo leer README.md: ${error.message}`);
-    return { purpose: null, title: null };
+    return null;
   }
 }
 
@@ -485,7 +493,7 @@ function detectEcosystem(files, { cargo, pyproject }) {
 }
 
 async function detectProject(destination, warnings) {
-  const [packageJson, readme, pyproject, cargo] = await Promise.all([
+  const [packageJson, readmePurpose, pyproject, cargo] = await Promise.all([
     readPackage(destination, warnings),
     readReadmePurpose(destination, warnings),
     readOptionalText(destination, "pyproject.toml", warnings),
@@ -501,7 +509,7 @@ async function detectProject(destination, warnings) {
   const purpose =
     typeof packageJson?.description === "string" && packageJson.description.trim()
       ? packageJson.description.replace(/\s+/g, " ").trim()
-      : manifestPurpose ?? readme.purpose;
+      : manifestPurpose ?? readmePurpose;
 
   const entrypoints = [];
   for (const candidate of [packageJson?.main, packageJson?.module]) {
@@ -609,10 +617,9 @@ async function detectProject(destination, warnings) {
           ? pyproject
             ? "pyproject.toml"
             : "Cargo.toml"
-          : readme.purpose
+          : readmePurpose
             ? "README.md"
             : null,
-    readmeTitle: readme.title,
     architecture: projectTopLevels.length
       ? `componentes detectados en ${quotePaths(projectTopLevels)}.`
       : pendingField("módulos y relaciones relevantes"),
@@ -839,18 +846,27 @@ function inspectContract(source, pathLabel) {
 // `init` no interroga por hechos del contrato: escribe lo que infiere y deja un
 // marcador explícito en lo que no. `--purpose` y `--git-strategy` son un atajo
 // para declararlos de una vez, nunca un requisito de la adopción.
-function resolveContractFacts({ options, project, existingFields, baselineContract }) {
+function resolveContractFacts({
+  options,
+  project,
+  existingFields,
+  baselineContract,
+  templatePurpose,
+}) {
   const hasGit = existsSync(join(options.destination, ".git"));
   if (options.purpose) existingFields.set("purpose", options.purpose);
   if (options.gitStrategy) existingFields.set("gitStrategy", options.gitStrategy);
 
   let purpose = existingFields.get("purpose") ?? project.purpose;
   if (purpose && !isSafeContractFact(purpose)) purpose = null;
+  // Una copia de la plantilla arrastra su propio README: el propósito de la
+  // capa no puede heredarse como si fuera el del proyecto adoptante.
   if (
     baselineContract &&
     !options.purpose &&
     project.purposeSource === "README.md" &&
-    normalizeLabel(project.readmeTitle ?? "") === "capa agentica reusable"
+    templatePurpose &&
+    normalizeLabel(purpose ?? "") === normalizeLabel(templatePurpose)
   ) {
     purpose = null;
   }
@@ -943,7 +959,7 @@ async function detectInstalledLayer(destination) {
   const versionState = await pathState(versionPath);
   if (versionState?.isFile() && !versionState.isSymbolicLink()) {
     const declared = withoutByteOrderMark(await readFile(versionPath, "utf8")).trim();
-    if (/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)*$/.test(declared)) version = declared;
+    if (SEMVER_PATTERN.test(declared)) version = declared;
   }
 
   return { present: markers.length > 0, markers, version };
@@ -1056,6 +1072,8 @@ const ACTION_LABELS = {
   copy: "copiar",
   overwrite: "sobrescribir",
   validate: "validar",
+  create: "crear",
+  update: "actualizar",
 };
 
 async function confirmApplication(actions, agentsAction, orphans, versionAction) {
@@ -1075,17 +1093,9 @@ async function confirmApplication(actions, agentsAction, orphans, versionAction)
 }
 
 async function validateSubagentAdapters() {
-  const roles = [
-    "documentador",
-    "evaluador",
-    "explorador",
-    "implementador",
-    "planificador",
-    "tester",
-  ];
   const errors = [];
 
-  for (const role of roles) {
+  for (const role of ROLE_NAMES) {
     const codexPath = join(SOURCE_ROOT, ".codex", "agents", `${role}.toml`);
     const claudePath = join(SOURCE_ROOT, ".claude", "agents", `${role}.md`);
     const [codex, claude] = await Promise.all([
@@ -1133,7 +1143,7 @@ async function validateSubagentAdapters() {
   if (errors.length) {
     throw new Error(`Adapters de subagentes inválidos:\n${errors.map((item) => `- ${item}`).join("\n")}`);
   }
-  return { codex: roles.length, claude: roles.length };
+  return { codex: ROLE_NAMES.length, claude: ROLE_NAMES.length };
 }
 
 async function packageManifestErrors() {
@@ -1148,7 +1158,7 @@ async function packageManifestErrors() {
   if (typeof manifest.name !== "string" || !manifest.name.trim()) {
     errors.push("package.json no declara un nombre publicable.");
   }
-  if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)*$/.test(manifest.version ?? "")) {
+  if (!SEMVER_PATTERN.test(manifest.version ?? "")) {
     errors.push("package.json no declara una versión semver válida.");
   }
   if (manifest.private === true) {
@@ -1196,14 +1206,6 @@ async function packageManifestErrors() {
 
 async function validateTemplateDistribution() {
   const errors = [];
-  const roles = [
-    "documentador",
-    "evaluador",
-    "explorador",
-    "implementador",
-    "planificador",
-    "tester",
-  ];
 
   if (new Set(PACKAGE_FILES).size !== PACKAGE_FILES.length) {
     errors.push("El inventario de distribución contiene rutas duplicadas.");
@@ -1216,13 +1218,16 @@ async function validateTemplateDistribution() {
   }
   const developmentCheckout = Boolean(await pathState(join(SOURCE_ROOT, "tests")));
   if (developmentCheckout) {
+    let rootIgnorePresent = false;
     for (const relativePath of DEVELOPMENT_FILES) {
       const state = await pathState(join(SOURCE_ROOT, ...relativePath.split("/")));
       if (!state?.isFile() || state.isSymbolicLink()) {
         errors.push(`Falta un archivo del repositorio de desarrollo: ${relativePath}.`);
-        continue;
+      } else if (relativePath === ".gitignore") {
+        rootIgnorePresent = true;
       }
-      if (relativePath !== ".gitignore") continue;
+    }
+    if (rootIgnorePresent) {
       const rootIgnore = (await readFile(join(SOURCE_ROOT, ".gitignore"), "utf8")).split(/\r?\n/);
       for (const ignoredPath of [
         ".codegraph/",
@@ -1248,10 +1253,9 @@ async function validateTemplateDistribution() {
     );
   }
 
-  const [sessionsIgnore, devSession, readme, rootAgents] = await Promise.all([
+  const [sessionsIgnore, devSession, rootAgents] = await Promise.all([
     readFile(templateSourcePath(".agents/sessions/.gitignore"), "utf8"),
     readFile(join(SOURCE_ROOT, ".agents", "templates", "dev-session.md"), "utf8"),
-    readFile(join(SOURCE_ROOT, "README.md"), "utf8"),
     readFile(join(SOURCE_ROOT, "AGENTS.md"), "utf8"),
   ]);
   for (const relativePath of PACKAGE_FILES) {
@@ -1261,9 +1265,6 @@ async function validateTemplateDistribution() {
   }
   if (!/^\*$/m.test(sessionsIgnore) || !/^!\.gitignore$/m.test(sessionsIgnore)) {
     errors.push(".agents/sessions/.gitignore no excluye todas las DevSession reales.");
-  }
-  if (!/^├── \.gitignore$/m.test(readme)) {
-    errors.push("El árbol de README.md no documenta .gitignore.");
   }
   if (!/^- Contaminación de origen:/m.test(rootAgents)) {
     errors.push("El contrato raíz no declara Contaminación de origen.");
@@ -1289,7 +1290,7 @@ async function validateTemplateDistribution() {
     if (!devSession.includes(field)) errors.push(`DevSession no contiene: ${field}`);
   }
 
-  for (const role of roles) {
+  for (const role of ROLE_NAMES) {
     const content = await readFile(join(SOURCE_ROOT, ".agents", "roles", `${role}.md`), "utf8");
     for (const heading of ["Entradas", "Proceso", "Salida", "Límites"]) {
       if (!new RegExp(`^## ${heading}$`, "m").test(content)) {
@@ -1298,7 +1299,7 @@ async function validateTemplateDistribution() {
     }
   }
 
-  const roleNames = new Set(roles.map((role) => normalizeLabel(role)));
+  const roleNames = new Set(ROLE_NAMES.map((role) => normalizeLabel(role)));
   for (const workflow of ["architecture", "bugfix", "feature", "refactor"]) {
     const content = await readFile(
       join(SOURCE_ROOT, ".agents", "workflows", `${workflow}.md`),
@@ -1319,6 +1320,14 @@ async function validateTemplateDistribution() {
       const rawTarget = match[1].trim().replace(/^<|>$/g, "");
       if (/^(?:[a-z]+:|#)/i.test(rawTarget)) continue;
       const fileTarget = rawTarget.split("#")[0];
+      // La documentación interna no viaja en el paquete: sus enlaces solo pueden
+      // comprobarse en el checkout de desarrollo, donde esos archivos existen.
+      if (
+        !developmentCheckout &&
+        DEVELOPMENT_ONLY_PREFIXES.some((prefix) => fileTarget.startsWith(prefix))
+      ) {
+        continue;
+      }
       const resolvedTarget = resolve(dirname(absolutePath), decodeURIComponent(fileTarget));
       if (!existsSync(resolvedTarget)) {
         errors.push(`${relativePath} enlaza una ruta inexistente: ${rawTarget}.`);
@@ -1411,7 +1420,6 @@ function checkCommand(command, arguments_) {
     available: result.status === 0,
     detail: (result.stdout || result.stderr || `código ${result.status}`).trim(),
     stdout: result.stdout?.trim() ?? "",
-    stderr: result.stderr?.trim() ?? "",
   };
 }
 
@@ -1521,6 +1529,7 @@ async function run(options) {
     project,
     existingFields,
     baselineContract,
+    templatePurpose: baselineContract ? await readReadmePurpose(SOURCE_ROOT, warnings) : null,
   });
   const targetIgnoresReady = await checkTargetIgnores(
     options.destination,
@@ -1565,10 +1574,8 @@ async function run(options) {
   for (const orphan of orphans) {
     console.log(`- eliminar residuo de otra versión: ${orphan.relativePath}`);
   }
-  console.log(`- ${agentsAction === "create" ? "crear" : agentsAction === "update" ? "actualizar" : "validar"}: AGENTS.md`);
-  console.log(
-    `- ${versionAction === "create" ? "crear" : versionAction === "update" ? "actualizar" : "validar"}: ${LAYER_VERSION_FILE}`,
-  );
+  console.log(`- ${ACTION_LABELS[agentsAction]}: AGENTS.md`);
+  console.log(`- ${ACTION_LABELS[versionAction]}: ${LAYER_VERSION_FILE}`);
   console.log(`- validar integridad estructural de ${distribution.files} archivos distribuibles`);
   console.log(
     `- validar ${adapterCounts.codex} adapters de Codex y ${adapterCounts.claude} de Claude`,
@@ -1596,7 +1603,7 @@ async function run(options) {
 
     const latestAgentsState = await pathState(destinationAgentsPath);
     if (Boolean(latestAgentsState) !== Boolean(destinationAgentsState)) {
-      const error = new Error("AGENTS.md cambió después del preflight; no se escribió ningún archivo.");
+      const error = new Error("AGENTS.md cambió después del plan; no se escribió ningún archivo.");
       error.exitCode = 2;
       throw error;
     }
@@ -1604,7 +1611,7 @@ async function run(options) {
       const latestAgents = await readFile(destinationAgentsPath, "utf8");
       if (latestAgents !== currentAgents) {
         const error = new Error(
-          "AGENTS.md cambió después del preflight; no se escribió ningún archivo.",
+          "AGENTS.md cambió después del plan; no se escribió ningún archivo.",
         );
         error.exitCode = 2;
         throw error;
@@ -1613,7 +1620,7 @@ async function run(options) {
     for (const action of templatePlan.actions) {
       if (action.type === "copy" && (await pathState(action.destinationPath))) {
         const error = new Error(
-          `${action.relativePath} apareció después del preflight; no se escribió ningún archivo.`,
+          `${action.relativePath} apareció después del plan; no se escribió ningún archivo.`,
         );
         error.exitCode = 2;
         throw error;
@@ -1626,7 +1633,7 @@ async function run(options) {
             : null;
         if (!latestContent || !latestContent.equals(action.replacedContent)) {
           const error = new Error(
-            `${action.relativePath} cambió después del preflight; no se escribió ningún archivo.`,
+            `${action.relativePath} cambió después del plan; no se escribió ningún archivo.`,
           );
           error.exitCode = 2;
           throw error;
@@ -1638,7 +1645,7 @@ async function run(options) {
       const latestState = await pathState(orphan.absolutePath);
       if (latestState && (!latestState.isFile() || latestState.isSymbolicLink())) {
         const error = new Error(
-          `${orphan.relativePath} cambió después del preflight; no se escribió ningún archivo.`,
+          `${orphan.relativePath} cambió después del plan; no se escribió ningún archivo.`,
         );
         error.exitCode = 2;
         throw error;
@@ -1849,15 +1856,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
 }
 
 export {
-  CONTRACT_END,
-  CONTRACT_START,
-  DEVELOPMENT_FILES,
   PACKAGE_FILES,
   TEMPLATE_FILES,
   isMissingContractValue,
-  parseArguments,
   printHelp,
   readDistributionVersion,
-  run,
   runCli,
 };
