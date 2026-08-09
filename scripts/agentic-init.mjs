@@ -58,13 +58,32 @@ const TEMPLATE_FILES = [
   ".claude/skills/orquestar/SKILL.md",
   "CLAUDE.md",
 ];
-const SUPPORT_FILES = [
-  ".gitignore",
+// npm descarta los `.gitignore` anidados al empaquetar, así que la distribución
+// los transporta con un nombre neutro y el inicializador restaura el canónico.
+const TEMPLATE_ASSET_SOURCES = new Map([
+  [".agents/sessions/.gitignore", ".agents/sessions/gitignore.asset"],
+  [".claude/.gitignore", ".claude/gitignore.asset"],
+]);
+const DISTRIBUTION_SUPPORT_FILES = [
   "AGENTS.md",
+  "LICENSE",
   "README.md",
+  "bin/agentic.mjs",
+  "package.json",
   "scripts/agentic-init.mjs",
-  "tests/agentic-init.test.mjs",
 ];
+// npm renombra a `.npmignore` cualquier `.gitignore` empaquetado, así que la
+// higiene de este repositorio no puede formar parte de la distribución.
+const DEVELOPMENT_FILES = [".gitignore", "tests/agentic-init.test.mjs"];
+const PACKAGE_FILES = [
+  ...TEMPLATE_FILES.map((relativePath) => TEMPLATE_ASSET_SOURCES.get(relativePath) ?? relativePath),
+  ...DISTRIBUTION_SUPPORT_FILES,
+].sort();
+
+function templateSourcePath(relativePath) {
+  const source = TEMPLATE_ASSET_SOURCES.get(relativePath) ?? relativePath;
+  return join(SOURCE_ROOT, ...source.split("/"));
+}
 
 const IGNORED_SCAN_DIRECTORIES = new Set([
   ".agents",
@@ -80,7 +99,9 @@ function parseArguments(argv) {
   const options = {
     destination: process.cwd(),
     dryRun: false,
+    force: false,
     nonInteractive: false,
+    yes: false,
   };
   let positionalDestination = false;
 
@@ -114,8 +135,13 @@ function parseArguments(argv) {
       options.codeGraphAction = "sync";
     } else if (argument === "--dry-run") {
       options.dryRun = true;
-    } else if (argument === "--non-interactive") {
+    } else if (argument === "--force") {
+      options.force = true;
+    } else if (argument === "--yes" || argument === "-y" || argument === "--non-interactive") {
       options.nonInteractive = true;
+      options.yes = true;
+    } else if (argument === "--version" || argument === "-v") {
+      options.version = true;
     } else if (argument === "--help" || argument === "-h") {
       options.help = true;
     } else if (argument.startsWith("-")) {
@@ -146,18 +172,33 @@ function parseArguments(argv) {
   return options;
 }
 
-function printHelp() {
-  console.log(`Uso: node scripts/agentic-init.mjs [destino] [opciones]
+function printHelp(invocation = "node scripts/agentic-init.mjs") {
+  console.log(`Uso: ${invocation} [destino] [opciones]
 
 Opciones:
   --target <ruta>       Directorio destino; por defecto, el actual.
   --purpose <texto>     Propósito cuando no puede detectarse.
   --git-strategy <txt>  Estrategia Git cuando no está declarada.
   --dry-run             Muestra las acciones sin escribir.
-  --non-interactive     No solicita datos por terminal.
+  -y, --yes             No pregunta nada; falla si falta un dato obligatorio.
+  --non-interactive     Alias de compatibilidad de --yes.
+  --force               Reemplaza archivos canónicos divergentes; nunca toca
+                        AGENTS.md fuera del contrato, enlaces ni directorios.
   --init-codegraph      Confirma explícitamente inicializar CodeGraph.
   --update-codegraph    Confirma explícitamente sincronizar CodeGraph.
-  -h, --help            Muestra esta ayuda.`);
+  -v, --version         Muestra la versión de la distribución.
+  -h, --help            Muestra esta ayuda.
+
+Códigos de salida: 0 correcto, 1 error de uso o requisito, 2 colisión sin
+escrituras, 3 cancelado por el usuario.`);
+}
+
+async function readDistributionVersion() {
+  const manifest = JSON.parse(await readFile(join(SOURCE_ROOT, "package.json"), "utf8"));
+  if (typeof manifest.version !== "string" || !manifest.version.trim()) {
+    throw new Error("package.json de la distribución no declara una versión.");
+  }
+  return manifest.version.trim();
 }
 
 function assertSafeDestination(destination) {
@@ -236,11 +277,17 @@ async function listProjectFiles(root) {
   return files;
 }
 
+// Las herramientas nativas de Windows escriben UTF-8 con BOM; los archivos de
+// detección deben leerse igual en las tres plataformas.
+function withoutByteOrderMark(content) {
+  return content.replace(/^﻿/, "");
+}
+
 async function readPackage(destination, warnings) {
   const packagePath = join(destination, "package.json");
   if (!existsSync(packagePath)) return null;
   try {
-    return JSON.parse(await readFile(packagePath, "utf8"));
+    return JSON.parse(withoutByteOrderMark(await readFile(packagePath, "utf8")));
   } catch (error) {
     warnings.push(`No se pudo interpretar package.json: ${error.message}`);
     return null;
@@ -251,7 +298,7 @@ async function readOptionalText(destination, relativePath, warnings) {
   const absolutePath = join(destination, ...relativePath.split("/"));
   if (!existsSync(absolutePath)) return null;
   try {
-    return await readFile(absolutePath, "utf8");
+    return withoutByteOrderMark(await readFile(absolutePath, "utf8"));
   } catch (error) {
     warnings.push(`No se pudo leer ${relativePath}: ${error.message}`);
     return null;
@@ -296,7 +343,7 @@ async function readReadmePurpose(destination, warnings) {
   const readmePath = join(destination, "README.md");
   if (!existsSync(readmePath)) return { purpose: null, title: null };
   try {
-    const content = (await readFile(readmePath, "utf8")).replace(/^\uFEFF/, "");
+    const content = withoutByteOrderMark(await readFile(readmePath, "utf8"));
     const title = content.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? null;
     const blocks = content.split(/\r?\n\s*\r?\n/);
     for (const block of blocks) {
@@ -722,12 +769,12 @@ function replaceContract(source, contract) {
   return `${source.slice(0, start)}${contract}${source.slice(end + CONTRACT_END.length)}`;
 }
 
-async function planTemplateFiles(destination) {
+async function planTemplateFiles(destination, force) {
   const actions = [];
   const collisions = [];
 
   for (const relativePath of TEMPLATE_FILES) {
-    const sourcePath = join(SOURCE_ROOT, ...relativePath.split("/"));
+    const sourcePath = templateSourcePath(relativePath);
     const destinationPath = join(destination, ...relativePath.split("/"));
     const sourceState = await pathState(sourcePath);
     if (!sourceState?.isFile() || sourceState.isSymbolicLink()) {
@@ -753,12 +800,39 @@ async function planTemplateFiles(destination) {
     ]);
     if (sourceContent.equals(destinationContent)) {
       actions.push({ type: "validate", relativePath });
+    } else if (force) {
+      actions.push({
+        type: "overwrite",
+        relativePath,
+        sourcePath,
+        destinationPath,
+        replacedContent: destinationContent,
+      });
     } else {
       collisions.push(relativePath);
     }
   }
 
   return { actions, collisions };
+}
+
+const ACTION_LABELS = {
+  copy: "copiar",
+  overwrite: "sobrescribir",
+  validate: "validar",
+};
+
+async function confirmApplication(actions, agentsAction) {
+  const writes =
+    actions.some((action) => action.type !== "validate") || agentsAction !== "validate";
+  if (!writes) return true;
+  const readline = createInterface({ input, output });
+  try {
+    const answer = (await readline.question("\n¿Aplicar estas acciones? [s/N]: ")).trim();
+    return /^(s|si|sí|y|yes)$/i.test(answer);
+  } finally {
+    readline.close();
+  }
 }
 
 async function validateSubagentAdapters() {
@@ -823,6 +897,64 @@ async function validateSubagentAdapters() {
   return { codex: roles.length, claude: roles.length };
 }
 
+async function packageManifestErrors() {
+  const errors = [];
+  let manifest;
+  try {
+    manifest = JSON.parse(await readFile(join(SOURCE_ROOT, "package.json"), "utf8"));
+  } catch (error) {
+    return [`package.json de la distribución no es legible: ${error.message}`];
+  }
+
+  if (typeof manifest.name !== "string" || !manifest.name.trim()) {
+    errors.push("package.json no declara un nombre publicable.");
+  }
+  if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)*$/.test(manifest.version ?? "")) {
+    errors.push("package.json no declara una versión semver válida.");
+  }
+  if (manifest.private === true) {
+    errors.push("package.json está marcado como privado y no podría distribuirse.");
+  }
+  if (manifest.type !== "module") {
+    errors.push("package.json debe declarar type: module para los entrypoints .mjs.");
+  }
+  if (manifest.bin?.agentic !== "./bin/agentic.mjs") {
+    errors.push("package.json no expone el ejecutable `agentic` en ./bin/agentic.mjs.");
+  }
+  if (typeof manifest.engines?.node !== "string") {
+    errors.push("package.json no declara la versión mínima de Node.js.");
+  }
+  for (const field of [
+    "dependencies",
+    "devDependencies",
+    "peerDependencies",
+    "optionalDependencies",
+    "bundleDependencies",
+  ]) {
+    const declared = manifest[field];
+    const empty = !declared || (Array.isArray(declared) ? !declared.length : !Object.keys(declared).length);
+    if (!empty) {
+      errors.push(`package.json declara ${field}; la distribución debe usar solo la biblioteca estándar.`);
+    }
+  }
+
+  const declaredFiles = Array.isArray(manifest.files) ? [...manifest.files].sort() : null;
+  if (!declaredFiles) {
+    errors.push("package.json no declara la lista explícita `files`.");
+  } else {
+    const missing = PACKAGE_FILES.filter((path) => !declaredFiles.includes(path));
+    const extra = declaredFiles.filter((path) => !PACKAGE_FILES.includes(path));
+    if (missing.length) {
+      errors.push(`package.json omite archivos canónicos: ${missing.join(", ")}.`);
+    }
+    if (extra.length) {
+      errors.push(`package.json empaqueta archivos no canónicos: ${extra.join(", ")}.`);
+    }
+  }
+
+  return errors;
+}
+
 async function validateTemplateDistribution() {
   const errors = [];
   const roles = [
@@ -834,34 +966,58 @@ async function validateTemplateDistribution() {
     "tester",
   ];
 
-  if (new Set(TEMPLATE_FILES).size !== TEMPLATE_FILES.length) {
+  if (new Set(PACKAGE_FILES).size !== PACKAGE_FILES.length) {
     errors.push("El inventario de distribución contiene rutas duplicadas.");
   }
-  for (const relativePath of [...TEMPLATE_FILES, ...SUPPORT_FILES]) {
+  for (const relativePath of PACKAGE_FILES) {
     const state = await pathState(join(SOURCE_ROOT, ...relativePath.split("/")));
     if (!state?.isFile() || state.isSymbolicLink()) {
       errors.push(`Falta un archivo regular de distribución: ${relativePath}.`);
     }
   }
+  const developmentCheckout = Boolean(await pathState(join(SOURCE_ROOT, "tests")));
+  if (developmentCheckout) {
+    for (const relativePath of DEVELOPMENT_FILES) {
+      const state = await pathState(join(SOURCE_ROOT, ...relativePath.split("/")));
+      if (!state?.isFile() || state.isSymbolicLink()) {
+        errors.push(`Falta un archivo del repositorio de desarrollo: ${relativePath}.`);
+        continue;
+      }
+      if (relativePath !== ".gitignore") continue;
+      const rootIgnore = (await readFile(join(SOURCE_ROOT, ".gitignore"), "utf8")).split(/\r?\n/);
+      for (const ignoredPath of [
+        ".codegraph/",
+        ".engram/",
+        "node_modules/",
+        "*.tgz",
+        ".agents/sessions/*",
+        ".claude/*.local.json",
+      ]) {
+        if (!rootIgnore.includes(ignoredPath)) {
+          errors.push(`.gitignore no excluye ${ignoredPath}.`);
+        }
+      }
+    }
+  }
+  errors.push(...(await packageManifestErrors()));
 
   const sessions = await readdir(join(SOURCE_ROOT, ".agents", "sessions"));
-  const unexpectedSessions = sessions.filter((name) => name !== ".gitignore");
+  const unexpectedSessions = sessions.filter((name) => name !== "gitignore.asset");
   if (unexpectedSessions.length) {
     errors.push(
       `.agents/sessions contiene estado efímero distribuible: ${unexpectedSessions.join(", ")}.`,
     );
   }
 
-  const [rootIgnore, sessionsIgnore, devSession, readme, rootAgents] = await Promise.all([
-    readFile(join(SOURCE_ROOT, ".gitignore"), "utf8"),
-    readFile(join(SOURCE_ROOT, ".agents", "sessions", ".gitignore"), "utf8"),
+  const [sessionsIgnore, devSession, readme, rootAgents] = await Promise.all([
+    readFile(templateSourcePath(".agents/sessions/.gitignore"), "utf8"),
     readFile(join(SOURCE_ROOT, ".agents", "templates", "dev-session.md"), "utf8"),
     readFile(join(SOURCE_ROOT, "README.md"), "utf8"),
     readFile(join(SOURCE_ROOT, "AGENTS.md"), "utf8"),
   ]);
-  for (const ignoredPath of [".codegraph/", ".engram/"]) {
-    if (!rootIgnore.split(/\r?\n/).includes(ignoredPath)) {
-      errors.push(`.gitignore no excluye ${ignoredPath}.`);
+  for (const relativePath of PACKAGE_FILES) {
+    if (/(^|\/)\.(?:git|npm)ignore$/.test(relativePath)) {
+      errors.push(`npm no puede transportar ${relativePath} con su nombre canónico.`);
     }
   }
   if (!/^\*$/m.test(sessionsIgnore) || !/^!\.gitignore$/m.test(sessionsIgnore)) {
@@ -916,11 +1072,7 @@ async function validateTemplateDistribution() {
     }
   }
 
-  const markdownFiles = [
-    "AGENTS.md",
-    "README.md",
-    ...TEMPLATE_FILES.filter((path) => path.endsWith(".md")),
-  ];
+  const markdownFiles = PACKAGE_FILES.filter((path) => path.endsWith(".md"));
   for (const relativePath of [...new Set(markdownFiles)]) {
     const absolutePath = join(SOURCE_ROOT, ...relativePath.split("/"));
     const content = await readFile(absolutePath, "utf8");
@@ -940,7 +1092,7 @@ async function validateTemplateDistribution() {
       `Integridad estructural inválida:\n${errors.map((item) => `- ${item}`).join("\n")}`,
     );
   }
-  return { files: TEMPLATE_FILES.length + SUPPORT_FILES.length };
+  return { files: PACKAGE_FILES.length };
 }
 
 async function checkTargetIgnores(destination, warnings, pending) {
@@ -1038,12 +1190,16 @@ async function run(options) {
   }
 
   const project = await detectProject(options.destination, warnings);
-  const templatePlan = await planTemplateFiles(options.destination);
+  const templatePlan = await planTemplateFiles(options.destination, options.force);
   if (templatePlan.collisions.length) {
     const error = new Error(
       `Colisiones detectadas; no se escribió ningún archivo:\n${templatePlan.collisions
         .map((path) => `- ${path}`)
-        .join("\n")}`,
+        .join("\n")}${
+        options.force
+          ? "\n--force no reemplaza enlaces simbólicos, directorios ni ancestros no seguros."
+          : "\nResolver manualmente o usar --force para reemplazar archivos canónicos divergentes."
+      }`,
     );
     error.exitCode = 2;
     throw error;
@@ -1106,7 +1262,7 @@ async function run(options) {
 
   console.log(options.dryRun ? "PLAN (sin escrituras)" : "ACCIONES");
   for (const action of templatePlan.actions) {
-    console.log(`- ${action.type === "copy" ? "copiar" : "validar"}: ${action.relativePath}`);
+    console.log(`- ${ACTION_LABELS[action.type]}: ${action.relativePath}`);
   }
   console.log(`- ${agentsAction === "create" ? "crear" : agentsAction === "update" ? "actualizar" : "validar"}: AGENTS.md`);
   console.log(`- validar integridad estructural de ${distribution.files} archivos distribuibles`);
@@ -1123,6 +1279,13 @@ async function run(options) {
   console.log("- comprobar exclusiones locales en .gitignore");
 
   if (!options.dryRun) {
+    const interactive = !options.yes && input.isTTY && output.isTTY;
+    if (interactive && !(await confirmApplication(templatePlan.actions, agentsAction))) {
+      const error = new Error("Cancelado por el usuario; no se escribió ningún archivo.");
+      error.exitCode = 3;
+      throw error;
+    }
+
     const latestAgentsState = await pathState(destinationAgentsPath);
     if (Boolean(latestAgentsState) !== Boolean(destinationAgentsState)) {
       const error = new Error("AGENTS.md cambió después del preflight; no se escribió ningún archivo.");
@@ -1140,21 +1303,37 @@ async function run(options) {
       }
     }
     for (const action of templatePlan.actions) {
-      if (action.type !== "copy") continue;
-      if (await pathState(action.destinationPath)) {
+      if (action.type === "copy" && (await pathState(action.destinationPath))) {
         const error = new Error(
           `${action.relativePath} apareció después del preflight; no se escribió ningún archivo.`,
         );
         error.exitCode = 2;
         throw error;
       }
+      if (action.type === "overwrite") {
+        const latestState = await pathState(action.destinationPath);
+        const latestContent =
+          latestState?.isFile() && !latestState.isSymbolicLink()
+            ? await readFile(action.destinationPath)
+            : null;
+        if (!latestContent || !latestContent.equals(action.replacedContent)) {
+          const error = new Error(
+            `${action.relativePath} cambió después del preflight; no se escribió ningún archivo.`,
+          );
+          error.exitCode = 2;
+          throw error;
+        }
+      }
     }
 
     await mkdir(options.destination, { recursive: true });
     for (const action of templatePlan.actions) {
-      if (action.type !== "copy") continue;
-      await mkdir(dirname(action.destinationPath), { recursive: true });
-      await copyFile(action.sourcePath, action.destinationPath, fsConstants.COPYFILE_EXCL);
+      if (action.type === "copy") {
+        await mkdir(dirname(action.destinationPath), { recursive: true });
+        await copyFile(action.sourcePath, action.destinationPath, fsConstants.COPYFILE_EXCL);
+      } else if (action.type === "overwrite") {
+        await copyFile(action.sourcePath, action.destinationPath);
+      }
     }
     if (agentsAction !== "validate") {
       await writeFile(destinationAgentsPath, nextAgents, {
@@ -1163,6 +1342,10 @@ async function run(options) {
       });
     }
     ready.push(`${templatePlan.actions.filter((action) => action.type === "copy").length} archivos de la capa copiados.`);
+    const overwritten = templatePlan.actions.filter((action) => action.type === "overwrite").length;
+    if (overwritten) {
+      ready.push(`${overwritten} archivos canónicos divergentes reemplazados con --force.`);
+    }
     ready.push("Contrato AGENTIC_PROJECT_CONTRACT generado.");
   } else {
     ready.push("Plan completo calculado sin escrituras.");
@@ -1248,11 +1431,15 @@ async function run(options) {
   else console.log("- Ninguna.");
 }
 
-async function main() {
+async function runCli(argv, invocation) {
   try {
-    const options = parseArguments(process.argv.slice(2));
+    const options = parseArguments(argv);
     if (options.help) {
-      printHelp();
+      printHelp(invocation);
+      return;
+    }
+    if (options.version) {
+      console.log(await readDistributionVersion());
       return;
     }
     await run(options);
@@ -1263,7 +1450,18 @@ async function main() {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  await main();
+  await runCli(process.argv.slice(2), "node scripts/agentic-init.mjs");
 }
 
-export { CONTRACT_END, CONTRACT_START, TEMPLATE_FILES, parseArguments, run };
+export {
+  CONTRACT_END,
+  CONTRACT_START,
+  DEVELOPMENT_FILES,
+  PACKAGE_FILES,
+  TEMPLATE_FILES,
+  parseArguments,
+  printHelp,
+  readDistributionVersion,
+  run,
+  runCli,
+};

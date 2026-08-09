@@ -5,11 +5,18 @@ interface de configuración es el contrato delimitado de `AGENTS.md`: un
 proyecto consumidor declara allí sus hechos, comandos y restricciones sin
 editar roles, workflows, políticas, skills ni adapters.
 
-`scripts/agentic-init.mjs` es la única superficie de adopción automatizada. No
-forma parte del núcleo de orquestación: detecta hechos del proyecto, copia o
-valida el inventario canónico y modifica exclusivamente el bloque contractual
-de `AGENTS.md`. Su comportamiento público se verifica en
+`scripts/agentic-init.mjs` es la única superficie de adopción automatizada y la
+única implementación del inicializador. No forma parte del núcleo de
+orquestación: detecta hechos del proyecto, copia o valida el inventario
+canónico y modifica exclusivamente el bloque contractual de `AGENTS.md`.
+`bin/agentic.mjs` es el ejecutable distribuible y solo despacha el subcomando
+`init` hacia esa implementación. Su comportamiento público se verifica en
 `tests/agentic-init.test.mjs` con `node:test` y directorios temporales.
+
+La capa se distribuye como paquete npm y se adopta con
+`npx --yes @kroxidev/agentic-layer init .`. La adopción es una copia: el
+proyecto consumidor no declara dependencia, no consulta un upstream y no
+recibe actualizaciones automáticas.
 
 ## Mapa
 
@@ -18,10 +25,12 @@ de `AGENTS.md`. Su comportamiento público se verifica en
 - `workflows/`: orden de fases para feature, bugfix, refactor y architecture.
 - `skills/`: procedimientos portables invocados por el orquestador o los roles.
 - `templates/dev-session.md`: estado efímero compartido entre fases.
-- `sessions/`: instancias de DevSession ignoradas por control de versiones.
-- `../scripts/agentic-init.mjs`: inicializador local sin dependencias externas.
-- `../tests/agentic-init.test.mjs`: pruebas de adopción, seguridad e
-  idempotencia.
+- `sessions/`: instancias de DevSession ignoradas por control de versiones;
+  `gitignore.asset` es el `.gitignore` que el inicializador instala allí.
+- `../bin/agentic.mjs`: ejecutable `agentic` con el subcomando `init`.
+- `../scripts/agentic-init.mjs`: inicializador sin dependencias externas.
+- `../tests/agentic-init.test.mjs`: pruebas de adopción, seguridad,
+  idempotencia y contenido del paquete.
 
 ## Interface y adapters
 
@@ -45,7 +54,11 @@ canónicos. No contienen workflows ni políticas completas.
 5. Engram conserva únicamente conocimiento validado, reutilizable y
    accionable.
 6. Ningún proyecto necesita personalizar archivos distintos de `AGENTS.md`.
-7. El inicializador nunca sobrescribe una colisión, instala herramientas,
-   accede a remotos ni modifica Git.
+7. El inicializador nunca sobrescribe una colisión por defecto, instala
+   herramientas, accede a remotos ni modifica Git. `--force` se limita a los
+   archivos canónicos divergentes y nunca reescribe el seam `AGENTS.md`.
 8. CodeGraph solo se inicializa o sincroniza mediante confirmación explícita;
    las comprobaciones predeterminadas son de solo lectura.
+9. La distribución transporta únicamente el inventario canónico: nunca
+   índices, memorias, sesiones reales, configuraciones personales ni tests.
+10. La adopción no crea dependencia ni sincronización con la plantilla.

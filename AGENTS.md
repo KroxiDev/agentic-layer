@@ -51,21 +51,28 @@ validaciones compatibles y consultar cualquier conflicto real.
 ## Proyecto
 
 - Propósito: mantener una plantilla declarativa y reusable de desarrollo
-  asistido por agentes, adoptable localmente mediante un inicializador seguro.
+  asistido por agentes, adoptable con un solo comando mediante una CLI
+  distribuible y sin dependencias.
 - Arquitectura: núcleo canónico en `.agents/`, seam de configuración en
-  `AGENTS.md`, inicializador sin dependencias en `scripts/agentic-init.mjs`,
-  adapters delgados en `.codex/`, `.claude/` y `CLAUDE.md`, y pruebas de la
-  interfaz CLI en `tests/`.
-- Entrypoints: `AGENTS.md`, `scripts/agentic-init.mjs`,
+  `AGENTS.md`, única implementación del inicializador en
+  `scripts/agentic-init.mjs`, ejecutable delgado en `bin/agentic.mjs`,
+  manifiesto e inventario de distribución en `package.json`, adapters delgados
+  en `.codex/`, `.claude/` y `CLAUDE.md`, y pruebas de la interfaz CLI en
+  `tests/`.
+- Entrypoints: `AGENTS.md`, `bin/agentic.mjs`, `scripts/agentic-init.mjs`,
   `.agents/skills/orquestar/SKILL.md` y `CLAUDE.md`.
 
 ## Validación
 
-- Focalizada: ejecutar `node --check scripts/agentic-init.mjs` y el caso
-  relacionado de `node --test tests/agentic-init.test.mjs`.
-- Completa: ejecutar `node --test tests/agentic-init.test.mjs` y
-  `node scripts/agentic-init.mjs --dry-run --non-interactive`; la suite incluye
-  la validación estructural y simulaciones completas en directorios temporales.
+- Focalizada: ejecutar `node --check scripts/agentic-init.mjs`,
+  `node --check bin/agentic.mjs` y el caso relacionado de
+  `node --test tests/agentic-init.test.mjs`.
+- Completa: ejecutar `node --test tests/agentic-init.test.mjs`,
+  `node scripts/agentic-init.mjs --dry-run --yes` y `npm pack --dry-run`; la
+  suite incluye la validación estructural, el inventario exacto del paquete y
+  simulaciones completas en directorios temporales. Toda verificación del
+  artefacto empaquetado se realiza en directorios temporales, nunca contra el
+  registro.
 
 ## Tests
 
@@ -77,28 +84,34 @@ validaciones compatibles y consultar cualquier conflicto real.
 
 ## Git
 
-- Rama o estrategia permitida: No aplica mientras el propietario no inicialice
-  el repositorio; no inicializar, crear, cambiar ni publicar ramas sin su
-  instrucción explícita.
+- Rama o estrategia permitida: trabajar sobre `main` local; no crear, cambiar,
+  fusionar ni publicar ramas, ni hacer push al remoto, sin instrucción
+  explícita del propietario.
 
 ## Seguridad
 
-- Secretos: este repositorio no requiere ni almacena secretos.
+- Secretos: este repositorio no requiere ni almacena secretos; publicar en npm
+  exige un token que nunca debe versionarse ni escribirse en archivos del
+  repositorio.
 - Rutas protegidas: no versionar índices de CodeGraph, memorias de Engram,
-  sesiones reales ni configuraciones personales locales.
+  sesiones reales, configuraciones personales locales, `node_modules/` ni los
+  tarballs generados por `npm pack`.
 - Datos inmutables: No aplica.
 - Acciones restringidas: el inicializador no puede instalar herramientas,
   acceder a remotos, publicar paquetes ni modificar Git; solo puede inicializar
   o sincronizar CodeGraph mediante una bandera de confirmación explícita.
+  `npm publish`, `npm version`, la creación de tags y cualquier acceso al
+  registro requieren autorización explícita del propietario en cada ocasión.
 - Contaminación de origen: No aplica para esta fuente canónica. Toda extracción
   distinta debe declarar en su contrato un corpus reproducible de marcadores o
   justificar explícitamente `No aplica` antes de aprobar la distribución.
 
 ## Documentación
 
-- README y documentación técnica: `README.md` documenta adopción y uso, y
-  `.agents/README.md` documenta el módulo interno; actualizar ambos cuando
-  cambien el inicializador, sus pruebas o las garantías de distribución.
+- README y documentación técnica: `README.md` documenta adopción, la CLI
+  distribuible y su operación avanzada, y `.agents/README.md` documenta el
+  módulo interno; actualizar ambos cuando cambien el inicializador, el
+  ejecutable, sus pruebas o las garantías de distribución.
 - ADRs: No aplica hasta que el propietario declare una ubicación en este
   contrato.
 

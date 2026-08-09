@@ -7,8 +7,11 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
+import { PACKAGE_FILES, TEMPLATE_FILES } from "../scripts/agentic-init.mjs";
+
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CLI = join(ROOT, "scripts", "agentic-init.mjs");
+const BIN = join(ROOT, "bin", "agentic.mjs");
 const temporaryDirectories = [];
 
 afterEach(async () => {
@@ -63,6 +66,14 @@ function runInitializer(directory, ...arguments_) {
       env: { ...process.env, PATH: "" },
     },
   );
+}
+
+function runExecutable(...arguments_) {
+  return spawnSync(process.execPath, [BIN, ...arguments_], {
+    cwd: ROOT,
+    encoding: "utf8",
+    env: { ...process.env, PATH: "" },
+  });
 }
 
 test("inicializa un repositorio nuevo a partir de hechos detectables", async () => {
@@ -422,4 +433,185 @@ test("la fuente canónica valida su contrato base sin marcarlo como una adopció
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /- validar: AGENTS\.md/);
   assert.doesNotMatch(result.stdout, /- actualizar: AGENTS\.md/);
+});
+
+test("detecta manifiestos escritos en UTF-8 con BOM por herramientas de Windows", async () => {
+  const repository = await createRepository({
+    "package.json": `﻿${JSON.stringify({
+      name: "manifiesto-con-bom",
+      description: "Se detecta aunque el manifiesto lleve marca de orden de bytes.",
+    })}`,
+    "pyproject.toml": '﻿[project]\ndescription = "No debe ganar sobre package.json."\n',
+  });
+
+  const result = runInitializer(repository);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.doesNotMatch(result.stdout, /No se pudo interpretar package\.json/);
+  assert.match(
+    await readFile(join(repository, "AGENTS.md"), "utf8"),
+    /Propósito: Se detecta aunque el manifiesto lleve marca de orden de bytes\./,
+  );
+});
+
+test("el ejecutable `agentic` adopta la capa con el subcomando init", async () => {
+  const repository = await createRepository({
+    "package.json": JSON.stringify({
+      name: "adopcion-por-cli",
+      description: "Adopta la capa mediante el ejecutable distribuible.",
+    }),
+  });
+
+  const result = runExecutable("init", repository, "--yes");
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(existsSync(join(repository, "CLAUDE.md")), true);
+  assert.equal(existsSync(join(repository, ".codex", "agents", "evaluador.toml")), true);
+  const agents = await readFile(join(repository, "AGENTS.md"), "utf8");
+  assert.match(agents, /Propósito: Adopta la capa mediante el ejecutable distribuible\./);
+});
+
+test("el ejecutable expone versión, ayuda y falla ante un subcomando inválido", async () => {
+  const manifest = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8"));
+
+  const version = runExecutable("--version");
+  assert.equal(version.status, 0, version.stderr);
+  assert.equal(version.stdout.trim(), manifest.version);
+
+  const subcommandVersion = runExecutable("init", "--version");
+  assert.equal(subcommandVersion.status, 0, subcommandVersion.stderr);
+  assert.equal(subcommandVersion.stdout.trim(), manifest.version);
+
+  const help = runExecutable("--help");
+  assert.equal(help.status, 0, help.stderr);
+  assert.match(help.stdout, /agentic init/);
+  assert.match(help.stdout, /--dry-run/);
+  assert.match(help.stdout, /--force/);
+
+  const missing = runExecutable();
+  assert.equal(missing.status, 1);
+  assert.match(missing.stderr, /falta un subcomando/i);
+
+  const unknown = runExecutable("instalar", ".");
+  assert.equal(unknown.status, 1);
+  assert.match(unknown.stderr, /subcomando desconocido/i);
+});
+
+test("--force reemplaza solo archivos canónicos divergentes", async () => {
+  const repository = await createRepository({
+    "package.json": JSON.stringify({
+      name: "reemplazo-explicito",
+      description: "Comprueba la semántica acotada de --force.",
+    }),
+  });
+
+  assert.equal(runInitializer(repository).status, 0);
+  const canonical = join(repository, ".claude", "agents", "tester.md");
+  const original = await readFile(canonical, "utf8");
+  await writeFile(canonical, "# divergente\n", "utf8");
+  await writeFile(join(repository, ".agents", "propio.md"), "# archivo del proyecto\n", "utf8");
+  const agentsBefore = await readFile(join(repository, "AGENTS.md"), "utf8");
+
+  const blocked = runInitializer(repository);
+  assert.equal(blocked.status, 2, blocked.stderr || blocked.stdout);
+  assert.match(blocked.stderr, /\.claude\/agents\/tester\.md/);
+  assert.match(blocked.stderr, /usar --force/);
+  assert.equal(await readFile(canonical, "utf8"), "# divergente\n");
+
+  const forced = runInitializer(repository, "--force");
+  assert.equal(forced.status, 0, forced.stderr || forced.stdout);
+  assert.match(forced.stdout, /- sobrescribir: \.claude\/agents\/tester\.md/);
+  assert.match(forced.stdout, /1 archivos canónicos divergentes reemplazados con --force/);
+  assert.equal(await readFile(canonical, "utf8"), original);
+  assert.equal(
+    await readFile(join(repository, ".agents", "propio.md"), "utf8"),
+    "# archivo del proyecto\n",
+  );
+  assert.equal(await readFile(join(repository, "AGENTS.md"), "utf8"), agentsBefore);
+});
+
+test("--force nunca reemplaza un directorio ni reescribe el seam AGENTS.md", async () => {
+  const repository = await createRepository({
+    "package.json": JSON.stringify({
+      name: "limites-de-force",
+      description: "Descripción detectada que no debe sustituir el hecho declarado.",
+    }),
+    "CLAUDE.md/marcador.txt": "un directorio ocupa la ruta canónica\n",
+  });
+
+  const blocked = runInitializer(repository, "--force");
+  assert.equal(blocked.status, 2, blocked.stderr || blocked.stdout);
+  assert.match(blocked.stderr, /CLAUDE\.md/);
+  assert.match(blocked.stderr, /--force no reemplaza enlaces simbólicos, directorios/);
+  assert.equal(existsSync(join(repository, "AGENTS.md")), false);
+
+  await rm(join(repository, "CLAUDE.md"), { recursive: true, force: true });
+  assert.equal(runInitializer(repository).status, 0);
+  const declared = (await readFile(join(repository, "AGENTS.md"), "utf8")).replace(
+    /- Propósito: .*/,
+    "- Propósito: Hecho declarado por el propietario.",
+  );
+  await writeFile(join(repository, "AGENTS.md"), declared, "utf8");
+
+  const forced = runInitializer(repository, "--force");
+  assert.equal(forced.status, 0, forced.stderr || forced.stdout);
+  assert.match(
+    await readFile(join(repository, "AGENTS.md"), "utf8"),
+    /- Propósito: Hecho declarado por el propietario\./,
+  );
+});
+
+test("los assets de la distribución llegan al destino como archivos canónicos", async () => {
+  const repository = await createRepository({
+    "package.json": JSON.stringify({
+      name: "assets-canonicos",
+      description: "Restaura los nombres canónicos de los archivos ignorados.",
+    }),
+  });
+
+  assert.equal(runInitializer(repository).status, 0);
+
+  assert.equal(
+    await readFile(join(repository, ".agents", "sessions", ".gitignore"), "utf8"),
+    "*\n!.gitignore\n",
+  );
+  assert.match(
+    await readFile(join(repository, ".claude", ".gitignore"), "utf8"),
+    /^\*\.local\.json$/m,
+  );
+  assert.equal(existsSync(join(repository, ".agents", "sessions", "gitignore.asset")), false);
+  assert.equal(existsSync(join(repository, ".claude", "gitignore.asset")), false);
+});
+
+test("el manifiesto empaqueta el inventario canónico y excluye artefactos locales", async () => {
+  const manifest = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8"));
+
+  assert.deepEqual([...manifest.files].sort(), [...PACKAGE_FILES].sort());
+  assert.equal(manifest.bin.agentic, "./bin/agentic.mjs");
+  assert.equal(manifest.private, undefined);
+  assert.equal(manifest.dependencies, undefined);
+  assert.equal(manifest.devDependencies, undefined);
+
+  for (const packaged of manifest.files) {
+    assert.doesNotMatch(
+      packaged,
+      /(^|\/)\.(?:git|npm)ignore$/,
+      `npm renombra ${packaged} al instalar; debe viajar como asset`,
+    );
+  }
+  for (const excluded of [".codegraph", ".engram", "tests/", "node_modules"]) {
+    assert.equal(
+      manifest.files.some((path) => path.includes(excluded)),
+      false,
+      `el paquete no debe incluir ${excluded}`,
+    );
+  }
+  for (const localConfiguration of manifest.files) {
+    assert.doesNotMatch(localConfiguration, /\.local\.json$/);
+    assert.doesNotMatch(localConfiguration, /^\.agents\/sessions\/(?!gitignore\.asset$)/);
+  }
+  assert.equal(
+    TEMPLATE_FILES.every((path) => !path.startsWith("tests/") && !path.startsWith("scripts/")),
+    true,
+  );
 });

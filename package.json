@@ -1,0 +1,77 @@
+{
+  "name": "@kroxidev/agentic-layer",
+  "version": "0.1.0",
+  "description": "Capa agéntica reusable para Codex y Claude Code, adoptable en cualquier repositorio con un solo comando.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "agentic": "./bin/agentic.mjs"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "test": "node --test tests/agentic-init.test.mjs",
+    "check": "node --check scripts/agentic-init.mjs && node --check bin/agentic.mjs",
+    "verify": "node scripts/agentic-init.mjs --dry-run --yes"
+  },
+  "keywords": [
+    "agents",
+    "agentic",
+    "claude-code",
+    "codex",
+    "scaffolding",
+    "template"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KroxiDev/agentic-layer-template.git"
+  },
+  "bugs": {
+    "url": "https://github.com/KroxiDev/agentic-layer-template/issues"
+  },
+  "homepage": "https://github.com/KroxiDev/agentic-layer-template#readme",
+  "files": [
+    ".agents/README.md",
+    ".agents/policies/orquestacion.md",
+    ".agents/policies/sdd-tdd.md",
+    ".agents/roles/documentador.md",
+    ".agents/roles/evaluador.md",
+    ".agents/roles/explorador.md",
+    ".agents/roles/implementador.md",
+    ".agents/roles/planificador.md",
+    ".agents/roles/tester.md",
+    ".agents/sessions/gitignore.asset",
+    ".agents/skills/agentic-diagnostico-bugs/SKILL.md",
+    ".agents/skills/agentic-diagnostico-bugs/references/hitl-loop.template.md",
+    ".agents/skills/agentic-grilling/SKILL.md",
+    ".agents/skills/agentic-tdd/SKILL.md",
+    ".agents/skills/orquestar/SKILL.md",
+    ".agents/templates/dev-session.md",
+    ".agents/workflows/architecture.md",
+    ".agents/workflows/bugfix.md",
+    ".agents/workflows/feature.md",
+    ".agents/workflows/refactor.md",
+    ".claude/gitignore.asset",
+    ".claude/agents/documentador.md",
+    ".claude/agents/evaluador.md",
+    ".claude/agents/explorador.md",
+    ".claude/agents/implementador.md",
+    ".claude/agents/planificador.md",
+    ".claude/agents/tester.md",
+    ".claude/skills/orquestar/SKILL.md",
+    ".codex/agents/documentador.toml",
+    ".codex/agents/evaluador.toml",
+    ".codex/agents/explorador.toml",
+    ".codex/agents/implementador.toml",
+    ".codex/agents/planificador.toml",
+    ".codex/agents/tester.toml",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "LICENSE",
+    "README.md",
+    "bin/agentic.mjs",
+    "package.json",
+    "scripts/agentic-init.mjs"
+  ]
+}
