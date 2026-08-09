@@ -244,7 +244,10 @@ reproducir.
 │   │   ├── agentic-tdd/SKILL.md
 │   │   └── agentic-diagnostico-bugs/
 │   │       ├── SKILL.md
-│   │       └── references/hitl-loop.template.md
+│   │       └── references/
+│   │           ├── hitl-loop.template.md
+│   │           ├── hitl-loop.template.ps1
+│   │           └── hitl-loop.template.sh
 │   ├── templates/dev-session.md
 │   └── sessions/gitignore.asset
 ├── .codex/agents/

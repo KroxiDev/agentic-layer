@@ -22,6 +22,11 @@ Si el seam no está acordado o la forma de la interface sigue abierta, detener
 el ciclo y devolver la decisión al orquestador. No crear un test contra una
 interface imaginada.
 
+Formular esa devolución con el vocabulario de diseño de
+`.agents/policies/sdd-tdd.md`: qué módulo se está tocando, qué interface expone,
+qué profundidad tiene y dónde debería quedar el seam. Es vocabulario para
+plantear la decisión, no una sesión de diseño a ejecutar dentro del ciclo.
+
 ## Diseñar un test valioso
 
 - Verificar comportamiento que importe a callers o usuarios.
@@ -32,6 +37,12 @@ interface imaginada.
 - Mantener una aserción lógica por test.
 - Exigir que el test sobreviva una reestructura interna sin cambio de
   comportamiento.
+
+Tomar los nombres de tests e interfaces del lenguaje de dominio ya establecido
+en el proyecto: el contrato efectivo de `AGENTS.md`, la especificación vigente y
+el historial de Engram. Consultar además los ADR del sector cuando el contrato
+declare una ubicación. No introducir términos nuevos para conceptos que el
+proyecto ya nombra.
 
 Ejemplo neutral:
 
@@ -66,6 +77,33 @@ No mockear módulos propios, colaboradores internos ni métodos privados.
 - **Slicing horizontal:** escribir todos los tests imaginados antes de aprender
   de la primera implementación.
 
+Los dos que peor se reconocen sin verlos:
+
+~~~text
+# MAL — verificación lateral: confirma por un almacén interno
+escenario "registrar deja el usuario disponible":
+    modulo.registrar(datos)
+    fila = almacen_interno.consultar("usuarios", datos.nombre)
+    afirmar fila existe
+
+# BIEN — verifica por la misma interface pública
+escenario "registrar deja el usuario disponible":
+    creado = modulo.registrar(datos)
+    afirmar modulo.consultar(creado.identificador).nombre == datos.nombre
+~~~
+
+~~~text
+# MAL — tautológico: el esperado repite el algoritmo del módulo
+escenario "el total suma las líneas":
+    lineas = [10, 5]
+    esperado = reducir(lineas, sumar, 0)
+    afirmar modulo.total(lineas) == esperado
+
+# BIEN — el esperado es un literal independiente
+escenario "el total suma las líneas":
+    afirmar modulo.total([10, 5]) == 15
+~~~
+
 ## Ciclo rojo → verde
 
 1. Escribir un test para una sola rebanada vertical.
@@ -75,8 +113,9 @@ No mockear módulos propios, colaboradores internos ni métodos privados.
 4. Ejecutar de nuevo y registrar la evidencia.
 5. Repetir con la siguiente rebanada a partir de lo aprendido.
 
-Reservar la reestructuración para la revisión posterior; no anticipar
-funcionalidad ni abstracciones durante el ciclo.
+La reestructuración no forma parte del ciclo rojo → verde: pertenece a la fase
+de evaluación del workflow, donde el Evaluador la solicita como cambio
+requerido. No anticipar funcionalidad ni abstracciones durante el ciclo.
 
 ## Cierre
 

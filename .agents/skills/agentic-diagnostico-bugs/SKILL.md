@@ -17,6 +17,12 @@ necesaria de una captura.
 
 ## Fase 1 — Construir un bucle rojo-capaz
 
+Esta fase es el núcleo de la disciplina; las demás son mecánicas. Con una señal
+pasa/falla ajustada al bug, la bisección, la prueba de hipótesis y la
+instrumentación solo la consumen. Sin ella, ninguna cantidad de lectura de
+código sustituye la evidencia. Dedicar aquí un esfuerzo desproporcionado y
+agotar las alternativas antes de declarar el bloqueo.
+
 Crear una señal pasa/falla que alcance el patrón real del bug y detecte el
 síntoma exacto informado. Intentar, según el sistema:
 
@@ -27,8 +33,10 @@ síntoma exacto informado. Intentar, según el sistema:
 5. harness descartable del subconjunto mínimo;
 6. bucle de propiedades o estrés para fallos intermitentes;
 7. comparación diferencial o bisección entre estados conocidos;
-8. HITL como último recurso, siguiendo
-   `references/hitl-loop.template.md`.
+8. HITL como último recurso, siguiendo el contrato de
+   `references/hitl-loop.template.md` y partiendo del esqueleto ejecutable que
+   corresponda a la consola: `references/hitl-loop.template.sh` o
+   `references/hitl-loop.template.ps1`.
 
 Ajustar el bucle hasta que sea:
 
@@ -37,6 +45,27 @@ Ajustar el bucle hasta que sea:
   suficientemente alta y medida;
 - **rápido:** permite iteración frecuente según los límites del proyecto;
 - **ejecutable por el agente:** salvo el último recurso HITL.
+
+Tratar el bucle como un producto y ajustarlo en cuanto exista una primera
+versión:
+
+- **más rápido:** cachear el setup, omitir inicialización no relacionada,
+  estrechar el alcance del caso;
+- **señal más afilada:** asertar el síntoma específico, nunca "no falló";
+- **más determinista:** fijar el tiempo, sembrar la aleatoriedad, aislar el
+  filesystem y congelar el acceso a red.
+
+Un bucle inestable y lento apenas mejora la ausencia de bucle; uno determinista
+y rápido es la herramienta que resuelve el caso.
+
+### Bugs no deterministas
+
+El objetivo no es una reproducción limpia sino una **tasa de reproducción más
+alta y medida**. Ejecutar el disparador en bucle muchas veces, paralelizar,
+añadir carga o estrés, estrechar ventanas de temporización e inyectar esperas
+en los puntos sospechosos. Un fallo que aparece la mitad de las veces es
+diagnosticable; uno que aparece una de cada cien no lo es. Seguir subiendo la
+tasa y registrarla antes de pasar a la fase siguiente.
 
 Nombrar un comando o procedimiento que ya se haya ejecutado y registrar su
 salida redactada. Si no se puede construir el bucle, detenerse, listar lo
@@ -66,6 +95,13 @@ Si <causa> explica el bug, entonces <cambio controlado> producirá
 Descartar o afilar hipótesis sin predicción. Usar CodeGraph para rutas e impacto
 y Engram para antecedentes concretos. Devolver la lista al orquestador para que
 la presente al usuario antes de instrumentar.
+
+Es un checkpoint informativo y **no bloqueante**: el usuario suele rerankear al
+instante con conocimiento que el agente no tiene, pero si no responde, continuar
+con el ranking propio y registrarlo en la DevSession. Sí bloquea, en cambio,
+toda instrumentación que requiera autorización previa por sí misma: entornos
+compartidos o productivos, cambios persistentes y cualquier acción restringida
+por el contrato efectivo.
 
 ## Fase 4 — Instrumentar
 
@@ -104,7 +140,9 @@ Antes del veredicto:
 - eliminar harnesses descartables autorizados;
 - registrar la causa confirmada y la evidencia;
 - proponer después del fix cualquier mejora arquitectónica que habría prevenido
-  el bug.
+  el bug, derivándola al workflow `architecture` con la evidencia concreta —
+  ausencia de seam, callers enredados, acoplamiento oculto — y nunca antes de
+  que la corrección esté aplicada.
 
 Guardar en Engram solo la causa y solución validadas que sean reutilizables; no
 guardar hipótesis descartadas ni logs transitorios.

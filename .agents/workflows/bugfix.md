@@ -8,7 +8,9 @@ Usar para bugs, fallos y regresiones. La disciplina canónica es
    devolver lo intentado.
 2. **Diagnosticar — Explorador:** usar CodeGraph y la evidencia para producir
    hipótesis falsables rankeadas y delimitar el sector. El orquestador presenta
-   las hipótesis al usuario antes de las sondas.
+   las hipótesis al usuario antes de las sondas; es un checkpoint informativo y
+   no bloqueante, salvo que la instrumentación prevista requiera autorización
+   por sí misma.
 3. **Planificar — Planificador:** especificar el comportamiento correcto, la
    causa respaldada, el seam de regresión y el cambio mínimo.
 4. **Corregir — Implementador:** instrumentar una variable por vez si hace

@@ -22,6 +22,26 @@ La especificación debe incluir:
 5. tareas pequeñas y ordenadas;
 6. estrategia de validación y ciclo de vida de cada test nuevo.
 
+## Vocabulario de diseño
+
+Usar estos términos al definir seams, discutir la forma de una interface o
+justificar dónde vive un test. Son vocabulario compartido entre Planificador,
+Implementador, Tester y Evaluador, no una metodología a ejecutar.
+
+- **Módulo:** unidad con una interface pública y una implementación oculta.
+- **Interface:** lo que un caller necesita conocer para usar el módulo.
+- **Profundidad:** relación entre funcionalidad provista e interface expuesta.
+  Un módulo profundo resuelve mucho detrás de una interface pequeña.
+- **Seam:** límite público donde se observa comportamiento sin acceder al
+  interior. Los tests viven en seams.
+- **Adapter:** módulo delgado que traduce entre un límite externo y el
+  vocabulario del proyecto.
+- **Leverage:** cuánto comportamiento queda cubierto por un solo seam.
+- **Localidad:** cuánto contexto disperso hace falta para entender un cambio.
+
+Una interface cuya forma sigue en discusión es una decisión de especificación,
+no de implementación. Resolverla antes de escribir tests contra ella.
+
 ## Cuándo aplicar TDD
 
 Usar TDD en `full` cuando exista comportamiento puntual y observable: una

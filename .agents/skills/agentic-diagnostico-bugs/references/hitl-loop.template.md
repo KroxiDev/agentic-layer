@@ -11,7 +11,9 @@ no pueda automatizar. No crear un script por anticipado.
 4. Mantener autenticación, credenciales y secretos como acciones `step`; nunca
    solicitarlos mediante `capture`.
 5. Generar un script temporal en el lenguaje de consola adecuado solo cuando
-   sea necesario y registrarlo en la DevSession.
+   sea necesario y registrarlo en la DevSession. Partir de
+   `hitl-loop.template.sh` en consolas POSIX o de `hitl-loop.template.ps1` en
+   PowerShell; escribir uno desde cero solo si ninguno encaja con el entorno.
 
 ## Semántica
 

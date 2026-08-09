@@ -26,9 +26,10 @@ la frontera.
 Numerar todas las preguntas y aportar una recomendación explícita:
 
 ~~~text
-❓ P1 — <título>: <decisión solicitada, contexto y opciones relevantes>
+❓ **P1** - **<título de la pregunta>**: <decisión solicitada, contexto y
+opciones relevantes; puede ocupar varios párrafos>
 
-➡️ Recomendación: <opción y razón breve>
+➡️ **Recomendación:** <opción y razón breve>
 ~~~
 
 En un workflow orquestado, devolver la ronda al orquestador. No hablar

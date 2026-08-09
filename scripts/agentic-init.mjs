@@ -34,6 +34,8 @@ const TEMPLATE_FILES = [
   ".agents/sessions/.gitignore",
   ".agents/skills/agentic-diagnostico-bugs/SKILL.md",
   ".agents/skills/agentic-diagnostico-bugs/references/hitl-loop.template.md",
+  ".agents/skills/agentic-diagnostico-bugs/references/hitl-loop.template.ps1",
+  ".agents/skills/agentic-diagnostico-bugs/references/hitl-loop.template.sh",
   ".agents/skills/agentic-grilling/SKILL.md",
   ".agents/skills/agentic-tdd/SKILL.md",
   ".agents/skills/orquestar/SKILL.md",
