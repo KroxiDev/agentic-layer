@@ -25,12 +25,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/KroxiDev/agentic-layer-template.git"
+    "url": "git+https://github.com/KroxiDev/agentic-layer.git"
   },
   "bugs": {
-    "url": "https://github.com/KroxiDev/agentic-layer-template/issues"
+    "url": "https://github.com/KroxiDev/agentic-layer/issues"
   },
-  "homepage": "https://github.com/KroxiDev/agentic-layer-template#readme",
+  "homepage": "https://github.com/KroxiDev/agentic-layer#readme",
   "files": [
     ".agents/README.md",
     ".agents/policies/orquestacion.md",

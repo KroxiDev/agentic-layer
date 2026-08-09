@@ -12,8 +12,8 @@ Opciones globales:
   -h, --help            Muestra esta ayuda.
 
 Ejemplos:
-  npx --yes github:KroxiDev/agentic-layer-template init .
-  npx --yes github:KroxiDev/agentic-layer-template init . --dry-run
+  npx --yes github:KroxiDev/agentic-layer init .
+  npx --yes github:KroxiDev/agentic-layer init . --dry-run
   agentic init . --yes
   agentic init . --yes --purpose "<propósito>" --git-strategy "<estrategia>"`;
 

@@ -7,7 +7,7 @@ Proceso de desarrollo asistido por agentes que se adopta en cualquier repositori
 Desde la raíz del repositorio que quiera adoptar la capa:
 
 ~~~text
-npx --yes github:KroxiDev/agentic-layer-template init .
+npx --yes github:KroxiDev/agentic-layer init .
 ~~~
 
 Eso es todo, y es literal: el comando no pregunta ningún hecho del proyecto.

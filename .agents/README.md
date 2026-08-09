@@ -23,7 +23,7 @@ contexto y conversación para decidirlos. `--purpose` y `--git-strategy` son un
 atajo para declararlos en la propia adopción, nunca un requisito.
 
 La capa se obtiene desde GitHub como paquete ejecutable y se adopta con
-`npx --yes github:KroxiDev/agentic-layer-template init .`. La adopción es una
+`npx --yes github:KroxiDev/agentic-layer init .`. La adopción es una
 copia: el proyecto consumidor no declara dependencia, no consulta un upstream
 y no recibe actualizaciones automáticas.
 
