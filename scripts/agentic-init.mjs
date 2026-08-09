@@ -9,6 +9,8 @@ import {
   mkdir,
   readFile,
   readdir,
+  rm,
+  rmdir,
   writeFile,
 } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -86,6 +88,34 @@ function templateSourcePath(relativePath) {
   const source = TEMPLATE_ASSET_SOURCES.get(relativePath) ?? relativePath;
   return join(SOURCE_ROOT, ...source.split("/"));
 }
+
+// Archivo generado, no distribuido: registra qué versión de la capa quedó
+// instalada para poder comparar en una adopción posterior.
+const LAYER_VERSION_FILE = ".agents/VERSION";
+// Señales de que el destino ya tiene una capa agéntica. Basta una para tratar
+// las divergencias como reemplazo de una instalación previa y no como una
+// colisión con archivos ajenos del proyecto.
+const LAYER_MARKERS = [
+  ".agents/policies/orquestacion.md",
+  ".agents/skills/orquestar/SKILL.md",
+  ".claude/skills/orquestar/SKILL.md",
+  ".codex/agents/planificador.toml",
+];
+// Directorios cuyo contenido gestiona por completo la capa: al reemplazar, todo
+// archivo que no pertenezca a la distribución es residuo de otra versión.
+// `.agents/sessions/` queda fuera porque guarda DevSessions del propietario, y
+// la raíz de `.agents/` porque aloja el VERSION generado.
+const MANAGED_DIRECTORIES = [
+  ".agents/policies",
+  ".agents/roles",
+  ".agents/skills",
+  ".agents/templates",
+  ".agents/workflows",
+  ".claude/agents",
+  ".claude/skills",
+  ".codex/agents",
+];
+const EXIT_REQUIREMENTS_MISSING = 4;
 
 const IGNORED_SCAN_DIRECTORIES = new Set([
   ".agents",
@@ -179,20 +209,28 @@ function printHelp(invocation = "node scripts/agentic-init.mjs") {
 
 Opciones:
   --target <ruta>       Directorio destino; por defecto, el actual.
-  --purpose <texto>     Propósito cuando no puede detectarse.
-  --git-strategy <txt>  Estrategia Git cuando no está declarada.
+  --purpose <texto>     Atajo para declarar el propósito en vez de dejarlo
+                        pendiente en el contrato.
+  --git-strategy <txt>  Atajo para declarar la estrategia Git en vez de dejarla
+                        pendiente en el contrato.
   --dry-run             Muestra las acciones sin escribir.
-  -y, --yes             No pregunta nada; falla si falta un dato obligatorio.
+  -y, --yes             Omite la confirmación previa a escribir. El comando
+                        nunca pregunta hechos del contrato.
   --non-interactive     Alias de compatibilidad de --yes.
-  --force               Reemplaza archivos canónicos divergentes; nunca toca
-                        AGENTS.md fuera del contrato, enlaces ni directorios.
+  --force               Reemplaza una capa instalada sin preguntar: sobrescribe
+                        archivos canónicos divergentes y elimina residuos de
+                        otras versiones. Nunca toca AGENTS.md fuera del
+                        contrato, DevSessions, enlaces ni directorios ajenos.
   --init-codegraph      Confirma explícitamente inicializar CodeGraph.
   --update-codegraph    Confirma explícitamente sincronizar CodeGraph.
   -v, --version         Muestra la versión de la distribución.
   -h, --help            Muestra esta ayuda.
 
-Códigos de salida: 0 correcto, 1 error de uso o requisito, 2 colisión sin
-escrituras, 3 cancelado por el usuario.`);
+Los hechos que no puedan inferirse quedan marcados como <pendiente: …> en el
+contrato de AGENTS.md y se listan al terminar.
+
+Códigos de salida: 0 correcto, 1 error de uso, 2 colisión sin escrituras,
+3 cancelado por el usuario, 4 capa instalada con CodeGraph o Engram ausentes.`);
 }
 
 async function readDistributionVersion() {
@@ -375,6 +413,77 @@ function quotePaths(paths) {
   return paths.map((path) => `\`${path}\``).join(", ");
 }
 
+// Marcador de un campo contractual que el inicializador no puede inferir. Su
+// forma `<...>` casa con `isMissingContractValue`, así que la regla
+// STRICT_PROJECT_CONTRACT_RULE de `.agents/policies/orquestacion.md` lo cobra
+// como contrato incompleto y detiene cualquier tarea orquestada. La primera
+// sesión del agente lo completa con la skill `agentic-grilling`.
+function pendingField(hint) {
+  return `<pendiente: ${hint}>`;
+}
+
+// Valores recomendados por ecosistema. Sustituyen a los textos genéricos para
+// que la cantidad de campos pendientes tienda a cero cuando el repositorio
+// declara metadatos reconocibles.
+const RECOMMENDED_DOCUMENTATION = "mantener `README.md` en la raíz";
+const ECOSYSTEM_PROFILES = new Map([
+  [
+    "node",
+    {
+      focusedValidation:
+        "ejecutar `node --check` sobre los archivos modificados y `node --test` sobre las pruebas relacionadas.",
+      completeValidation: "ejecutar `node --test` sobre toda la suite.",
+      testFramework: "`node:test`",
+      testLocation: "`tests/`",
+    },
+  ],
+  [
+    "python",
+    {
+      focusedValidation:
+        "ejecutar `python -m compileall` sobre los archivos modificados y `python -m pytest` sobre las pruebas relacionadas.",
+      completeValidation: "ejecutar `python -m pytest`.",
+      testFramework: "`pytest`",
+      testLocation: "`tests/`",
+    },
+  ],
+  [
+    "rust",
+    {
+      focusedValidation: "ejecutar `cargo check` sobre el paquete afectado.",
+      completeValidation: "ejecutar `cargo test`.",
+      testFramework: "`cargo test`",
+      testLocation: "`tests/` y los módulos `#[cfg(test)]` del propio código",
+    },
+  ],
+  [
+    "go",
+    {
+      focusedValidation:
+        "ejecutar `go build ./...` y `go test` sobre los paquetes afectados.",
+      completeValidation: "ejecutar `go test ./...`.",
+      testFramework: "`go test`",
+      testLocation: "los archivos `*_test.go` junto a cada paquete",
+    },
+  ],
+]);
+
+function detectEcosystem(files, { cargo, pyproject }) {
+  if (files.includes("package.json")) return "node";
+  if (cargo) return "rust";
+  if (files.includes("go.mod")) return "go";
+  if (
+    pyproject ||
+    files.includes("setup.py") ||
+    files.includes("setup.cfg") ||
+    files.includes("requirements.txt") ||
+    files.some((file) => file.endsWith(".py"))
+  ) {
+    return "python";
+  }
+  return null;
+}
+
 async function detectProject(destination, warnings) {
   const [packageJson, readme, pyproject, cargo] = await Promise.all([
     readPackage(destination, warnings),
@@ -383,6 +492,8 @@ async function detectProject(destination, warnings) {
     readOptionalText(destination, "Cargo.toml", warnings),
   ]);
   const files = await listProjectFiles(destination);
+  const ecosystem = detectEcosystem(files, { cargo, pyproject });
+  const profile = ecosystem ? ECOSYSTEM_PROFILES.get(ecosystem) : null;
   const pythonProject = tomlSection(pyproject, "project") ?? tomlSection(pyproject, "tool.poetry");
   const cargoPackage = tomlSection(cargo, "package");
   const manifestPurpose =
@@ -465,7 +576,7 @@ async function detectProject(destination, warnings) {
     completeCommands.push("go test ./...");
   }
 
-  let testFramework = "No aplica";
+  let testFramework = null;
   if (packageTestScript.includes("node --test")) testFramework = "`node:test`";
   else if (Object.hasOwn(allNodeDependencies, "vitest")) testFramework = "`Vitest`";
   else if (Object.hasOwn(allNodeDependencies, "jest")) testFramework = "`Jest`";
@@ -489,6 +600,7 @@ async function detectProject(destination, warnings) {
   }
 
   return {
+    ecosystem,
     purpose,
     purposeSource:
       typeof packageJson?.description === "string" && packageJson.description.trim()
@@ -503,7 +615,7 @@ async function detectProject(destination, warnings) {
     readmeTitle: readme.title,
     architecture: projectTopLevels.length
       ? `componentes detectados en ${quotePaths(projectTopLevels)}.`
-      : "No aplica: todavía no se detectó estructura de producto.",
+      : pendingField("módulos y relaciones relevantes"),
     entrypoints: entrypoints.length
       ? [...new Set(entrypoints)]
           .map((entrypoint) => {
@@ -511,20 +623,23 @@ async function detectProject(destination, warnings) {
             return target ? `\`${command}\` → \`${target}\`` : `\`${entrypoint}\``;
           })
           .join(", ")
-      : "No aplica: no se detectaron entrypoints de producto.",
+      : pendingField("interfaces o rutas de entrada"),
     focusedValidation: describeCommands(
       focusedCommands,
-      "inspeccionar los archivos modificados y sus referencias directas.",
+      profile?.focusedValidation ?? pendingField("comando o procedimiento de validación focalizada"),
     ),
     completeValidation: describeCommands(
       completeCommands,
-      "repetir la validación focalizada sobre todos los sectores afectados.",
+      profile?.completeValidation ?? pendingField("comando o procedimiento de validación completa"),
     ),
-    testFramework,
-    testLocation: testLocations.length ? quotePaths(testLocations) : "No aplica",
+    testFramework:
+      testFramework ?? profile?.testFramework ?? pendingField("framework de tests o No aplica"),
+    testLocation: testLocations.length
+      ? quotePaths(testLocations)
+      : (profile?.testLocation ?? pendingField("rutas de tests o No aplica")),
     documentation: documentationLocations.length
       ? quotePaths(documentationLocations)
-      : "No aplica",
+      : (profile ? RECOMMENDED_DOCUMENTATION : null),
   };
 }
 
@@ -626,6 +741,29 @@ function contractValue(existingFields, key, fallback) {
   return existingFields.get(key) ?? fallback;
 }
 
+// Campos del contrato que quedaron sin valor real, con la sección y la etiqueta
+// exactas que exige informar la regla STRICT_PROJECT_CONTRACT_RULE.
+function contractGaps(contractText) {
+  const gaps = [];
+  let section = "Proyecto";
+
+  for (const line of contractText.split(/\r?\n/)) {
+    const heading = line.match(/^##\s+(.+?)\s*$/);
+    if (heading) {
+      section = heading[1];
+      continue;
+    }
+    const bullet = line.match(/^-\s+([^:]+):\s*(.*)$/);
+    if (!bullet) continue;
+    const label = bullet[1].trim();
+    if (FIELD_ALIASES.has(normalizeLabel(label)) && isMissingContractValue(bullet[2])) {
+      gaps.push({ section, label });
+    }
+  }
+
+  return gaps;
+}
+
 function renderContract(project, existingFields = new Map()) {
   const gitStrategy = contractValue(
     existingFields,
@@ -667,7 +805,13 @@ ${GENERATED_CONTRACT_MARKER}
 
 ## Documentación
 
-- README y documentación técnica: ${contractValue(existingFields, "documentation", `${project.documentation}; actualizar cuando cambien uso, arquitectura o validación.`)}
+- README y documentación técnica: ${contractValue(
+    existingFields,
+    "documentation",
+    project.documentation
+      ? `${project.documentation}; actualizar cuando cambien uso, arquitectura o validación.`
+      : pendingField("ubicaciones de documentación y criterio de actualización"),
+  )}
 - ADRs: ${contractValue(existingFields, "adrs", "No aplica mientras el proyecto no declare una ubicación.")}
 
 ${CONTRACT_END}`;
@@ -692,7 +836,10 @@ function inspectContract(source, pathLabel) {
   };
 }
 
-async function resolveRequiredFacts({ options, project, existingFields, baselineContract }) {
+// `init` no interroga por hechos del contrato: escribe lo que infiere y deja un
+// marcador explícito en lo que no. `--purpose` y `--git-strategy` son un atajo
+// para declararlos de una vez, nunca un requisito de la adopción.
+function resolveContractFacts({ options, project, existingFields, baselineContract }) {
   const hasGit = existsSync(join(options.destination, ".git"));
   if (options.purpose) existingFields.set("purpose", options.purpose);
   if (options.gitStrategy) existingFields.set("gitStrategy", options.gitStrategy);
@@ -715,49 +862,15 @@ async function resolveRequiredFacts({ options, project, existingFields, baseline
       "No aplica mientras el propietario no inicialice Git; el inicializador no lo crea ni lo modifica.";
   }
 
-  const missing = [];
-  if (!purpose) missing.push({ key: "purpose", flag: "--purpose", label: "Propósito del proyecto" });
-  if (!gitStrategy) {
-    missing.push({
-      key: "gitStrategy",
-      flag: "--git-strategy",
-      label: "Rama o estrategia Git permitida",
-    });
-  }
+  // Un hecho descartado no puede quedar en el mapa: el fallback pendiente de
+  // `renderContract` es lo que la regla estricta cobra después.
+  if (purpose) existingFields.set("purpose", purpose);
+  else existingFields.delete("purpose");
+  if (gitStrategy) existingFields.set("gitStrategy", gitStrategy);
+  else existingFields.delete("gitStrategy");
 
-  if (missing.length && (options.nonInteractive || !input.isTTY || !output.isTTY)) {
-    throw new Error(
-      `Faltan datos obligatorios que no pudieron descubrirse:\n${missing
-        .map((item, index) => `${index + 1}. ${item.label}: usa ${item.flag} <texto>.`)
-        .join("\n")}`,
-    );
-  }
-
-  if (missing.length) {
-    const readline = createInterface({ input, output });
-    try {
-      for (let index = 0; index < missing.length; index += 1) {
-        const item = missing[index];
-        let answer = "";
-        while (!answer) {
-          answer = (await readline.question(`${index + 1}. ${item.label}: `)).trim();
-          if (answer && !isSafeContractFact(answer)) {
-            output.write("El valor debe ocupar una sola línea y no contener marcadores contractuales.\n");
-            answer = "";
-          }
-        }
-        if (item.key === "purpose") purpose = answer;
-        else gitStrategy = answer;
-      }
-    } finally {
-      readline.close();
-    }
-  }
-
-  existingFields.set("purpose", purpose);
-  existingFields.set("gitStrategy", gitStrategy);
-  project.purpose = purpose;
-  project.gitStrategy = gitStrategy;
+  project.purpose = purpose ?? pendingField("qué hace el proyecto, en una frase");
+  project.gitStrategy = gitStrategy ?? pendingField("rama o estrategia Git permitida");
 }
 
 function replaceContract(source, contract) {
@@ -818,15 +931,139 @@ async function planTemplateFiles(destination, force) {
   return { actions, collisions };
 }
 
+async function detectInstalledLayer(destination) {
+  const markers = [];
+  for (const marker of LAYER_MARKERS) {
+    const state = await pathState(join(destination, ...marker.split("/")));
+    if (state?.isFile() && !state.isSymbolicLink()) markers.push(marker);
+  }
+
+  let version = null;
+  const versionPath = join(destination, ...LAYER_VERSION_FILE.split("/"));
+  const versionState = await pathState(versionPath);
+  if (versionState?.isFile() && !versionState.isSymbolicLink()) {
+    const declared = withoutByteOrderMark(await readFile(versionPath, "utf8")).trim();
+    if (/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)*$/.test(declared)) version = declared;
+  }
+
+  return { present: markers.length > 0, markers, version };
+}
+
+// Residuos de otra versión de la capa: archivos dentro de los directorios que
+// la distribución gestiona por completo y que ya no le pertenecen.
+async function planOrphanFiles(destination) {
+  const canonical = new Set(TEMPLATE_FILES);
+  const orphans = [];
+
+  async function visit(directory) {
+    let entries;
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if (error.code === "ENOENT") return;
+      throw error;
+    }
+    for (const entry of entries) {
+      const absolutePath = join(directory, entry.name);
+      if (entry.isSymbolicLink()) continue;
+      if (entry.isDirectory()) {
+        await visit(absolutePath);
+      } else if (entry.isFile()) {
+        const relativePath = relative(destination, absolutePath).replaceAll("\\", "/");
+        if (!canonical.has(relativePath)) orphans.push({ relativePath, absolutePath });
+      }
+    }
+  }
+
+  for (const managed of MANAGED_DIRECTORIES) {
+    const base = join(destination, ...managed.split("/"));
+    const state = await pathState(base);
+    if (!state?.isDirectory() || state.isSymbolicLink()) continue;
+    await visit(base);
+  }
+
+  return orphans.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+}
+
+// `rmdir` falla si el directorio no está vacío; esa es justamente la garantía
+// que se quiere: nunca se borra contenido que no se haya listado antes.
+async function removeEmptyManagedDirectories(destination) {
+  const directories = [];
+
+  async function collect(directory) {
+    let entries;
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if (error.code === "ENOENT") return;
+      throw error;
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory() && !entry.isSymbolicLink()) {
+        const absolutePath = join(directory, entry.name);
+        directories.push(absolutePath);
+        await collect(absolutePath);
+      }
+    }
+  }
+
+  for (const managed of MANAGED_DIRECTORIES) {
+    const base = join(destination, ...managed.split("/"));
+    const state = await pathState(base);
+    if (!state?.isDirectory() || state.isSymbolicLink()) continue;
+    await collect(base);
+  }
+
+  for (const directory of directories.sort((left, right) => right.length - left.length)) {
+    try {
+      await rmdir(directory);
+    } catch {
+      // Conserva todo directorio que aún tenga contenido del proyecto.
+    }
+  }
+}
+
+function describeInstalledLayer(layer, distributionVersion) {
+  if (layer.version && layer.version !== distributionVersion) {
+    return `capa agéntica ${layer.version} instalada; la distribución actual es ${distributionVersion}`;
+  }
+  if (layer.version) return `capa agéntica ${layer.version} instalada`;
+  return "capa agéntica instalada sin marca de versión";
+}
+
+async function confirmLayerReplacement(layer, collisions, distributionVersion) {
+  const readline = createInterface({ input, output });
+  try {
+    output.write(`\nSe detectó una ${describeInstalledLayer(layer, distributionVersion)}.\n`);
+    output.write(
+      collisions.length === 1
+        ? "Difiere 1 archivo canónico:\n"
+        : `Difieren ${collisions.length} archivos canónicos:\n`,
+    );
+    for (const path of collisions.slice(0, 10)) output.write(`- ${path}\n`);
+    if (collisions.length > 10) output.write(`- … y ${collisions.length - 10} más.\n`);
+    output.write(
+      "Reemplazar sobrescribe los archivos canónicos y elimina residuos de otras\nversiones. No toca AGENTS.md fuera del contrato ni las DevSessions.\n",
+    );
+    const answer = (await readline.question("¿[r]eemplazar la capa o [c]ancelar? [r/C]: ")).trim();
+    return /^(r|reemplazar|replace)$/i.test(answer) ? "replace" : "cancel";
+  } finally {
+    readline.close();
+  }
+}
+
 const ACTION_LABELS = {
   copy: "copiar",
   overwrite: "sobrescribir",
   validate: "validar",
 };
 
-async function confirmApplication(actions, agentsAction) {
+async function confirmApplication(actions, agentsAction, orphans, versionAction) {
   const writes =
-    actions.some((action) => action.type !== "validate") || agentsAction !== "validate";
+    actions.some((action) => action.type !== "validate") ||
+    agentsAction !== "validate" ||
+    versionAction !== "validate" ||
+    orphans.length > 0;
   if (!writes) return true;
   const readline = createInterface({ input, output });
   try {
@@ -1183,6 +1420,7 @@ async function run(options) {
   const warnings = [];
   const pending = [];
   const ready = [];
+  const missingRequirements = [];
 
   await access(SOURCE_ROOT, fsConstants.R_OK);
   await assertSafeDestinationAncestors(options.destination);
@@ -1192,13 +1430,52 @@ async function run(options) {
   }
 
   const project = await detectProject(options.destination, warnings);
-  const templatePlan = await planTemplateFiles(options.destination, options.force);
+  const distributionVersion = await readDistributionVersion();
+  const installedLayer = await detectInstalledLayer(options.destination);
+  let replaceLayer = options.force;
+  let replacementConfirmed = false;
+  let templatePlan = await planTemplateFiles(options.destination, replaceLayer);
+
+  // Una divergencia sobre una capa ya instalada es un reemplazo de versión, no
+  // una colisión con archivos ajenos: se ofrece decidir en vez de abortar.
+  if (templatePlan.collisions.length && installedLayer.present && !replaceLayer) {
+    const interactive = !options.yes && !options.dryRun && input.isTTY && output.isTTY;
+    if (interactive) {
+      const decision = await confirmLayerReplacement(
+        installedLayer,
+        templatePlan.collisions,
+        distributionVersion,
+      );
+      if (decision !== "replace") {
+        const error = new Error("Cancelado por el usuario; no se escribió ningún archivo.");
+        error.exitCode = 3;
+        throw error;
+      }
+      replaceLayer = true;
+      replacementConfirmed = true;
+      templatePlan = await planTemplateFiles(options.destination, true);
+    } else {
+      const error = new Error(
+        [
+          `Se detectó una ${describeInstalledLayer(installedLayer, distributionVersion)}.`,
+          templatePlan.collisions.length === 1
+            ? "Difiere 1 archivo canónico:"
+            : `Difieren ${templatePlan.collisions.length} archivos canónicos:`,
+          ...templatePlan.collisions.map((path) => `- ${path}`),
+          "Reemplazar: repetir con --force. Cancelar: no volver a ejecutar; no se escribió ningún archivo.",
+        ].join("\n"),
+      );
+      error.exitCode = 2;
+      throw error;
+    }
+  }
+
   if (templatePlan.collisions.length) {
     const error = new Error(
       `Colisiones detectadas; no se escribió ningún archivo:\n${templatePlan.collisions
         .map((path) => `- ${path}`)
         .join("\n")}${
-        options.force
+        replaceLayer
           ? "\n--force no reemplaza enlaces simbólicos, directorios ni ancestros no seguros."
           : "\nResolver manualmente o usar --force para reemplazar archivos canónicos divergentes."
       }`,
@@ -1239,7 +1516,7 @@ async function run(options) {
     destinationAgentsState && !baselineContract
       ? parseContractFields(currentAgents)
       : new Map();
-  await resolveRequiredFacts({
+  resolveContractFacts({
     options,
     project,
     existingFields,
@@ -1259,14 +1536,39 @@ async function run(options) {
   const contract = canonicalTemplateSource
     ? destinationContract.text
     : renderContract(project, existingFields);
+  const gaps = contractGaps(contract);
   const nextAgents = replaceContract(currentAgents, contract);
   const agentsAction = currentAgents === nextAgents ? "validate" : destinationAgentsState ? "update" : "create";
 
+  const orphans =
+    replaceLayer && installedLayer.present ? await planOrphanFiles(options.destination) : [];
+
+  const versionPath = join(options.destination, ...LAYER_VERSION_FILE.split("/"));
+  const versionContent = `${distributionVersion}\n`;
+  const versionState = await pathState(versionPath);
+  if (versionState && (!versionState.isFile() || versionState.isSymbolicLink())) {
+    const error = new Error(`Colisión en ${LAYER_VERSION_FILE}: el destino no es un archivo regular.`);
+    error.exitCode = 2;
+    throw error;
+  }
+  const currentVersionContent = versionState ? await readFile(versionPath, "utf8") : null;
+  const versionAction =
+    currentVersionContent === versionContent ? "validate" : versionState ? "update" : "create";
+
   console.log(options.dryRun ? "PLAN (sin escrituras)" : "ACCIONES");
+  if (installedLayer.present) {
+    console.log(`- detectada ${describeInstalledLayer(installedLayer, distributionVersion)}`);
+  }
   for (const action of templatePlan.actions) {
     console.log(`- ${ACTION_LABELS[action.type]}: ${action.relativePath}`);
   }
+  for (const orphan of orphans) {
+    console.log(`- eliminar residuo de otra versión: ${orphan.relativePath}`);
+  }
   console.log(`- ${agentsAction === "create" ? "crear" : agentsAction === "update" ? "actualizar" : "validar"}: AGENTS.md`);
+  console.log(
+    `- ${versionAction === "create" ? "crear" : versionAction === "update" ? "actualizar" : "validar"}: ${LAYER_VERSION_FILE}`,
+  );
   console.log(`- validar integridad estructural de ${distribution.files} archivos distribuibles`);
   console.log(
     `- validar ${adapterCounts.codex} adapters de Codex y ${adapterCounts.claude} de Claude`,
@@ -1281,8 +1583,12 @@ async function run(options) {
   console.log("- comprobar exclusiones locales en .gitignore");
 
   if (!options.dryRun) {
-    const interactive = !options.yes && input.isTTY && output.isTTY;
-    if (interactive && !(await confirmApplication(templatePlan.actions, agentsAction))) {
+    // Confirmar el reemplazo ya autorizó estas escrituras: no se vuelve a pedir.
+    const interactive = !options.yes && !replacementConfirmed && input.isTTY && output.isTTY;
+    if (
+      interactive &&
+      !(await confirmApplication(templatePlan.actions, agentsAction, orphans, versionAction))
+    ) {
       const error = new Error("Cancelado por el usuario; no se escribió ningún archivo.");
       error.exitCode = 3;
       throw error;
@@ -1328,6 +1634,17 @@ async function run(options) {
       }
     }
 
+    for (const orphan of orphans) {
+      const latestState = await pathState(orphan.absolutePath);
+      if (latestState && (!latestState.isFile() || latestState.isSymbolicLink())) {
+        const error = new Error(
+          `${orphan.relativePath} cambió después del preflight; no se escribió ningún archivo.`,
+        );
+        error.exitCode = 2;
+        throw error;
+      }
+    }
+
     await mkdir(options.destination, { recursive: true });
     for (const action of templatePlan.actions) {
       if (action.type === "copy") {
@@ -1343,12 +1660,46 @@ async function run(options) {
         flag: destinationAgentsState ? "w" : "wx",
       });
     }
+    let removed = 0;
+    for (const orphan of orphans) {
+      try {
+        await rm(orphan.absolutePath);
+        removed += 1;
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+      }
+    }
+    if (removed) await removeEmptyManagedDirectories(options.destination);
+
+    if (versionAction !== "validate") {
+      await mkdir(dirname(versionPath), { recursive: true });
+      await writeFile(versionPath, versionContent, "utf8");
+    }
+
     ready.push(`${templatePlan.actions.filter((action) => action.type === "copy").length} archivos de la capa copiados.`);
     const overwritten = templatePlan.actions.filter((action) => action.type === "overwrite").length;
     if (overwritten) {
-      ready.push(`${overwritten} archivos canónicos divergentes reemplazados con --force.`);
+      ready.push(
+        overwritten === 1
+          ? "1 archivo canónico divergente reemplazado."
+          : `${overwritten} archivos canónicos divergentes reemplazados.`,
+      );
     }
-    ready.push("Contrato AGENTIC_PROJECT_CONTRACT generado.");
+    if (removed) {
+      ready.push(
+        removed === 1
+          ? "1 residuo de otra versión eliminado."
+          : `${removed} residuos de otra versión eliminados.`,
+      );
+    }
+    ready.push(
+      gaps.length === 0
+        ? "Contrato AGENTIC_PROJECT_CONTRACT generado sin campos pendientes."
+        : gaps.length === 1
+          ? "Contrato AGENTIC_PROJECT_CONTRACT generado con 1 campo por completar."
+          : `Contrato AGENTIC_PROJECT_CONTRACT generado con ${gaps.length} campos por completar.`,
+    );
+    ready.push(`Capa marcada como versión ${distributionVersion}.`);
   } else {
     ready.push("Plan completo calculado sin escrituras.");
   }
@@ -1395,14 +1746,11 @@ async function run(options) {
     }
   }
   if (!codeGraph.available) {
-    warnings.push(
-      `CodeGraph no está disponible o no tiene un índice válido (${codeGraph.detail}).`,
-    );
-    pending.push(
-      options.codeGraphAction
-        ? "Instalar o configurar CodeGraph fuera del inicializador y repetir la acción confirmada."
-        : "Preparar CodeGraph localmente; usar --init-codegraph o --update-codegraph solo si se desea confirmar esa mutación.",
-    );
+    missingRequirements.push({
+      summary: `CodeGraph no está disponible o no tiene un índice válido (${codeGraph.detail}).`,
+      action:
+        "Instalar el ejecutable `codegraph`, dejarlo accesible en el PATH y crear el índice del repositorio con `codegraph init <destino>` o repitiendo esta adopción con --init-codegraph.",
+    });
   }
 
   const engram = checkCommand("engram", ["version"]);
@@ -1413,8 +1761,11 @@ async function run(options) {
     );
   }
   else {
-    warnings.push(`Engram no está disponible para la comprobación local (${engram.detail}).`);
-    pending.push("Configurar Engram en el host de agentes y confirmar la identidad del proyecto.");
+    missingRequirements.push({
+      summary: `Engram no está disponible para la comprobación local (${engram.detail}).`,
+      action:
+        "Instalar el ejecutable `engram`, dejarlo accesible en el PATH y registrarlo en el host de agentes para que identifique este proyecto sin ambigüedad.",
+    });
   }
 
   ready.push(
@@ -1422,6 +1773,45 @@ async function run(options) {
   );
   ready.push("integridad estructural de la distribución validada.");
   if (targetIgnoresReady) ready.push("Exclusiones locales de CodeGraph y Engram validadas.");
+
+  if (gaps.length) {
+    pending.push(
+      gaps.length === 1
+        ? "Completar el campo pendiente del contrato con la skill `agentic-grilling`."
+        : `Completar los ${gaps.length} campos pendientes del contrato con la skill \`agentic-grilling\`.`,
+    );
+  }
+
+  if (missingRequirements.length) {
+    console.log("\nREQUISITOS FALTANTES");
+    for (const item of missingRequirements) {
+      console.log(`- ${item.summary}`);
+      console.log(`  ${item.action}`);
+    }
+    console.log(
+      "  La capa queda instalada pero no puede orquestar: `.agents/policies/orquestacion.md`",
+    );
+    console.log(
+      "  exige CodeGraph y Engram en el preflight y falla de forma cerrada sin ellos.",
+    );
+  }
+
+  if (gaps.length) {
+    console.log("\nCONTRATO POR COMPLETAR");
+    for (const gap of gaps) {
+      console.log(`- AGENTS.md, sección ${gap.section}, campo ${gap.label}`);
+    }
+    console.log(
+      "  Completarlos en la primera sesión del agente con la skill `agentic-grilling`,",
+    );
+    console.log("  que es donde hay contexto y conversación para decidirlos.");
+    console.log(
+      "  Mientras queden marcados, la regla STRICT_PROJECT_CONTRACT_RULE de",
+    );
+    console.log(
+      "  `.agents/policies/orquestacion.md` detiene cualquier tarea orquestada.",
+    );
+  }
 
   console.log("\nLISTO");
   for (const item of ready) console.log(`- ${item}`);
@@ -1431,6 +1821,8 @@ async function run(options) {
   console.log("\nACCIONES MANUALES PENDIENTES");
   if (pending.length) for (const item of pending) console.log(`- ${item}`);
   else console.log("- Ninguna.");
+
+  return missingRequirements.length ? { exitCode: EXIT_REQUIREMENTS_MISSING } : { exitCode: 0 };
 }
 
 async function runCli(argv, invocation) {
@@ -1444,7 +1836,8 @@ async function runCli(argv, invocation) {
       console.log(await readDistributionVersion());
       return;
     }
-    await run(options);
+    const result = await run(options);
+    if (result?.exitCode) process.exitCode = result.exitCode;
   } catch (error) {
     console.error(`ERROR: ${error.message}`);
     process.exitCode = error.exitCode ?? 1;
@@ -1461,6 +1854,7 @@ export {
   DEVELOPMENT_FILES,
   PACKAGE_FILES,
   TEMPLATE_FILES,
+  isMissingContractValue,
   parseArguments,
   printHelp,
   readDistributionVersion,

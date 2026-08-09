@@ -13,6 +13,15 @@ canónico y modifica exclusivamente el bloque contractual de `AGENTS.md`.
 `init` hacia esa implementación. Su comportamiento público se verifica en
 `tests/agentic-init.test.mjs` con `node:test` y directorios temporales.
 
+El inicializador no interroga por hechos del contrato. Escribe lo que infiere
+—incluidos los valores recomendados del perfil de ecosistema detectado— y deja
+como `<pendiente: …>` lo que no puede inferir, listándolo al terminar en el
+bloque `CONTRATO POR COMPLETAR`. Ese marcador es el que cobra la regla
+`STRICT_PROJECT_CONTRACT_RULE` de `policies/orquestacion.md`: la primera sesión
+del agente completa los huecos con la skill `agentic-grilling`, donde hay
+contexto y conversación para decidirlos. `--purpose` y `--git-strategy` son un
+atajo para declararlos en la propia adopción, nunca un requisito.
+
 La capa se distribuye como paquete npm y se adopta con
 `npx --yes @kroxidev/agentic-layer init .`. La adopción es una copia: el
 proyecto consumidor no declara dependencia, no consulta un upstream y no
@@ -27,6 +36,11 @@ recibe actualizaciones automáticas.
 - `templates/dev-session.md`: estado efímero compartido entre fases.
 - `sessions/`: instancias de DevSession ignoradas por control de versiones;
   `gitignore.asset` es el `.gitignore` que el inicializador instala allí.
+- `VERSION`: versión de la capa adoptada. La genera el inicializador en el
+  destino, no viaja en el paquete y permite reconocer una instalación previa
+  para ofrecer su reemplazo. `policies/`, `roles/`, `skills/`, `templates/` y
+  `workflows/` se gestionan por completo: al reemplazar, todo archivo ajeno al
+  inventario canónico se elimina como residuo. `sessions/` y esta raíz no.
 - `../bin/agentic.mjs`: ejecutable `agentic` con el subcomando `init`.
 - `../scripts/agentic-init.mjs`: inicializador sin dependencias externas.
 - `../tests/agentic-init.test.mjs`: pruebas de adopción, seguridad,
@@ -57,8 +71,11 @@ canónicos. No contienen workflows ni políticas completas.
 7. El inicializador nunca sobrescribe una colisión por defecto, instala
    herramientas, accede a remotos ni modifica Git. `--force` se limita a los
    archivos canónicos divergentes y nunca reescribe el seam `AGENTS.md`.
-8. CodeGraph solo se inicializa o sincroniza mediante confirmación explícita;
+8. La adopción se completa con un solo comando: el inicializador no pregunta
+   hechos del contrato ni falla por un dato ausente; lo marca como pendiente y
+   deja que la regla estricta del contrato lo cobre antes de orquestar.
+9. CodeGraph solo se inicializa o sincroniza mediante confirmación explícita;
    las comprobaciones predeterminadas son de solo lectura.
-9. La distribución transporta únicamente el inventario canónico: nunca
-   índices, memorias, sesiones reales, configuraciones personales ni tests.
-10. La adopción no crea dependencia ni sincronización con la plantilla.
+10. La distribución transporta únicamente el inventario canónico: nunca
+    índices, memorias, sesiones reales, configuraciones personales ni tests.
+11. La adopción no crea dependencia ni sincronización con la plantilla.

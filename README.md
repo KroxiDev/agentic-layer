@@ -12,8 +12,10 @@ Desde la raíz del repositorio que quiera adoptar la capa:
 npx --yes @kroxidev/agentic-layer init .
 ~~~
 
-Eso es todo. El comando detecta los hechos del proyecto, copia el inventario
-canónico, genera el contrato de `AGENTS.md` y resume qué quedó listo y qué
+Eso es todo, y es literal: un solo comando completa la adopción sin preguntar
+ningún hecho del proyecto. El comando detecta lo que puede, copia el inventario
+canónico, genera el contrato de `AGENTS.md`, marca como `<pendiente: …>` los
+campos que no pudo inferir y resume qué quedó listo, qué falta completar y qué
 requiere una acción manual. Antes de escribir nada muestra el plan y pide
 confirmación en una terminal interactiva.
 
@@ -53,11 +55,11 @@ También acepta `--target <ruta>`.
 | --- | --- |
 | `--target <ruta>` | Selecciona un destino distinto del directorio actual |
 | `--dry-run` | Calcula el plan completo y no escribe nada |
-| `-y`, `--yes` | No pregunta nada: omite la confirmación y no solicita hechos |
+| `-y`, `--yes` | Omite la confirmación previa a escribir |
 | `--non-interactive` | Alias de compatibilidad de `--yes` |
-| `--force` | Reemplaza archivos canónicos divergentes |
-| `--purpose <texto>` | Proporciona el propósito que no pudo descubrirse |
-| `--git-strategy <texto>` | Declara la estrategia Git que no puede inferirse |
+| `--force` | Reemplaza una capa instalada sin preguntar y borra sus residuos |
+| `--purpose <texto>` | Atajo para declarar el propósito en vez de dejarlo pendiente |
+| `--git-strategy <texto>` | Atajo para declarar la estrategia Git en vez de dejarla pendiente |
 | `--init-codegraph` | Confirma explícitamente `codegraph init` en el destino |
 | `--update-codegraph` | Confirma explícitamente `codegraph sync` en el destino |
 | `-v`, `--version` | Muestra la versión de la distribución |
@@ -70,14 +72,18 @@ validaciones completas, imprime cada acción prevista y termina sin abrir un
 solo archivo en escritura. Nunca inicializa ni sincroniza CodeGraph, aunque se
 combine con las banderas de confirmación.
 
-`--yes` suprime preguntas, no requisitos. Omite la confirmación previa a
-escribir y no solicita hechos por terminal, pero si un dato contractual
-obligatorio sigue siendo desconocido el comando **falla** indicando la bandera
-exacta que falta. Nunca rellena el contrato con un valor inventado.
+`--yes` afecta a una sola pregunta: la confirmación previa a escribir. El
+comando **nunca** interroga por hechos del contrato, ni con terminal ni sin
+ella, así que `--yes` no cambia el contenido de la adopción y nunca falla por un
+dato ausente. Lo que no puede inferir queda marcado como pendiente, jamás
+rellenado con un valor inventado. Sí conserva su función ante una capa ya
+instalada y divergente: sin terminal no hay a quién preguntar, y el comando se
+detiene con salida `2` pidiendo `--force`.
 
-`--force` está deliberadamente acotado a los archivos canónicos de la capa
-—`.agents/`, `.codex/`, `.claude/` y `CLAUDE.md`— cuyo contenido difiere del
-distribuido. Fuera de ese conjunto no hace nada:
+`--force` confirma por adelantado el reemplazo de una capa instalada. Está
+deliberadamente acotado a los archivos canónicos de la capa —`.agents/`,
+`.codex/`, `.claude/` y `CLAUDE.md`— cuyo contenido difiere del distribuido, más
+los residuos de versiones anteriores. Fuera de ese conjunto no hace nada:
 
 - no reemplaza un enlace simbólico, un directorio ni un ancestro no seguro:
   esas colisiones siguen deteniendo la ejecución;
@@ -89,14 +95,78 @@ distribuido. Fuera de ese conjunto no hace nada:
 
 `--version` imprime la versión del paquete y no realiza ninguna comprobación.
 
+### Campos pendientes del contrato
+
+`init` no conversa: escribe lo que infiere y marca lo que no. Un campo sin valor
+inferible queda como `<pendiente: qué falta decidir>` dentro del bloque
+`AGENTIC_PROJECT_CONTRACT` de `AGENTS.md`, y el comando cierra con un bloque
+`CONTRATO POR COMPLETAR` que enumera archivo, sección y campo exactos:
+
+~~~text
+CONTRATO POR COMPLETAR
+- AGENTS.md, sección Proyecto, campo Propósito
+- AGENTS.md, sección Git, campo Rama o estrategia permitida
+~~~
+
+Ese marcador no es decorativo. La regla `STRICT_PROJECT_CONTRACT_RULE` de
+`.agents/policies/orquestacion.md` ya trata un placeholder como contrato
+incompleto: mientras quede uno, el preflight detiene cualquier tarea orquestada
+e informa dónde está. Completarlos es trabajo de la primera sesión del agente
+con la skill `agentic-grilling`, que es donde hay contexto y conversación para
+decidirlos; un prompt de terminal a una línea no lo es.
+
+Cuando el propietario ya tiene la respuesta a mano, `--purpose` y
+`--git-strategy` la declaran en la misma invocación y evitan el marcador. Son un
+atajo, nunca un requisito.
+
+La detección reconoce perfiles de Node, Python, Rust y Go, y usa esa señal para
+rellenar Validación, Tests y Documentación con valores recomendados completos en
+lugar de textos genéricos. Un repositorio con metadatos reconocibles suele
+adoptarse sin ningún campo pendiente; uno sin manifiesto, sin README y sin
+estructura los deja todos marcados, que es exactamente lo que hay que decidir.
+
+### Reemplazo de una capa ya instalada
+
+El inicializador distingue una capa agéntica preexistente de una colisión con
+archivos ajenos al proyecto. Si encuentra `.agents/policies/orquestacion.md`,
+alguno de los wrappers de `orquestar` o los agentes de Codex, trata las
+divergencias como un cambio de versión y no como un conflicto.
+
+`.agents/VERSION` registra la versión instalada. Lo genera el inicializador —no
+viaja en el paquete— y conviene versionarlo: es lo que permite informar «capa
+0.1.0 instalada; la distribución actual es 0.2.0» en la siguiente adopción.
+
+Ante una capa instalada divergente:
+
+- **con terminal interactiva**, el comando describe la versión detectada y los
+  archivos que difieren, y ofrece reemplazar o cancelar. Cancelar termina con
+  salida `3` y el disco intacto;
+- **sin terminal** (`--yes`, CI, tubería), no puede preguntar: se detiene con
+  salida `2`, informa la capa detectada y explica que reemplazar exige repetir
+  con `--force`;
+- **reemplazar** sobrescribe los archivos canónicos divergentes y elimina los
+  residuos de otras versiones dentro de los directorios que la capa gestiona por
+  completo: `policies/`, `roles/`, `skills/`, `templates/` y `workflows/` de
+  `.agents/`, más `.claude/agents/`, `.claude/skills/` y `.codex/agents/`.
+
+El barrido **nunca** alcanza `.agents/sessions/` —sus DevSessions son suyas—, la
+raíz de `.agents/`, `AGENTS.md`, las configuraciones locales de `.claude/` ni
+ningún archivo fuera de esos directorios. Solo borra archivos regulares que
+haya listado antes en el plan, y los directorios que queden vacíos tras hacerlo.
+
 ### Códigos de salida
 
 | Código | Significado |
 | --- | --- |
-| `0` | Adopción o plan completados |
-| `1` | Error de uso o requisito contractual faltante |
+| `0` | Adopción o plan completados con todos los requisitos presentes |
+| `1` | Error de uso: bandera desconocida, valor ausente o destino inválido |
 | `2` | Colisión detectada; no se escribió ningún archivo |
 | `3` | Cancelado por el usuario en la confirmación |
+| `4` | Capa instalada, pero CodeGraph o Engram no están disponibles |
+
+Un contrato con campos pendientes no altera el código de salida: la adopción se
+completó y quien la bloquea después es el preflight de la orquestación, no el
+inicializador.
 
 ### Modos de fallo
 
@@ -106,14 +176,15 @@ intacto.
 
 | Situación | Comportamiento |
 | --- | --- |
-| Un archivo canónico existe con contenido distinto | Colisión, salida `2`, cero escrituras; se sugiere `--force` |
+| Un archivo canónico difiere y no hay capa instalada | Colisión, salida `2`, cero escrituras; se sugiere `--force` |
+| Un archivo canónico difiere y hay una capa instalada | Con terminal, se ofrece reemplazar o cancelar; sin terminal, salida `2` indicando la capa detectada |
 | Un enlace simbólico o directorio ocupa una ruta canónica | Colisión, salida `2`, incluso con `--force` |
 | El destino es la raíz del sistema o el directorio personal | Error, salida `1` |
 | Un ancestro del destino es un enlace simbólico | Error, salida `1` |
-| Falta el propósito o la estrategia Git y no hay terminal | Error, salida `1`, con la bandera exacta a usar |
+| El propósito o la estrategia Git no pueden inferirse | La adopción se completa; los campos quedan marcados y listados en `CONTRATO POR COMPLETAR` |
 | `AGENTS.md` tiene marcadores duplicados o incompletos | Error, salida `2`; el archivo no se modifica |
 | Un archivo aparece o cambia entre el plan y la escritura | Error, salida `2`; se aborta el resto |
-| CodeGraph o Engram no están disponibles | Advertencia y acción manual pendiente; la adopción continúa |
+| CodeGraph o Engram no están disponibles | Bloque `REQUISITOS FALTANTES` con la instrucción de instalación y salida `4`; los archivos se copian igual |
 
 ### Actualización y ausencia de sincronización
 
@@ -128,9 +199,11 @@ npx --yes @kroxidev/agentic-layer init . --dry-run
 ~~~
 
 Los archivos idénticos se validan, los ausentes se copian y los que usted haya
-modificado se informan como colisiones sin sobrescribirse. Revise ese plan y
-decida archivo por archivo: aplique `--force` solo si acepta perder sus
-modificaciones locales en los archivos canónicos listados. `AGENTS.md` queda
+modificado se informan antes de tocarlos. Si el destino ya tiene una capa, el
+comando la reconoce, muestra su versión y le ofrece reemplazarla o cancelar; con
+`--yes` o sin terminal se detiene y le indica que repita con `--force`. Reemplazar
+implica perder sus modificaciones locales en los archivos canónicos listados y
+borrar los residuos de la versión anterior. `AGENTS.md` y sus DevSessions quedan
 fuera de esa decisión en todos los casos.
 
 ### Requisitos
@@ -142,10 +215,14 @@ fuera de esa decisión en todos los casos.
 4. **Subagentes nativos** en la plataforma elegida.
 5. **Contrato `AGENTS.md` completo** para todos los sectores afectados.
 
-Solo el primero es necesario para ejecutar el inicializador. Los demás son
-requisitos de la capa en tiempo de orquestación: si faltan, la adopción
-termina igual y los informa como acciones manuales pendientes. La instalación
-y configuración de esas herramientas ocurre fuera de este repositorio.
+Solo el primero es necesario para ejecutar el inicializador. CodeGraph y Engram
+son requisitos de la capa en tiempo de orquestación, y el inicializador los
+comprueba: si alguno falta o el índice del destino no existe, copia igualmente
+los archivos pero abre la salida con un bloque `REQUISITOS FALTANTES` que indica
+qué instalar y termina con código `4`. No es un aviso decorativo: sin ambos,
+`.agents/policies/orquestacion.md` falla de forma cerrada en el preflight y la
+capa no puede orquestar nada. La instalación y configuración de esas
+herramientas ocurre fuera de este repositorio.
 
 ### Contenido del paquete
 
@@ -223,6 +300,7 @@ reproducir.
 │   └── agentic-init.test.mjs
 ├── .agents/
 │   ├── README.md
+│   ├── VERSION            # generado en la adopción, no distribuido
 │   ├── policies/
 │   │   ├── orquestacion.md
 │   │   └── sdd-tdd.md
@@ -271,9 +349,10 @@ reproducir.
 
 ## Contrato de `AGENTS.md`
 
-El inicializador genera este bloque y lo mantiene delimitado. Reemplace todo
-placeholder con hechos reales y use `No aplica` cuando sea verdadero; no deje
-campos vacíos.
+El inicializador genera este bloque y lo mantiene delimitado. Los campos que no
+pueda inferir los escribe como `<pendiente: …>`; cualquier placeholder cuenta
+como campo ausente. Reemplace todo placeholder con hechos reales y use
+`No aplica` cuando sea verdadero; no deje campos vacíos.
 
 ~~~markdown
 <!-- AGENTIC_PROJECT_CONTRACT_START -->
@@ -419,22 +498,32 @@ funcionamiento interno, la operación manual y el procedimiento de validación.
 la invoca. Usa exclusivamente la biblioteca estándar de Node.js y realiza estas
 operaciones en orden:
 
-1. Detecta propósito, estructura, entrypoints, comandos, tests y documentación
-   desde archivos como `package.json`, `pyproject.toml`, `Cargo.toml`,
-   `README.md` y el árbol existente.
-2. Si un dato contractual obligatorio sigue siendo desconocido, pregunta solo
-   ese dato. Sin terminal interactiva indica la bandera necesaria: `--purpose`
-   o `--git-strategy`.
-3. Calcula todas las copias y colisiones antes de escribir. Un archivo distinto,
-   un enlace simbólico o un ancestro no seguro detiene la ejecución sin
-   sobrescribir contenido.
-4. Copia o valida el inventario canónico de `.agents/`, `.codex/`, `.claude/` y
+1. Detecta propósito, ecosistema, estructura, entrypoints, comandos, tests y
+   documentación desde archivos como `package.json`, `pyproject.toml`,
+   `Cargo.toml`, `go.mod`, `README.md` y el árbol existente. El perfil del
+   ecosistema aporta valores recomendados de Validación, Tests y Documentación
+   cuando el repositorio no declara comandos propios.
+2. Resuelve los hechos del contrato sin preguntar nada: aplica `--purpose` y
+   `--git-strategy` si se pasaron, conserva los valores explícitos que ya
+   estuvieran en `AGENTS.md` y marca como `<pendiente: …>` lo que no pudo
+   inferir.
+3. Detecta si el destino ya tiene una capa instalada y lee su `.agents/VERSION`.
+4. Calcula todas las copias, colisiones y residuos antes de escribir. Un archivo
+   distinto, un enlace simbólico o un ancestro no seguro detiene la ejecución sin
+   sobrescribir contenido; sobre una capa instalada, ofrece reemplazar o cancelar
+   en vez de abortar.
+5. Copia o valida el inventario canónico de `.agents/`, `.codex/`, `.claude/` y
    `CLAUDE.md`, restaurando el nombre canónico de los assets transportados.
-5. Crea, completa o reemplaza solo el bloque delimitado
+6. Crea, completa o reemplaza solo el bloque delimitado
    `AGENTIC_PROJECT_CONTRACT` de `AGENTS.md`; conserva literalmente las
    instrucciones anteriores y posteriores.
-6. Valida estructura, adapters, exclusiones efímeras, CodeGraph y Engram, y
-   termina con `LISTO`, `ADVERTENCIAS` y `ACCIONES MANUALES PENDIENTES`.
+7. Al reemplazar, elimina los residuos listados en el plan y los directorios que
+   queden vacíos, sin tocar DevSessions ni archivos ajenos.
+8. Escribe `.agents/VERSION` con la versión adoptada.
+9. Valida estructura, adapters, exclusiones efímeras, CodeGraph y Engram, y
+   termina con `REQUISITOS FALTANTES` y `CONTRATO POR COMPLETAR` cuando
+   corresponda, seguidos de `LISTO`, `ADVERTENCIAS` y `ACCIONES MANUALES
+   PENDIENTES`.
 
 Sin `--init-codegraph` ni `--update-codegraph`, CodeGraph se consulta con
 `status` y nunca se modifica. De Engram se comprueba únicamente la
@@ -450,10 +539,13 @@ Desde una copia completa de la plantilla:
 ~~~text
 node scripts/agentic-init.mjs [destino]
 node scripts/agentic-init.mjs --dry-run
+node scripts/agentic-init.mjs --yes
 node scripts/agentic-init.mjs --yes --purpose "<propósito>" --git-strategy "<estrategia permitida>"
 ~~~
 
-Acepta exactamente las mismas banderas que `agentic init`.
+Acepta exactamente las mismas banderas que `agentic init`. Las dos últimas
+formas producen la misma adopción; la segunda solo evita que el propósito y la
+estrategia queden marcados como pendientes.
 
 #### Integración manual en un repositorio existente
 
@@ -527,13 +619,14 @@ node scripts/agentic-init.mjs --dry-run --yes
 ~~~
 
 La suite crea y elimina sus propios directorios temporales. Cubre repositorio
-nuevo, `AGENTS.md` existente, contrato parcial, colisiones sin escrituras,
-repetición idempotente, `--dry-run`, `--force` acotado y sus límites,
-herramientas externas ausentes, copia base de GitHub, confirmación de
-CodeGraph, adapters, detección no-Node, destino actual, el ejecutable `agentic`
-con su versión y sus errores de uso, la restauración de los assets y el
-inventario exacto del paquete, además de una adopción integral con vista
-previa, aplicación y segunda ejecución estable.
+nuevo, adopción mínima con un solo comando y sin terminal, campos pendientes
+marcados y listados, perfiles por ecosistema, `AGENTS.md` existente, contrato
+parcial, colisiones sin escrituras, repetición idempotente, `--dry-run`,
+`--force` acotado y sus límites, herramientas externas ausentes, copia base de
+GitHub, confirmación de CodeGraph, adapters, detección no-Node, destino actual,
+el ejecutable `agentic` con su versión y sus errores de uso, la restauración de
+los assets y el inventario exacto del paquete, además de una adopción integral
+con vista previa, aplicación y segunda ejecución estable.
 
 Para validar el artefacto distribuible:
 

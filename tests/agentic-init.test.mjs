@@ -7,11 +7,18 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
-import { PACKAGE_FILES, TEMPLATE_FILES } from "../scripts/agentic-init.mjs";
+import {
+  PACKAGE_FILES,
+  TEMPLATE_FILES,
+  isMissingContractValue,
+} from "../scripts/agentic-init.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CLI = join(ROOT, "scripts", "agentic-init.mjs");
 const BIN = join(ROOT, "bin", "agentic.mjs");
+// Las simulaciones se ejecutan con un PATH vacío, así que toda adopción
+// completa informa CodeGraph y Engram ausentes y sale con el código 4.
+const SIN_HERRAMIENTAS = 4;
 const temporaryDirectories = [];
 
 afterEach(async () => {
@@ -68,6 +75,20 @@ function runInitializer(directory, ...arguments_) {
   );
 }
 
+// Sin banderas y sin TTY: exactamente el caso ideal de adopción con un solo
+// comando, en el que el inicializador no puede preguntar nada.
+function runInitializerWithoutFlags(directory) {
+  return spawnSync(process.execPath, [CLI, "--target", directory], {
+    cwd: ROOT,
+    encoding: "utf8",
+    env: { ...process.env, PATH: "" },
+  });
+}
+
+function countPendingFields(contract) {
+  return contract.match(/<pendiente: [^>]+>/g)?.length ?? 0;
+}
+
 function runExecutable(...arguments_) {
   return spawnSync(process.execPath, [BIN, ...arguments_], {
     cwd: ROOT,
@@ -96,7 +117,7 @@ test("inicializa un repositorio nuevo a partir de hechos detectables", async () 
 
   const result = runInitializer(repository);
 
-  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.status, SIN_HERRAMIENTAS, result.stderr || result.stdout);
   assert.equal(existsSync(join(repository, ".agents", "README.md")), true);
   assert.equal(existsSync(join(repository, ".codex", "agents", "evaluador.toml")), true);
   assert.equal(existsSync(join(repository, ".claude", "agents", "evaluador.md")), true);
@@ -125,7 +146,7 @@ test("añade el contrato a un AGENTS.md existente sin alterar sus instrucciones"
 
   const result = runInitializer(repository);
 
-  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.status, SIN_HERRAMIENTAS, result.stderr || result.stdout);
   const agents = await readFile(join(repository, "AGENTS.md"), "utf8");
   const markerPosition = agents.indexOf("<!-- AGENTIC_PROJECT_CONTRACT_START -->");
   assert.notEqual(markerPosition, -1);
@@ -164,7 +185,7 @@ test("completa un contrato parcial y conserva los valores explícitos", async ()
 
   const result = runInitializer(repository);
 
-  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.status, SIN_HERRAMIENTAS, result.stderr || result.stdout);
   const agents = await readFile(join(repository, "AGENTS.md"), "utf8");
   assert.equal(agents.slice(0, prefix.length), prefix);
   assert.equal(agents.endsWith(suffix), true);
@@ -208,11 +229,11 @@ test("una ejecución repetida no duplica ni altera contenido correcto", async ()
   });
 
   const first = runInitializer(repository);
-  assert.equal(first.status, 0, first.stderr || first.stdout);
+  assert.equal(first.status, SIN_HERRAMIENTAS, first.stderr || first.stdout);
   const before = await snapshotDirectory(repository);
 
   const second = runInitializer(repository);
-  assert.equal(second.status, 0, second.stderr || second.stdout);
+  assert.equal(second.status, SIN_HERRAMIENTAS, second.stderr || second.stdout);
   const after = await snapshotDirectory(repository);
 
   assert.deepEqual(after, before);
@@ -231,7 +252,7 @@ test("--dry-run muestra todas las acciones sin escribir", async () => {
 
   const result = runInitializer(repository, "--dry-run");
 
-  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.status, SIN_HERRAMIENTAS, result.stderr || result.stdout);
   assert.match(result.stdout, /PLAN \(sin escrituras\)/);
   assert.match(result.stdout, /copiar: \.agents\/README\.md/);
   assert.match(result.stdout, /crear: AGENTS\.md/);
@@ -239,7 +260,7 @@ test("--dry-run muestra todas las acciones sin escribir", async () => {
   assert.deepEqual(await snapshotDirectory(repository), before);
 });
 
-test("las herramientas externas ausentes producen advertencias y pendientes", async () => {
+test("CodeGraph o Engram ausentes instalan la capa pero reclaman los requisitos", async () => {
   const repository = await createRepository({
     "package.json": JSON.stringify({
       name: "sin-herramientas",
@@ -249,15 +270,196 @@ test("las herramientas externas ausentes producen advertencias y pendientes", as
 
   const result = runInitializer(repository);
 
-  assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /ADVERTENCIAS/);
+  assert.equal(result.status, SIN_HERRAMIENTAS, result.stderr || result.stdout);
+  assert.match(result.stdout, /REQUISITOS FALTANTES/);
   assert.match(result.stdout, /CodeGraph no está disponible/);
+  assert.match(result.stdout, /Instalar el ejecutable `codegraph`/);
   assert.match(result.stdout, /Engram no está disponible/);
+  assert.match(result.stdout, /Instalar el ejecutable `engram`/);
+  assert.match(result.stdout, /no puede orquestar/);
+  // El bloque de requisitos precede al resultado para que se lea primero.
+  assert.ok(result.stdout.indexOf("REQUISITOS FALTANTES") < result.stdout.indexOf("\nLISTO"));
   assert.match(result.stdout, /ACCIONES MANUALES PENDIENTES/);
   assert.equal(existsSync(join(repository, "AGENTS.md")), true);
 });
 
-test("una copia de plantilla pregunta solo los hechos obligatorios no detectables", async () => {
+test("una capa preexistente divergente se reemplaza o se cancela, nunca en silencio", async () => {
+  const repository = await createRepository({
+    "package.json": JSON.stringify({
+      name: "con-capa-previa",
+      description: "Ya adoptó una versión anterior de la capa agéntica.",
+    }),
+  });
+
+  assert.equal(runInitializer(repository).status, SIN_HERRAMIENTAS);
+  const version = await readFile(join(repository, ".agents", "VERSION"), "utf8");
+  const manifest = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8"));
+  assert.equal(version.trim(), manifest.version);
+
+  const policy = join(repository, ".agents", "policies", "orquestacion.md");
+  await writeFile(policy, "capa divergente de otra versión\n", "utf8");
+  await mkdir(join(repository, ".agents", "skills", "agentic-viejo"), { recursive: true });
+  await writeFile(
+    join(repository, ".agents", "skills", "agentic-viejo", "SKILL.md"),
+    "skill de una versión anterior\n",
+    "utf8",
+  );
+
+  // Sin TTY no puede preguntarse: se detiene informando la capa y las opciones.
+  const blocked = runInitializer(repository);
+  assert.equal(blocked.status, 2, blocked.stdout);
+  assert.match(blocked.stderr, /Se detectó una capa agéntica/);
+  assert.match(blocked.stderr, /--force/);
+  assert.equal(await readFile(policy, "utf8"), "capa divergente de otra versión\n");
+  assert.equal(
+    existsSync(join(repository, ".agents", "skills", "agentic-viejo", "SKILL.md")),
+    true,
+  );
+
+  const replaced = runInitializer(repository, "--force");
+  assert.equal(replaced.status, SIN_HERRAMIENTAS, replaced.stderr || replaced.stdout);
+  assert.match(replaced.stdout, /detectada capa agéntica/);
+  assert.match(replaced.stdout, /eliminar residuo de otra versión/);
+  assert.equal(
+    await readFile(policy, "utf8"),
+    await readFile(join(ROOT, ".agents", "policies", "orquestacion.md"), "utf8"),
+  );
+  assert.equal(existsSync(join(repository, ".agents", "skills", "agentic-viejo")), false);
+});
+
+test("el reemplazo conserva las DevSessions y los archivos ajenos del proyecto", async () => {
+  const repository = await createRepository({
+    "package.json": JSON.stringify({
+      name: "con-sesiones",
+      description: "Conserva estado propio durante un reemplazo de la capa.",
+    }),
+  });
+
+  assert.equal(runInitializer(repository).status, SIN_HERRAMIENTAS);
+  await writeFile(
+    join(repository, ".agents", "sessions", "tarea-en-curso.md"),
+    "# DevSession real\n",
+    "utf8",
+  );
+  await writeFile(join(repository, ".claude", "settings.local.json"), "{}\n", "utf8");
+  await writeFile(
+    join(repository, ".agents", "policies", "orquestacion.md"),
+    "divergente\n",
+    "utf8",
+  );
+
+  const replaced = runInitializer(repository, "--force");
+
+  assert.equal(replaced.status, SIN_HERRAMIENTAS, replaced.stderr || replaced.stdout);
+  assert.equal(
+    await readFile(join(repository, ".agents", "sessions", "tarea-en-curso.md"), "utf8"),
+    "# DevSession real\n",
+  );
+  assert.equal(existsSync(join(repository, ".claude", "settings.local.json")), true);
+});
+
+test("una colisión sin capa instalada no se trata como reemplazo", async () => {
+  const repository = await createRepository({
+    "package.json": JSON.stringify({
+      name: "sin-capa",
+      description: "Tiene archivos propios que colisionan con la distribución.",
+    }),
+    ".claude/agents/tester.md": "agente propio del proyecto\n",
+  });
+
+  const result = runInitializer(repository);
+
+  assert.equal(result.status, 2, result.stdout);
+  assert.match(result.stderr, /Colisiones detectadas/);
+  assert.doesNotMatch(result.stderr, /Se detectó una capa agéntica/);
+  assert.equal(
+    await readFile(join(repository, ".claude", "agents", "tester.md"), "utf8"),
+    "agente propio del proyecto\n",
+  );
+});
+
+test("un repositorio nuevo mínimo se adopta con un solo comando", async () => {
+  const repository = await createRepository({
+    ".git/HEAD": "ref: refs/heads/main\n",
+    "README.md": "# proyecto\n",
+  });
+
+  const result = runInitializerWithoutFlags(repository);
+
+  assert.equal(result.status, SIN_HERRAMIENTAS, result.stderr || result.stdout);
+  assert.doesNotMatch(result.stderr, /Faltan datos obligatorios/);
+  assert.doesNotMatch(result.stderr, /--purpose/);
+  assert.equal(existsSync(join(repository, "AGENTS.md")), true);
+  assert.equal(existsSync(join(repository, "CLAUDE.md")), true);
+  assert.equal(existsSync(join(repository, ".agents", "policies", "orquestacion.md")), true);
+  assert.match(result.stdout, /LISTO/);
+});
+
+test("los campos no inferibles quedan marcados en el contrato y listados en la salida", async () => {
+  const repository = await createRepository({
+    ".git/HEAD": "ref: refs/heads/main\n",
+    "notas.txt": "un repositorio sin metadatos declarados\n",
+  });
+
+  const result = runInitializerWithoutFlags(repository);
+
+  assert.equal(result.status, SIN_HERRAMIENTAS, result.stderr || result.stdout);
+  const agents = await readFile(join(repository, "AGENTS.md"), "utf8");
+  const purpose = agents.match(/^- Propósito: (.*)$/m)?.[1];
+  const gitStrategy = agents.match(/^- Rama o estrategia permitida: (.*)$/m)?.[1];
+  assert.match(purpose, /^<pendiente: /);
+  assert.match(gitStrategy, /^<pendiente: /);
+  // El marcador solo sirve si la regla estricta del contrato lo cobra.
+  assert.equal(isMissingContractValue(purpose), true);
+  assert.equal(isMissingContractValue(gitStrategy), true);
+
+  assert.match(result.stdout, /CONTRATO POR COMPLETAR/);
+  assert.match(result.stdout, /- AGENTS\.md, sección Proyecto, campo Propósito/);
+  assert.match(result.stdout, /- AGENTS\.md, sección Git, campo Rama o estrategia permitida/);
+  assert.match(result.stdout, /agentic-grilling/);
+  assert.match(result.stdout, /STRICT_PROJECT_CONTRACT_RULE/);
+  assert.equal(
+    countPendingFields(agents),
+    result.stdout.match(/^- AGENTS\.md, sección /gm)?.length,
+  );
+});
+
+test("un perfil de ecosistema conocido reduce los campos pendientes", async () => {
+  const conMetadatos = await createRepository({
+    "package.json": JSON.stringify({
+      name: "perfil-node",
+      description: "Declara metadatos reconocibles de su ecosistema.",
+      main: "src/index.mjs",
+    }),
+    "src/index.mjs": "export const listo = true;\n",
+  });
+  const sinMetadatos = await createRepository({
+    "notas.txt": "un repositorio sin metadatos declarados\n",
+  });
+
+  const conocido = runInitializerWithoutFlags(conMetadatos);
+  const generico = runInitializerWithoutFlags(sinMetadatos);
+
+  assert.equal(conocido.status, SIN_HERRAMIENTAS, conocido.stderr || conocido.stdout);
+  assert.equal(generico.status, SIN_HERRAMIENTAS, generico.stderr || generico.stdout);
+  const conPerfil = await readFile(join(conMetadatos, "AGENTS.md"), "utf8");
+  const sinPerfil = await readFile(join(sinMetadatos, "AGENTS.md"), "utf8");
+
+  assert.equal(countPendingFields(conPerfil), 0);
+  assert.ok(
+    countPendingFields(sinPerfil) > countPendingFields(conPerfil),
+    "el repositorio sin metadatos debe conservar más campos pendientes",
+  );
+  assert.match(conPerfil, /Focalizada: ejecutar `node --check`/);
+  assert.match(conPerfil, /Completa: ejecutar `node --test` sobre toda la suite\./);
+  assert.match(conPerfil, /Framework: `node:test`/);
+  assert.match(conPerfil, /Ubicación: `tests\/`/);
+  assert.match(conPerfil, /README y documentación técnica: mantener `README\.md`/);
+  assert.match(conocido.stdout, /sin campos pendientes/);
+  assert.doesNotMatch(conocido.stdout, /CONTRATO POR COMPLETAR/);
+});
+
+test("una copia de plantilla marca los hechos propios y acepta declararlos por bandera", async () => {
   const [templateAgents, templateReadme] = await Promise.all([
     readFile(join(ROOT, "AGENTS.md"), "utf8"),
     readFile(join(ROOT, "README.md"), "utf8"),
@@ -267,13 +469,15 @@ test("una copia de plantilla pregunta solo los hechos obligatorios no detectable
     "AGENTS.md": templateAgents,
     "README.md": templateReadme,
   });
-  const before = await snapshotDirectory(repository);
 
-  const missingFacts = runInitializer(repository);
+  const marked = runInitializer(repository);
 
-  assert.equal(missingFacts.status, 1, missingFacts.stderr || missingFacts.stdout);
-  assert.match(missingFacts.stderr, /--purpose/);
-  assert.deepEqual(await snapshotDirectory(repository), before);
+  assert.equal(marked.status, SIN_HERRAMIENTAS, marked.stderr || marked.stdout);
+  const pendingAgents = await readFile(join(repository, "AGENTS.md"), "utf8");
+  // El propósito de la plantilla no puede heredarse como si fuera del proyecto.
+  assert.match(pendingAgents, /^- Propósito: <pendiente: /m);
+  assert.match(pendingAgents, /^- Rama o estrategia permitida: <pendiente: /m);
+  assert.match(marked.stdout, /- AGENTS\.md, sección Proyecto, campo Propósito/);
 
   const initialized = runInitializer(
     repository,
@@ -283,13 +487,14 @@ test("una copia de plantilla pregunta solo los hechos obligatorios no detectable
     "trabajar en ramas de tarea; no hacer push sin autorización.",
   );
 
-  assert.equal(initialized.status, 0, initialized.stderr || initialized.stdout);
+  assert.equal(initialized.status, SIN_HERRAMIENTAS, initialized.stderr || initialized.stdout);
   const agents = await readFile(join(repository, "AGENTS.md"), "utf8");
   assert.match(agents, /Propósito: Organiza notas de investigación locales\./);
   assert.match(
     agents,
     /Rama o estrategia permitida: trabajar en ramas de tarea; no hacer push sin autorización\./,
   );
+  assert.doesNotMatch(initialized.stdout, /campo Propósito/);
 });
 
 test("CodeGraph solo se inicializa o actualiza mediante confirmación explícita", async () => {
@@ -301,11 +506,11 @@ test("CodeGraph solo se inicializa o actualiza mediante confirmación explícita
   });
 
   const checkOnly = runInitializer(repository, "--dry-run");
-  assert.equal(checkOnly.status, 0, checkOnly.stderr || checkOnly.stdout);
+  assert.equal(checkOnly.status, SIN_HERRAMIENTAS, checkOnly.stderr || checkOnly.stdout);
   assert.doesNotMatch(checkOnly.stdout, /inicializar CodeGraph|sincronizar CodeGraph/);
 
   const confirmed = runInitializer(repository, "--dry-run", "--init-codegraph");
-  assert.equal(confirmed.status, 0, confirmed.stderr || confirmed.stdout);
+  assert.equal(confirmed.status, SIN_HERRAMIENTAS, confirmed.stderr || confirmed.stdout);
   assert.match(confirmed.stdout, /inicializar CodeGraph \(confirmación explícita\)/);
 
   const ambiguous = runInitializer(
@@ -328,7 +533,7 @@ test("valida adapters equivalentes y mantiene al Evaluador de Claude en solo lec
 
   const result = runInitializer(repository);
 
-  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.status, SIN_HERRAMIENTAS, result.stderr || result.stdout);
   const claudeEvaluator = await readFile(
     join(repository, ".claude", "agents", "evaluador.md"),
     "utf8",
@@ -363,7 +568,7 @@ testpaths = ["tests"]
 
   const result = runInitializer(repository);
 
-  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.status, SIN_HERRAMIENTAS, result.stderr || result.stdout);
   const agents = await readFile(join(repository, "AGENTS.md"), "utf8");
   assert.match(
     agents,
@@ -387,7 +592,7 @@ test("usa el directorio actual como destino predeterminado", async () => {
     env: { ...process.env, PATH: "" },
   });
 
-  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.status, SIN_HERRAMIENTAS, result.stderr || result.stdout);
   assert.equal(existsSync(join(repository, "AGENTS.md")), true);
   assert.equal(existsSync(join(repository, "CLAUDE.md")), true);
 });
@@ -408,17 +613,17 @@ test("simula la adopción completa dentro de un directorio temporal", async () =
   const initial = await snapshotDirectory(repository);
 
   const preview = runInitializer(repository, "--dry-run");
-  assert.equal(preview.status, 0, preview.stderr || preview.stdout);
+  assert.equal(preview.status, SIN_HERRAMIENTAS, preview.stderr || preview.stdout);
   assert.deepEqual(await snapshotDirectory(repository), initial);
 
   const applied = runInitializer(repository);
-  assert.equal(applied.status, 0, applied.stderr || applied.stdout);
+  assert.equal(applied.status, SIN_HERRAMIENTAS, applied.stderr || applied.stdout);
   assert.match(applied.stdout, /integridad estructural de la distribución validada/);
   assert.match(applied.stdout, /Exclusiones locales de CodeGraph y Engram validadas/);
   const appliedSnapshot = await snapshotDirectory(repository);
 
   const repeated = runInitializer(repository);
-  assert.equal(repeated.status, 0, repeated.stderr || repeated.stdout);
+  assert.equal(repeated.status, SIN_HERRAMIENTAS, repeated.stderr || repeated.stdout);
   assert.deepEqual(await snapshotDirectory(repository), appliedSnapshot);
 
   assert.deepEqual(
@@ -430,7 +635,7 @@ test("simula la adopción completa dentro de un directorio temporal", async () =
 test("la fuente canónica valida su contrato base sin marcarlo como una adopción", () => {
   const result = runInitializer(ROOT, "--dry-run");
 
-  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.status, SIN_HERRAMIENTAS, result.stderr || result.stdout);
   assert.match(result.stdout, /- validar: AGENTS\.md/);
   assert.doesNotMatch(result.stdout, /- actualizar: AGENTS\.md/);
 });
@@ -446,7 +651,7 @@ test("detecta manifiestos escritos en UTF-8 con BOM por herramientas de Windows"
 
   const result = runInitializer(repository);
 
-  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.status, SIN_HERRAMIENTAS, result.stderr || result.stdout);
   assert.doesNotMatch(result.stdout, /No se pudo interpretar package\.json/);
   assert.match(
     await readFile(join(repository, "AGENTS.md"), "utf8"),
@@ -464,7 +669,7 @@ test("el ejecutable `agentic` adopta la capa con el subcomando init", async () =
 
   const result = runExecutable("init", repository, "--yes");
 
-  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.status, SIN_HERRAMIENTAS, result.stderr || result.stdout);
   assert.equal(existsSync(join(repository, "CLAUDE.md")), true);
   assert.equal(existsSync(join(repository, ".codex", "agents", "evaluador.toml")), true);
   const agents = await readFile(join(repository, "AGENTS.md"), "utf8");
@@ -505,7 +710,7 @@ test("--force reemplaza solo archivos canónicos divergentes", async () => {
     }),
   });
 
-  assert.equal(runInitializer(repository).status, 0);
+  assert.equal(runInitializer(repository).status, SIN_HERRAMIENTAS);
   const canonical = join(repository, ".claude", "agents", "tester.md");
   const original = await readFile(canonical, "utf8");
   await writeFile(canonical, "# divergente\n", "utf8");
@@ -515,13 +720,13 @@ test("--force reemplaza solo archivos canónicos divergentes", async () => {
   const blocked = runInitializer(repository);
   assert.equal(blocked.status, 2, blocked.stderr || blocked.stdout);
   assert.match(blocked.stderr, /\.claude\/agents\/tester\.md/);
-  assert.match(blocked.stderr, /usar --force/);
+  assert.match(blocked.stderr, /repetir con --force/);
   assert.equal(await readFile(canonical, "utf8"), "# divergente\n");
 
   const forced = runInitializer(repository, "--force");
-  assert.equal(forced.status, 0, forced.stderr || forced.stdout);
+  assert.equal(forced.status, SIN_HERRAMIENTAS, forced.stderr || forced.stdout);
   assert.match(forced.stdout, /- sobrescribir: \.claude\/agents\/tester\.md/);
-  assert.match(forced.stdout, /1 archivos canónicos divergentes reemplazados con --force/);
+  assert.match(forced.stdout, /1 archivo canónico divergente reemplazado/);
   assert.equal(await readFile(canonical, "utf8"), original);
   assert.equal(
     await readFile(join(repository, ".agents", "propio.md"), "utf8"),
@@ -546,7 +751,7 @@ test("--force nunca reemplaza un directorio ni reescribe el seam AGENTS.md", asy
   assert.equal(existsSync(join(repository, "AGENTS.md")), false);
 
   await rm(join(repository, "CLAUDE.md"), { recursive: true, force: true });
-  assert.equal(runInitializer(repository).status, 0);
+  assert.equal(runInitializer(repository).status, SIN_HERRAMIENTAS);
   const declared = (await readFile(join(repository, "AGENTS.md"), "utf8")).replace(
     /- Propósito: .*/,
     "- Propósito: Hecho declarado por el propietario.",
@@ -554,7 +759,7 @@ test("--force nunca reemplaza un directorio ni reescribe el seam AGENTS.md", asy
   await writeFile(join(repository, "AGENTS.md"), declared, "utf8");
 
   const forced = runInitializer(repository, "--force");
-  assert.equal(forced.status, 0, forced.stderr || forced.stdout);
+  assert.equal(forced.status, SIN_HERRAMIENTAS, forced.stderr || forced.stdout);
   assert.match(
     await readFile(join(repository, "AGENTS.md"), "utf8"),
     /- Propósito: Hecho declarado por el propietario\./,
@@ -569,7 +774,7 @@ test("los assets de la distribución llegan al destino como archivos canónicos"
     }),
   });
 
-  assert.equal(runInitializer(repository).status, 0);
+  assert.equal(runInitializer(repository).status, SIN_HERRAMIENTAS);
 
   assert.equal(
     await readFile(join(repository, ".agents", "sessions", ".gitignore"), "utf8"),

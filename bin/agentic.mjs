@@ -14,6 +14,7 @@ Opciones globales:
 Ejemplos:
   npx --yes @kroxidev/agentic-layer init .
   npx --yes @kroxidev/agentic-layer init . --dry-run
+  agentic init . --yes
   agentic init . --yes --purpose "<propósito>" --git-strategy "<estrategia>"`;
 
 const argv = process.argv.slice(2);
