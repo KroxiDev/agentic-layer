@@ -18,6 +18,11 @@ Acumular todas las restricciones de seguridad y conservar la más estricta. Si
 dos reglas no relacionadas con seguridad son irreconciliables, detener la
 implementación y presentar la contradicción al usuario.
 
+## Políticas transversales
+
+- `.agents/policies/regla-de-oro.md`
+  - Consumidores obligatorios: Planificador, Implementador, Tester y Evaluador.
+
 El Explorador debe resolver explícitamente, para cada sector, la cadena de
 archivos `AGENTS.md` desde la raíz hasta el archivo local más cercano. Un
 archivo local puede redefinir arquitectura, validación, tests y documentación
@@ -163,6 +168,11 @@ Después del preflight, crear una instancia a partir de
 formato en `full` y `light`; completar proporcionalmente y usar `No aplica`
 cuando corresponda.
 
+El orquestador administra el ciclo con
+`node .agents/scripts/session-controller.mjs <comando> --session <slug>` y una
+revisión esperada en cada mutación. Usa `init`, `open`, `await-input`, `resume`,
+`commit`, `fail`, `recover`, `cleanup` y `close` según la transición requerida.
+
 Actualizarla al cerrar cada fase. Es el único traspaso de estado entre
 subagentes y debe registrar:
 
@@ -175,7 +185,9 @@ subagentes y debe registrar:
 - veredicto del evaluador;
 - candidatos a memoria y próximos pasos.
 
-No versionar instancias reales. Eliminarlas al cerrar correctamente la tarea.
+No versionar instancias reales. Los inventarios y el paquete las excluyen
+aunque existan durante la validación. Eliminarlas al cerrar correctamente la
+tarea.
 
 ## Relevo de preguntas
 

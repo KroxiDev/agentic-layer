@@ -29,13 +29,16 @@ y no recibe actualizaciones automáticas.
 
 ## Mapa
 
-- `policies/`: reglas transversales de orquestación y SDD/TDD.
+- `policies/`: orquestación, SDD/TDD y Regla de Oro para código y pruebas.
 - `roles/`: responsabilidades, límites y contratos de salida de seis roles.
+- `scripts/session-controller.mjs`: ciclo portable, recuperable e idempotente
+  de DevSession global y SubDevSessions.
 - `workflows/`: orden de fases para feature, bugfix, refactor y architecture.
 - `skills/`: procedimientos portables invocados por el orquestador o los roles.
-- `templates/dev-session.md`: estado efímero compartido entre fases.
-- `sessions/`: instancias de DevSession ignoradas por control de versiones;
-  `gitignore.asset` es el `.gitignore` que el inicializador instala allí.
+- `templates/`: formatos de la DevSession global y de los sobres de fase.
+- `sessions/`: DevSessions globales y SubDevSessions efímeras ignoradas por
+  control de versiones; `gitignore.asset` es el `.gitignore` que el
+  inicializador instala allí.
 - `VERSION`: versión de la capa adoptada. La genera el inicializador en el
   destino, no viaja en el paquete y permite reconocer una instalación previa
   para ofrecer su reemplazo. `policies/`, `roles/`, `skills/`, `templates/` y

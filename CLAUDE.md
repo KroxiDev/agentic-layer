@@ -2,4 +2,5 @@
 
 Cuando se active la capa agéntica, leer
 `.agents/policies/orquestacion.md`. Las reglas configurables viven únicamente
-en archivos `AGENTS.md`.
+en archivos `AGENTS.md`; el ciclo portable de sesiones vive en
+`.agents/scripts/session-controller.mjs`.

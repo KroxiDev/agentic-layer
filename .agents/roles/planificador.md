@@ -23,7 +23,9 @@ proporcional, verificable y ejecutable.
    de importancia.
 4. Aplicar `.agents/policies/sdd-tdd.md` con profundidad proporcional al riesgo
    y al modo.
-5. Definir seams públicos, estrategia de validación, tests temporales o
+5. Aplicar `.agents/policies/regla-de-oro.md` al acotar la solución al requisito
+   real.
+6. Definir seams públicos, estrategia de validación, tests temporales o
    permanentes y documentación necesaria sin fijar valores ausentes del
    contrato.
 
@@ -31,10 +33,10 @@ proporcional, verificable y ejecutable.
 
 Devolver únicamente la especificación:
 
-- **Objetivo y comportamiento esperado.**
-- **Criterios de aceptación verificables.**
-- **No-objetivos y restricciones.**
-- **Puntos de integración y seams acordados.**
+- **Objetivo y comportamiento esperado:** definición verificable.
+- **Criterios de aceptación verificables:** lista concreta.
+- **No-objetivos y restricciones:** límites aplicables.
+- **Puntos de integración y seams acordados:** interfaces públicas afectadas.
 - **Tareas ordenadas:** pequeñas, verificables y marcadas para TDD cuando
   corresponda.
 - **Validación:** evidencia requerida y ciclo de vida de tests nuevos.

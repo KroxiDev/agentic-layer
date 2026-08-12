@@ -69,7 +69,8 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 │   ├── VERSION                  # generado en la adopción, no distribuido
 │   ├── policies/
 │   │   ├── orquestacion.md      # precedencia, preflight, modos, delegación
-│   │   └── sdd-tdd.md           # SDD proporcional y vocabulario de diseño
+│   │   ├── regla-de-oro.md       # regla transversal para código y pruebas
+│   │   └── sdd-tdd.md            # SDD proporcional y vocabulario de diseño
 │   ├── roles/                   # seis roles: entradas, proceso, salida, límites
 │   │   ├── explorador.md
 │   │   ├── planificador.md
@@ -77,6 +78,8 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 │   │   ├── tester.md
 │   │   ├── evaluador.md
 │   │   └── documentador.md
+│   ├── scripts/
+│   │   └── session-controller.mjs # ciclo portable de sesiones
 │   ├── workflows/
 │   │   ├── feature.md
 │   │   ├── bugfix.md
@@ -90,7 +93,8 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 │   │       ├── SKILL.md
 │   │       └── references/      # contrato HITL + esqueletos sh y ps1
 │   ├── templates/
-│   │   └── dev-session.md       # estado efímero de una tarea
+│   │   ├── dev-session.md       # estado global de una tarea
+│   │   └── subdev-session.md    # sobre efímero por fase e intento
 │   └── sessions/
 │       └── gitignore.asset      # se instala como .gitignore
 ├── .codex/agents/               # ADAPTER — seis TOML
@@ -104,11 +108,12 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 
 | Parte | Responsabilidad | Profundidad |
 | --- | --- | --- |
-| `.agents/policies/` | Precedencia, preflight, modos, delegación aislada, cierre | Profundo: gobierna todo el proceso |
+| `.agents/policies/` | Orquestación, SDD/TDD y Regla de Oro para código y pruebas | Profundo: gobierna todo el proceso |
 | `.agents/roles/` | Seis contratos de salida con límites explícitos | Profundo: cada rol oculta su método |
+| `.agents/scripts/session-controller.mjs` | Transiciones, locks, recuperación, acuses y limpieza de sesiones | Profundo: una CLI portable y transaccional |
 | `.agents/workflows/` | Orden de fases por intención | Delgado: sólo secuencia |
 | `.agents/skills/` | Procedimientos invocables (grilling, TDD, diagnóstico) | Profundo: disciplina completa por archivo |
-| `.agents/templates/` | Formato del único traspaso de estado | Delgado: estructura |
+| `.agents/templates/` | Formato de la DevSession global y de los sobres efímeros | Delgado: estructura |
 | `AGENTS.md` | Seam de configuración: hechos y restricciones del proyecto | Interface mínima de toda la capa |
 | `.codex/agents/*.toml` | Nombre, descripción, sandbox y puntero al rol canónico | Delgado por diseño |
 | `.claude/agents/*.md` | Frontmatter de herramientas y permisos, y puntero al rol | Delgado por diseño |
@@ -174,12 +179,12 @@ flowchart LR
     triv -->|sí| direct["resolver sin pipeline"]
     triv -->|no| pre["preflight:<br/>CodeGraph · Engram ·<br/>subagentes · contrato"]
     pre -->|falla| stop["detenerse con<br/>diagnóstico breve"]
-    pre -->|pasa| sess["crear DevSession"]
+    pre -->|pasa| sess["crear o adoptar DevSession<br/>con el controlador"]
     sess --> wf["seleccionar workflow y modo"]
-    wf --> fases["delegar cada fase a un<br/>rol en contexto aislado"]
+    wf --> fases["abrir sobre y delegar cada fase<br/>a un rol en contexto aislado"]
     fases --> eval{"veredicto"}
     eval -->|cambios requeridos| fases
-    eval -->|aprobado| close["cerrar: limpiar tests temporales,<br/>documentar, consolidar Engram,<br/>eliminar DevSession"]
+    eval -->|aprobado| close["cerrar: documentar, consolidar Engram<br/>y ejecutar cleanup + close"]
 ```
 
 El ciclo Evaluador → Implementador admite **dos** retrabajos como máximo; si el
@@ -223,6 +228,9 @@ conserva literalmente todo lo que haya antes y después:
 
 ```markdown
 <!-- AGENTIC_PROJECT_CONTRACT_START -->
+
+## Desarrollo
+- Activación de la Regla de Oro para cambios de código o pruebas
 
 ## Proyecto
 - Propósito / Arquitectura / Entrypoints

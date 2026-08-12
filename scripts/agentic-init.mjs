@@ -22,10 +22,15 @@ import { fileURLToPath } from "node:url";
 const CONTRACT_START = "<!-- AGENTIC_PROJECT_CONTRACT_START -->";
 const CONTRACT_END = "<!-- AGENTIC_PROJECT_CONTRACT_END -->";
 const GENERATED_CONTRACT_MARKER = "<!-- AGENTIC_PROJECT_CONTRACT_GENERATED -->";
+const GOLDEN_RULE_POLICY = ".agents/policies/regla-de-oro.md";
+const GOLDEN_RULE_DEVELOPMENT = `## Desarrollo
+
+- Antes de agregar o modificar código o pruebas, leer y aplicar \`${GOLDEN_RULE_POLICY}\`, tanto en tareas directas como orquestadas.`;
 const SOURCE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TEMPLATE_FILES = [
   ".agents/README.md",
   ".agents/policies/orquestacion.md",
+  GOLDEN_RULE_POLICY,
   ".agents/policies/sdd-tdd.md",
   ".agents/roles/documentador.md",
   ".agents/roles/evaluador.md",
@@ -33,6 +38,7 @@ const TEMPLATE_FILES = [
   ".agents/roles/implementador.md",
   ".agents/roles/planificador.md",
   ".agents/roles/tester.md",
+  ".agents/scripts/session-controller.mjs",
   ".agents/sessions/.gitignore",
   ".agents/skills/agentic-diagnostico-bugs/SKILL.md",
   ".agents/skills/agentic-diagnostico-bugs/references/hitl-loop.template.md",
@@ -42,6 +48,7 @@ const TEMPLATE_FILES = [
   ".agents/skills/agentic-tdd/SKILL.md",
   ".agents/skills/orquestar/SKILL.md",
   ".agents/templates/dev-session.md",
+  ".agents/templates/subdev-session.md",
   ".agents/workflows/architecture.md",
   ".agents/workflows/bugfix.md",
   ".agents/workflows/feature.md",
@@ -108,6 +115,7 @@ const LAYER_MARKERS = [
 const MANAGED_DIRECTORIES = [
   ".agents/policies",
   ".agents/roles",
+  ".agents/scripts",
   ".agents/skills",
   ".agents/templates",
   ".agents/workflows",
@@ -781,6 +789,8 @@ function renderContract(project, existingFields = new Map()) {
   return `${CONTRACT_START}
 ${GENERATED_CONTRACT_MARKER}
 
+${GOLDEN_RULE_DEVELOPMENT}
+
 ## Proyecto
 
 - Propósito: ${contractValue(existingFields, "purpose", project.purpose)}
@@ -1207,6 +1217,9 @@ async function packageManifestErrors() {
 async function validateTemplateDistribution() {
   const errors = [];
 
+  if (!TEMPLATE_FILES.includes(GOLDEN_RULE_POLICY)) {
+    errors.push(`El inventario de plantilla omite ${GOLDEN_RULE_POLICY}.`);
+  }
   if (new Set(PACKAGE_FILES).size !== PACKAGE_FILES.length) {
     errors.push("El inventario de distribución contiene rutas duplicadas.");
   }
@@ -1245,18 +1258,12 @@ async function validateTemplateDistribution() {
   }
   errors.push(...(await packageManifestErrors()));
 
-  const sessions = await readdir(join(SOURCE_ROOT, ".agents", "sessions"));
-  const unexpectedSessions = sessions.filter((name) => name !== "gitignore.asset");
-  if (unexpectedSessions.length) {
-    errors.push(
-      `.agents/sessions contiene estado efímero distribuible: ${unexpectedSessions.join(", ")}.`,
-    );
-  }
-
-  const [sessionsIgnore, devSession, rootAgents] = await Promise.all([
+  const [sessionsIgnore, devSession, subdevSession, rootAgents, orchestration] = await Promise.all([
     readFile(templateSourcePath(".agents/sessions/.gitignore"), "utf8"),
     readFile(join(SOURCE_ROOT, ".agents", "templates", "dev-session.md"), "utf8"),
+    readFile(join(SOURCE_ROOT, ".agents", "templates", "subdev-session.md"), "utf8"),
     readFile(join(SOURCE_ROOT, "AGENTS.md"), "utf8"),
+    readFile(join(SOURCE_ROOT, ".agents", "policies", "orquestacion.md"), "utf8"),
   ]);
   for (const relativePath of PACKAGE_FILES) {
     if (/(^|\/)\.(?:git|npm)ignore$/.test(relativePath)) {
@@ -1268,6 +1275,17 @@ async function validateTemplateDistribution() {
   }
   if (!/^- Contaminación de origen:/m.test(rootAgents)) {
     errors.push("El contrato raíz no declara Contaminación de origen.");
+  }
+  if (!rootAgents.includes(GOLDEN_RULE_DEVELOPMENT)) {
+    errors.push("AGENTS.md no activa la Regla de Oro para tareas directas y orquestadas.");
+  }
+  if (
+    !orchestration.includes(`- \`${GOLDEN_RULE_POLICY}\``) ||
+    !orchestration.includes(
+      "Consumidores obligatorios: Planificador, Implementador, Tester y Evaluador.",
+    )
+  ) {
+    errors.push("orquestacion.md no registra los consumidores obligatorios de la Regla de Oro.");
   }
 
   const devSessionFields = [
@@ -1289,13 +1307,34 @@ async function validateTemplateDistribution() {
   for (const field of devSessionFields) {
     if (!devSession.includes(field)) errors.push(`DevSession no contiene: ${field}`);
   }
+  for (const field of [
+    "DevSession global:",
+    "Fase:",
+    "Rol:",
+    "Intento:",
+    "## Contrato de salida esperado",
+    "## Reporte contractual producido",
+    "## Estado de consolidación en la DevSession global",
+  ]) {
+    if (!subdevSession.includes(field)) errors.push(`SubDevSession no contiene: ${field}`);
+  }
+  if (!orchestration.includes(".agents/scripts/session-controller.mjs")) {
+    errors.push("orquestacion.md no referencia el controlador canónico de sesiones.");
+  }
 
+  const goldenRuleConsumers = new Set(["planificador", "implementador", "tester", "evaluador"]);
   for (const role of ROLE_NAMES) {
     const content = await readFile(join(SOURCE_ROOT, ".agents", "roles", `${role}.md`), "utf8");
     for (const heading of ["Entradas", "Proceso", "Salida", "Límites"]) {
       if (!new RegExp(`^## ${heading}$`, "m").test(content)) {
         errors.push(`.agents/roles/${role}.md no contiene la sección ${heading}.`);
       }
+    }
+    if (
+      goldenRuleConsumers.has(role) &&
+      !content.includes(`\`${GOLDEN_RULE_POLICY}\``)
+    ) {
+      errors.push(`.agents/roles/${role}.md no consume ${GOLDEN_RULE_POLICY}.`);
     }
   }
 

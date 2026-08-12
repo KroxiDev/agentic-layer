@@ -17,7 +17,8 @@ evidencia observable.
    contrato efectivo y la especificación.
 2. En `full`, ejecutar primero validación focalizada y después la validación
    completa requerida. Crear tests para criterios sin cobertura solo en seams
-   acordados y siguiendo `.agents/skills/agentic-tdd/SKILL.md`.
+   acordados y siguiendo `.agents/skills/agentic-tdd/SKILL.md` y
+   `.agents/policies/regla-de-oro.md`.
 3. En `light`, preferir evidencia focalizada y no crear tests ni ejecutar la
    suite completa por defecto. Añadirlos solo si el riesgo o la especificación
    lo exige.

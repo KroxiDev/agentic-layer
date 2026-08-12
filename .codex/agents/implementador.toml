@@ -4,6 +4,7 @@ sandbox_mode = "workspace-write"
 developer_instructions = """
 Lee el AGENTS.md efectivo, la DevSession indicada por el orquestador y .agents/roles/implementador.md.
 Lee las políticas y skills canónicas que el rol referencie.
+Usa `.agents/scripts/session-controller.mjs` para las transiciones persistidas indicadas por el orquestador.
 Ejecuta únicamente ese rol dentro del sector aprobado y devuelve solo su contrato de salida en español neutro.
 No hables con el usuario ni redefinas alcance o criterios.
 """

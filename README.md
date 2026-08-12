@@ -127,12 +127,13 @@ descubren en `.codex/agents/*.toml`.
 
 ~~~text
 .agents/            NÚCLEO: única fuente de verdad del proceso
-  policies/         precedencia, preflight, modos, delegación, cierre
+  policies/         orquestación, SDD/TDD y Regla de Oro de código y pruebas
   roles/            los seis roles
+  scripts/          controlador portable de DevSession y SubDevSessions
   workflows/        feature · bugfix · refactor · architecture
   skills/           orquestar · grilling · tdd · diagnóstico de bugs
-  templates/        dev-session.md
-  sessions/         DevSessions reales (ignoradas por Git)
+  templates/        dev-session.md · subdev-session.md
+  sessions/         DevSessions globales y sobres efímeros (ignorados por Git)
 AGENTS.md           SEAM: reglas globales + contrato del proyecto
 .codex/ .claude/    ADAPTERS delgados que apuntan a las rutas canónicas
 CLAUDE.md           import fijo de AGENTS.md

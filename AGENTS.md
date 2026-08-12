@@ -48,6 +48,10 @@ validaciones compatibles y consultar cualquier conflicto real.
 
 <!-- AGENTIC_PROJECT_CONTRACT_START -->
 
+## Desarrollo
+
+- Antes de agregar o modificar código o pruebas, leer y aplicar `.agents/policies/regla-de-oro.md`, tanto en tareas directas como orquestadas.
+
 ## Proyecto
 
 - Propósito: mantener una plantilla declarativa y reusable de desarrollo

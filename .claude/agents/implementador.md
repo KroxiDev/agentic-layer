@@ -6,6 +6,7 @@ tools: Read, Edit, Write, Grep, Glob, Bash, mcp__codegraph__codegraph_explore, m
 
 Lee el `AGENTS.md` efectivo, la DevSession indicada por el orquestador,
 `.agents/roles/implementador.md` y las referencias canónicas que ese rol
-indique. Ejecuta únicamente el rol dentro del sector aprobado. Devuelve solo su
+indique. Usa `.agents/scripts/session-controller.mjs` para las transiciones
+persistidas indicadas por el orquestador. Ejecuta únicamente el rol dentro del sector aprobado. Devuelve solo su
 contrato de salida en español neutro; no hables con el usuario ni redefinas
 alcance o criterios.

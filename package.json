@@ -34,6 +34,7 @@
   "files": [
     ".agents/README.md",
     ".agents/policies/orquestacion.md",
+    ".agents/policies/regla-de-oro.md",
     ".agents/policies/sdd-tdd.md",
     ".agents/roles/documentador.md",
     ".agents/roles/evaluador.md",
@@ -41,6 +42,7 @@
     ".agents/roles/implementador.md",
     ".agents/roles/planificador.md",
     ".agents/roles/tester.md",
+    ".agents/scripts/session-controller.mjs",
     ".agents/sessions/gitignore.asset",
     ".agents/skills/agentic-diagnostico-bugs/SKILL.md",
     ".agents/skills/agentic-diagnostico-bugs/references/hitl-loop.template.md",
@@ -50,6 +52,7 @@
     ".agents/skills/agentic-tdd/SKILL.md",
     ".agents/skills/orquestar/SKILL.md",
     ".agents/templates/dev-session.md",
+    ".agents/templates/subdev-session.md",
     ".agents/workflows/architecture.md",
     ".agents/workflows/bugfix.md",
     ".agents/workflows/feature.md",
