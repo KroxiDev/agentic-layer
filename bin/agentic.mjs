@@ -6,6 +6,7 @@ const USAGE = `Uso: agentic <subcomando> [opciones]
 
 Subcomandos:
   init [destino]        Adopta la capa agéntica en el destino indicado.
+  update [destino]      Actualiza de forma recuperable una capa existente.
 
 Opciones globales:
   -v, --version         Muestra la versión de la distribución.
@@ -13,6 +14,7 @@ Opciones globales:
 
 Ejemplos:
   npx --yes github:KroxiDev/agentic-layer init .
+  npx --yes github:KroxiDev/agentic-layer update .
   npx --yes github:KroxiDev/agentic-layer init . --dry-run
   agentic init . --yes
   agentic init . --yes --purpose "<propósito>" --git-strategy "<estrategia>"`;
@@ -20,16 +22,18 @@ Ejemplos:
 const argv = process.argv.slice(2);
 const [subcommand, ...rest] = argv;
 
-if (subcommand === "init") {
-  await runCli(rest, "agentic init");
+if (subcommand === "init" || subcommand === "update") {
+  await runCli(rest, `agentic ${subcommand}`, subcommand);
 } else if (subcommand === "--version" || subcommand === "-v") {
   console.log(await readDistributionVersion());
 } else if (subcommand === "--help" || subcommand === "-h") {
   console.log(USAGE);
   console.log("");
   printHelp("agentic init");
+  console.log("");
+  printHelp("agentic update", "update");
 } else if (!subcommand) {
-  console.error("ERROR: falta un subcomando. Use `agentic init [destino]`.");
+  console.error("ERROR: falta un subcomando. Use `agentic init [destino]` o `agentic update [destino]`.");
   console.error(USAGE);
   process.exitCode = 1;
 } else {

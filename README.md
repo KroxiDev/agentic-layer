@@ -24,6 +24,30 @@ Como alternativa, **Use this template** en GitHub y luego
 adoptante es el mismo; la copia completa incluye además `tests/` y la
 documentación interna, que el paquete no distribuye.
 
+## Actualizar una capa existente
+
+Desde la raíz de un proyecto que ya tenga la capa, ejecutar:
+
+~~~text
+npx --yes github:KroxiDev/agentic-layer update .
+~~~
+
+`update` detecta instalaciones con o sin `.agents/VERSION`, muestra cada copia,
+reemplazo y residuo antes de escribir, migra el contrato de `AGENTS.md` sin
+perder sus hechos explícitos y aplica la capa como una transacción recuperable.
+Los adapters y archivos canónicos se reparan aunque la versión ya coincida;
+las DevSessions y los archivos ajenos se conservan. Una versión instalada más
+nueva se bloquea salvo autorización expresa con `--allow-downgrade`.
+
+La configuración de Codex es una operación opcional posterior. Para recomendar
+9 subagentes concurrentes se puede elegir `--codex-config global`, `local` o
+`none`; `--yes` por sí solo nunca autoriza esa escritura. La configuración local
+prevalece sobre la global y un valor efectivo de 9 o más no se reduce ni se
+reescribe. Si el TOML es ambiguo o contiene strings multilínea, queda pendiente
+de edición manual y se conserva byte a byte. Las escrituras autorizadas son
+atómicas y revalidan los ancestros no-follow antes del temporal y de la mutación
+final.
+
 ### Opciones
 
 | Opción | Efecto |
@@ -32,6 +56,8 @@ documentación interna, que el paquete no distribuye.
 | `--dry-run` | Calcula el plan completo y no escribe nada |
 | `-y`, `--yes` | Omite la confirmación previa a escribir |
 | `--force` | Reemplaza una capa instalada y borra sus residuos |
+| `--allow-downgrade` | Solo en `update`: autoriza instalar una versión anterior a la declarada |
+| `--codex-config global\|local\|none` | Solo en `update`: decide explícitamente si configurar 9 subagentes en Codex |
 | `--purpose <texto>` | Declara el propósito en vez de dejarlo pendiente |
 | `--git-strategy <texto>` | Declara la estrategia Git en vez de dejarla pendiente |
 | `--init-codegraph` | Confirma explícitamente `codegraph init` en el destino |
@@ -137,7 +163,7 @@ descubren en `.codex/agents/*.toml`.
 AGENTS.md           SEAM: reglas globales + contrato del proyecto
 .codex/ .claude/    ADAPTERS delgados que apuntan a las rutas canónicas
 CLAUDE.md           import fijo de AGENTS.md
-bin/ scripts/       ejecutable `agentic` e inicializador sin dependencias
+bin/ scripts/       ejecutable `agentic` y motor de init/update sin dependencias
 tests/              especificación ejecutable de la CLI
 ~~~
 
@@ -154,6 +180,9 @@ distribución están en [docs/arquitectura.md](docs/arquitectura.md).
 | `REQUISITOS FALTANTES: CodeGraph`, salida `4` | Falta el ejecutable o el índice del repositorio | Instalar `codegraph` y ejecutar `codegraph init`, o repetir con `--init-codegraph` |
 | `REQUISITOS FALTANTES: Engram`, salida `4` | Falta el ejecutable o no identifica el proyecto | Instalar `engram` y registrarlo en el host de agentes |
 | `marcadores contractuales incompletos o duplicados`, salida `2` | `AGENTS.md` tiene los marcadores del contrato duplicados o a medias | Dejar un solo par `..._START` / `..._END`; el archivo no se modifica |
+| `No se detectó una capa agéntica existente`, salida `2` | Se ejecutó `update` sobre un proyecto sin capa | Usar `agentic init [destino]` |
+| Versión posterior o `.agents/VERSION` inválido, salida `2` | El downgrade no fue autorizado o la marca no es SemVer válida | Revisar la versión; usar `--allow-downgrade` solo si se desea bajar explícitamente |
+| `edición manual` para Codex | El TOML, su codificación o su ruta no pueden editarse de forma conservadora | Editar la ruta informada; la actualización de la capa ya quedó aplicada |
 | `cambió después del plan`, salida `2` | Un editor u otro proceso escribió durante la ejecución | Cerrar lo que esté escribiendo y repetir |
 | Error de destino, salida `1` | El destino es la raíz del sistema, el directorio personal, o su ancestro es un enlace simbólico | Elegir otro destino |
 | Una tarea orquestada se detiene por contrato incompleto | Quedan campos pendientes en `AGENTS.md` | Completarlos con la skill `agentic-grilling`, que es donde hay contexto para decidirlos |

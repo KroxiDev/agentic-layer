@@ -1,7 +1,17 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { afterEach, test } from "node:test";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  symlink,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { existsSync, watch } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -96,6 +106,14 @@ function runExecutable(...arguments_) {
     cwd: ROOT,
     encoding: "utf8",
     env: { ...process.env, PATH: "" },
+  });
+}
+
+function runExecutableWithEnvironment(environment, ...arguments_) {
+  return spawnSync(process.execPath, [BIN, ...arguments_], {
+    cwd: ROOT,
+    encoding: "utf8",
+    env: { ...process.env, PATH: "", ...environment },
   });
 }
 
@@ -836,6 +854,1036 @@ test("el ejecutable expone versión, ayuda y falla ante un subcomando inválido"
   const unknown = runExecutable("instalar", ".");
   assert.equal(unknown.status, 1);
   assert.match(unknown.stderr, /subcomando desconocido/i);
+});
+
+test("agentic update se enruta y exige una capa existente antes de escribir", async () => {
+  const repository = await createRepository({ "README.md": "# Proyecto sin capa\n" });
+  const codexHome = await createRepository();
+  const before = await snapshotDirectory(repository);
+
+  const help = runExecutable("--help");
+  assert.equal(help.status, 0, help.stderr);
+  assert.match(help.stdout, /agentic update \[destino\]/);
+
+  const result = runExecutableWithEnvironment(
+    { CODEX_HOME: codexHome },
+    "update",
+    repository,
+    "--yes",
+    "--codex-config",
+    "none",
+  );
+
+  assert.equal(result.status, 2, result.stderr || result.stdout);
+  assert.match(result.stderr, /agentic init \[destino\]/);
+  assert.deepEqual(await snapshotDirectory(repository), before);
+});
+
+test("update clasifica SemVer, bloquea una versión posterior y permite downgrade explícito", async () => {
+  const repository = await createRepository({
+    "package.json": JSON.stringify({
+      name: "versiones-de-capa",
+      description: "Comprueba la política SemVer del actualizador.",
+    }),
+  });
+  const codexHome = await createRepository();
+  assert.equal(runInitializer(repository).status, SIN_HERRAMIENTAS);
+  await writeFile(join(repository, ".agents", "VERSION"), "999.0.0\n", "utf8");
+  const policy = join(repository, ".agents", "policies", "orquestacion.md");
+  await writeFile(policy, "divergente\n", "utf8");
+
+  const blocked = runExecutableWithEnvironment(
+    { CODEX_HOME: codexHome },
+    "update",
+    repository,
+    "--yes",
+    "--codex-config",
+    "none",
+  );
+  assert.equal(blocked.status, 2, blocked.stderr || blocked.stdout);
+  assert.match(blocked.stderr, /versión posterior|downgrade/i);
+  assert.equal(await readFile(policy, "utf8"), "divergente\n");
+
+  const allowed = runExecutableWithEnvironment(
+    { CODEX_HOME: codexHome },
+    "update",
+    repository,
+    "--yes",
+    "--allow-downgrade",
+    "--codex-config",
+    "none",
+  );
+  assert.equal(allowed.status, SIN_HERRAMIENTAS, allowed.stderr || allowed.stdout);
+  assert.match(allowed.stdout, /posterior.*downgrade autorizado/i);
+  assert.notEqual(await readFile(policy, "utf8"), "divergente\n");
+  const manifest = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8"));
+  assert.equal((await readFile(join(repository, ".agents", "VERSION"), "utf8")).trim(), manifest.version);
+});
+
+test("update incorpora el inventario actual a una capa legacy y repara la misma versión", async () => {
+  const repository = await createRepository({
+    ".agents/policies/orquestacion.md": "política legacy\n",
+    "AGENTS.md": "# Reglas heredadas\r\n\r\nConservar esta prosa.\r\n",
+    "README.md": "# Capa legacy\n\nProyecto con una capa anterior sin VERSION.\n",
+  });
+  const codexHome = await createRepository();
+
+  const legacy = runExecutableWithEnvironment(
+    { CODEX_HOME: codexHome },
+    "update",
+    repository,
+    "--yes",
+    "--codex-config",
+    "none",
+  );
+  assert.equal(legacy.status, SIN_HERRAMIENTAS, legacy.stderr || legacy.stdout);
+  assert.match(legacy.stdout, /legacy-sin-version/);
+  assert.equal(existsSync(join(repository, ".agents", "skills", "agentic-tdd", "SKILL.md")), true);
+  assert.match(await readFile(join(repository, "AGENTS.md"), "utf8"), /^# Reglas heredadas\r\n\r\nConservar esta prosa\.\r\n/);
+
+  const missing = join(repository, ".claude", "agents", "tester.md");
+  await rm(missing);
+  const repaired = runExecutableWithEnvironment(
+    { CODEX_HOME: codexHome },
+    "update",
+    repository,
+    "--yes",
+    "--codex-config",
+    "none",
+  );
+  assert.equal(repaired.status, SIN_HERRAMIENTAS, repaired.stderr || repaired.stdout);
+  assert.match(repaired.stdout, /igual/);
+  assert.equal(existsSync(missing), true);
+});
+
+test("update anterior aplica residuos administrados y conserva DevSessions y archivos ajenos", async () => {
+  const repository = await createRepository({
+    "package.json": JSON.stringify({
+      name: "actualización-anterior",
+      description: "Comprueba reemplazo y límites de administración.",
+    }),
+  });
+  const codexHome = await createRepository();
+  assert.equal(runInitializer(repository).status, SIN_HERRAMIENTAS);
+  await writeFile(join(repository, ".agents", "VERSION"), "0.0.0\n", "utf8");
+  await writeFile(
+    join(repository, ".agents", "policies", "orquestacion.md"),
+    "versión anterior\n",
+    "utf8",
+  );
+  await mkdir(join(repository, ".agents", "skills", "retirada"), { recursive: true });
+  await writeFile(
+    join(repository, ".agents", "skills", "retirada", "SKILL.md"),
+    "residuo administrado\n",
+    "utf8",
+  );
+  await writeFile(
+    join(repository, ".agents", "sessions", "tarea-en-curso.md"),
+    "# DevSession real\n",
+    "utf8",
+  );
+  await writeFile(join(repository, ".agents", "notas-locales.md"), "conservar\n", "utf8");
+  await writeFile(join(repository, ".claude", "settings.local.json"), "{}\n", "utf8");
+
+  const result = runExecutableWithEnvironment(
+    { CODEX_HOME: codexHome },
+    "update",
+    repository,
+    "--yes",
+    "--codex-config",
+    "none",
+  );
+
+  assert.equal(result.status, SIN_HERRAMIENTAS, result.stderr || result.stdout);
+  assert.match(result.stdout, /distribución actual.*\(anterior\)/i);
+  assert.equal(
+    await readFile(join(repository, ".agents", "policies", "orquestacion.md"), "utf8"),
+    await readFile(join(ROOT, ".agents", "policies", "orquestacion.md"), "utf8"),
+  );
+  assert.equal(existsSync(join(repository, ".agents", "skills", "retirada")), false);
+  assert.equal(
+    await readFile(join(repository, ".agents", "sessions", "tarea-en-curso.md"), "utf8"),
+    "# DevSession real\n",
+  );
+  assert.equal(await readFile(join(repository, ".agents", "notas-locales.md"), "utf8"), "conservar\n");
+  assert.equal(await readFile(join(repository, ".claude", "settings.local.json"), "utf8"), "{}\n");
+  const manifest = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8"));
+  assert.equal((await readFile(join(repository, ".agents", "VERSION"), "utf8")).trim(), manifest.version);
+});
+
+test("update migra aliases contractuales a IDs estables y conserva exterior y hechos", async () => {
+  const prefix = "# Reglas del propietario\r\n\r\nNo tocar `datos/`.\r\n\r\n";
+  const suffix = "\r\n\r\n## Regla posterior\r\n\r\nTambién se conserva.\r\n";
+  const legacyContract = `<!-- AGENTIC_PROJECT_CONTRACT_START -->\r
+\r
+## Proyecto\r
+\r
+- Proposito: Procesar informes privados.\r
+- Arquitectura: núcleo local y adapter CLI.\r
+- Entrypoints: \`src/main.mjs\`.\r
+\r
+## Validación\r
+\r
+- Focalizada: ejecutar la prueba relacionada.\r
+- Completa: ejecutar toda la suite.\r
+\r
+## Tests\r
+\r
+- Framework: \`node:test\`.\r
+- Ubicacion: \`tests/\`.\r
+- Ciclo de vida: conservar regresiones permanentes.\r
+\r
+## Git\r
+\r
+- Estrategia permitida: trabajar en main local.\r
+\r
+## Seguridad\r
+\r
+- Secretos: no almacenar secretos.\r
+- Rutas protegidas: \`.git/\`.\r
+- Datos inmutables: No aplica.\r
+- Acciones restringidas: no publicar.\r
+- Contaminacion de origen: No aplica; fuente propia.\r
+\r
+## Documentación\r
+\r
+- README y documentacion tecnica: mantener \`README.md\`.\r
+- ADRs: usar \`docs/adr/\`.\r
+\r
+<!-- AGENTIC_PROJECT_CONTRACT_END -->`;
+  const repository = await createRepository({
+    ".agents/policies/orquestacion.md": "legacy\n",
+    "AGENTS.md": `${prefix}${legacyContract}${suffix}`,
+  });
+  const codexHome = await createRepository();
+
+  const result = runExecutableWithEnvironment(
+    { CODEX_HOME: codexHome },
+    "update",
+    repository,
+    "--yes",
+    "--codex-config",
+    "none",
+  );
+
+  assert.equal(result.status, SIN_HERRAMIENTAS, result.stderr || result.stdout);
+  const agents = await readFile(join(repository, "AGENTS.md"), "utf8");
+  assert.equal(agents.startsWith(prefix), true);
+  assert.equal(agents.endsWith(suffix), true);
+  for (const fact of [
+    "Propósito: Procesar informes privados.",
+    "Arquitectura: núcleo local y adapter CLI.",
+    "Entrypoints: `src/main.mjs`.",
+    "Focalizada: ejecutar la prueba relacionada.",
+    "Completa: ejecutar toda la suite.",
+    "Framework: `node:test`.",
+    "Ubicación: `tests/`.",
+    "Ciclo de vida: conservar regresiones permanentes.",
+    "Rama o estrategia permitida: trabajar en main local.",
+    "Secretos: no almacenar secretos.",
+    "Rutas protegidas: `.git/`.",
+    "Datos inmutables: No aplica.",
+    "Acciones restringidas: no publicar.",
+    "Contaminación de origen: No aplica; fuente propia.",
+    "README y documentación técnica: mantener `README.md`.",
+    "ADRs: usar `docs/adr/`.",
+  ]) {
+    assert.ok(agents.includes(fact), `Debe preservar el hecho contractual: ${fact}`);
+  }
+  assert.equal(agents.match(/<!-- agentic-contract-field:v1 [a-z][A-Za-z]+ -->/g)?.length, 16);
+  assert.equal(agents.replaceAll("\r\n", "").includes("\n"), false);
+});
+
+test("update reemplaza valores pendientes antiguos y agrega todos los campos contractuales nuevos", async () => {
+  const repository = await createRepository({
+    ".agents/policies/orquestacion.md": "legacy\n",
+    "package.json": JSON.stringify({
+      name: "contrato-pendiente",
+      description: "Propósito detectado vigente.",
+    }),
+    "AGENTS.md": `# Reglas heredadas
+
+<!-- AGENTIC_PROJECT_CONTRACT_START -->
+
+## Proyecto
+
+- Proposito: <pendiente: completar propósito>
+- Arquitectura: arquitectura explícita conservada.
+
+<!-- AGENTIC_PROJECT_CONTRACT_END -->
+`,
+  });
+  const codexHome = await createRepository();
+
+  const result = runExecutableWithEnvironment(
+    { CODEX_HOME: codexHome },
+    "update",
+    repository,
+    "--yes",
+    "--codex-config",
+    "none",
+  );
+
+  assert.equal(result.status, SIN_HERRAMIENTAS, result.stderr || result.stdout);
+  const agents = await readFile(join(repository, "AGENTS.md"), "utf8");
+  assert.match(agents, /- Propósito: Propósito detectado vigente\./);
+  assert.match(agents, /- Arquitectura: arquitectura explícita conservada\./);
+  assert.equal(agents.match(/<!-- agentic-contract-field:v1 [a-z][A-Za-z]+ -->/g)?.length, 16);
+  assert.doesNotMatch(agents, /completar propósito/);
+});
+
+test("update rechaza VERSION inválido antes de cualquier escritura", async () => {
+  const repository = await createRepository({
+    ".agents/policies/orquestacion.md": "legacy\n",
+    ".agents/VERSION": "1.02.3\n",
+    "AGENTS.md": "# Reglas intactas\n",
+  });
+  const codexHome = await createRepository();
+  const before = await snapshotDirectory(repository);
+
+  const result = runExecutableWithEnvironment(
+    { CODEX_HOME: codexHome },
+    "update",
+    repository,
+    "--yes",
+    "--codex-config",
+    "none",
+  );
+
+  assert.equal(result.status, 2, result.stderr || result.stdout);
+  assert.match(result.stderr, /SemVer válido/);
+  assert.deepEqual(await snapshotDirectory(repository), before);
+});
+
+test("update preserva exactamente autolinks y valores contractuales legítimos con ángulos", async () => {
+  const purpose = "<https://ejemplo.test/documentación?idioma=es>";
+  const architecture = "Transforma <entrada> en <salida> mediante un pipeline local.";
+  const repository = await createRepository({
+    ".agents/policies/orquestacion.md": "legacy\n",
+    "package.json": JSON.stringify({
+      name: "contrato-con-autolink",
+      description: "Este fallback no debe sustituir hechos explícitos.",
+    }),
+    "AGENTS.md": `# Reglas heredadas
+
+<!-- AGENTIC_PROJECT_CONTRACT_START -->
+
+## Proyecto
+
+- Propósito: ${purpose}
+- Arquitectura: ${architecture}
+
+<!-- AGENTIC_PROJECT_CONTRACT_END -->
+`,
+  });
+  const codexHome = await createRepository();
+
+  const result = runExecutableWithEnvironment(
+    { CODEX_HOME: codexHome },
+    "update",
+    repository,
+    "--yes",
+    "--codex-config",
+    "none",
+  );
+
+  assert.equal(result.status, SIN_HERRAMIENTAS, result.stderr || result.stdout);
+  const agents = await readFile(join(repository, "AGENTS.md"), "utf8");
+  assert.equal(agents.match(/^- Propósito: (.*)$/m)?.[1], purpose);
+  assert.equal(agents.match(/^- Arquitectura: (.*)$/m)?.[1], architecture);
+});
+
+test("update rechaza marcadores contractuales incompletos sin modificar el destino", async () => {
+  const repository = await createRepository({
+    ".agents/policies/orquestacion.md": "legacy\n",
+    "AGENTS.md": `# Reglas intactas
+
+<!-- AGENTIC_PROJECT_CONTRACT_START -->
+
+## Proyecto
+
+- Propósito: contrato truncado.
+`,
+  });
+  const codexHome = await createRepository();
+  const before = await snapshotDirectory(repository);
+
+  const result = runExecutableWithEnvironment(
+    { CODEX_HOME: codexHome },
+    "update",
+    repository,
+    "--yes",
+    "--codex-config",
+    "none",
+  );
+
+  assert.equal(result.status, 2, result.stderr || result.stdout);
+  assert.match(result.stderr, /marcadores contractuales incompletos o duplicados/i);
+  assert.deepEqual(await snapshotDirectory(repository), before);
+});
+
+test("update bloquea campos contractuales no mapeables sin modificar el destino", async () => {
+  const repository = await createRepository({
+    ".agents/policies/orquestacion.md": "legacy\n",
+    "AGENTS.md": `# Reglas\n\n<!-- AGENTIC_PROJECT_CONTRACT_START -->\n\n## Proyecto\n\n- Propósito: Proyecto legado.\n- Campo retirado: valor que no puede perderse.\n\n<!-- AGENTIC_PROJECT_CONTRACT_END -->\n`,
+  });
+  const codexHome = await createRepository();
+  const before = await snapshotDirectory(repository);
+
+  const result = runExecutableWithEnvironment(
+    { CODEX_HOME: codexHome },
+    "update",
+    repository,
+    "--yes",
+    "--codex-config",
+    "none",
+  );
+
+  assert.equal(result.status, 2, result.stderr || result.stdout);
+  assert.match(result.stderr, /Campo retirado/);
+  assert.match(result.stderr, /no mapeable/i);
+  assert.deepEqual(await snapshotDirectory(repository), before);
+});
+
+test("update bloquea bullets de secciones contractuales históricas que no puede mapear", async () => {
+  const repository = await createRepository({
+    ".agents/policies/orquestacion.md": "legacy\n",
+    "AGENTS.md": `# Reglas\n\n<!-- AGENTIC_PROJECT_CONTRACT_START -->\n\n## Proyecto\n\n- Propósito: Proyecto legado.\n\n## Compatibilidad histórica\n\n- Garantía retirada: conservar este hecho.\n\n<!-- AGENTIC_PROJECT_CONTRACT_END -->\n`,
+  });
+  const codexHome = await createRepository();
+  const before = await snapshotDirectory(repository);
+
+  const result = runExecutableWithEnvironment(
+    { CODEX_HOME: codexHome },
+    "update",
+    repository,
+    "--yes",
+    "--codex-config",
+    "none",
+  );
+
+  assert.equal(result.status, 2, result.stderr || result.stdout);
+  assert.match(result.stderr, /Garantía retirada/);
+  assert.match(result.stderr, /no mapeable/i);
+  assert.deepEqual(await snapshotDirectory(repository), before);
+});
+
+test("update bloquea IDs o marcadores contractuales con versión o sintaxis desconocida", async () => {
+  for (const marker of [
+    "<!-- agentic-contract-field:v1 futureField -->",
+    "<!-- agentic-contract-field:v2 purpose -->",
+    "<!-- agentic-contract-field:v1 purpose extra -->",
+  ]) {
+    const repository = await createRepository({
+      ".agents/policies/orquestacion.md": "legacy\n",
+      "AGENTS.md": `# Reglas\n\n<!-- AGENTIC_PROJECT_CONTRACT_START -->\n\n## Proyecto\n\n${marker}\n- Propósito: Proyecto legado.\n\n<!-- AGENTIC_PROJECT_CONTRACT_END -->\n`,
+    });
+    const codexHome = await createRepository();
+    const before = await snapshotDirectory(repository);
+
+    const result = runExecutableWithEnvironment(
+      { CODEX_HOME: codexHome },
+      "update",
+      repository,
+      "--yes",
+      "--codex-config",
+      "none",
+    );
+
+    assert.equal(result.status, 2, `${marker}\n${result.stderr || result.stdout}`);
+    assert.match(result.stderr, /(?:ID|marcador) contractual.*desconocid/i);
+    assert.deepEqual(await snapshotDirectory(repository), before);
+  }
+});
+
+test("update bloquea enlaces simbólicos residuales en directorios administrados", async () => {
+  const repository = await createRepository({
+    "package.json": JSON.stringify({ name: "residuo-enlace", description: "Comprueba límites." }),
+  });
+  const codexHome = await createRepository();
+  const external = await createRepository({ "SKILL.md": "contenido externo\n" });
+  assert.equal(runInitializer(repository).status, SIN_HERRAMIENTAS);
+  const link = join(repository, ".agents", "skills", "enlace-ajeno");
+  await symlink(external, link, process.platform === "win32" ? "junction" : "dir");
+
+  const result = runExecutableWithEnvironment(
+    { CODEX_HOME: codexHome },
+    "update",
+    repository,
+    "--yes",
+    "--codex-config",
+    "none",
+  );
+
+  assert.equal(result.status, 2, result.stderr || result.stdout);
+  assert.match(result.stderr, /enlace simbólico/i);
+  assert.equal(await readFile(join(external, "SKILL.md"), "utf8"), "contenido externo\n");
+});
+
+test("update dry-run enumera el plan y no escribe en capa ni configuración Codex", async () => {
+  const repository = await createRepository({
+    "package.json": JSON.stringify({ name: "plan-seguro", description: "Prueba vista previa." }),
+  });
+  const codexHome = await createRepository({
+    "config.toml": "# global\n[agents]\nmax_concurrent_threads_per_session = 3\n",
+  });
+  assert.equal(runInitializer(repository).status, SIN_HERRAMIENTAS);
+  await writeFile(join(repository, ".agents", "policies", "orquestacion.md"), "divergente\n", "utf8");
+  await mkdir(join(repository, ".agents", "skills", "retirada"), { recursive: true });
+  await writeFile(join(repository, ".agents", "skills", "retirada", "SKILL.md"), "retirada\n", "utf8");
+  const beforeProject = await snapshotDirectory(repository);
+  const beforeGlobal = await snapshotDirectory(codexHome);
+
+  const choices = runExecutableWithEnvironment(
+    { CODEX_HOME: codexHome },
+    "update",
+    repository,
+    "--dry-run",
+  );
+  assert.equal(choices.status, SIN_HERRAMIENTAS, choices.stderr || choices.stdout);
+  assert.match(choices.stdout, /ofrecer global, local o none/i);
+
+  const result = runExecutableWithEnvironment(
+    { CODEX_HOME: codexHome },
+    "update",
+    repository,
+    "--dry-run",
+    "--codex-config",
+    "global",
+  );
+
+  assert.equal(result.status, SIN_HERRAMIENTAS, result.stderr || result.stdout);
+  assert.match(result.stdout, /PLAN \(sin escrituras\)/);
+  assert.match(result.stdout, /sobrescribir: \.agents\/policies\/orquestacion\.md/);
+  assert.match(result.stdout, /eliminar residuo.*retirada\/SKILL\.md/);
+  assert.match(result.stdout, /configuración global de Codex/i);
+  assert.deepEqual(await snapshotDirectory(repository), beforeProject);
+  assert.deepEqual(await snapshotDirectory(codexHome), beforeGlobal);
+});
+
+test("update sin confirmación general termina cancelado y no escribe", async () => {
+  const repository = await createRepository({
+    "package.json": JSON.stringify({ name: "cancelación", description: "Prueba cancelación." }),
+  });
+  const codexHome = await createRepository();
+  assert.equal(runInitializer(repository).status, SIN_HERRAMIENTAS);
+  await writeFile(join(repository, ".claude", "agents", "tester.md"), "divergente\n", "utf8");
+  const before = await snapshotDirectory(repository);
+
+  const result = runExecutableWithEnvironment(
+    { CODEX_HOME: codexHome },
+    "update",
+    repository,
+    "--codex-config",
+    "none",
+  );
+
+  assert.equal(result.status, 3, result.stderr || result.stdout);
+  assert.match(result.stderr, /Cancelado/);
+  assert.deepEqual(await snapshotDirectory(repository), before);
+});
+
+test("un fallo intermedio de update restaura exactamente la capa y no actualiza VERSION", async () => {
+  const repository = await createRepository({
+    "package.json": JSON.stringify({ name: "rollback", description: "Prueba recuperación." }),
+  });
+  const codexHome = await createRepository();
+  assert.equal(runInitializer(repository).status, SIN_HERRAMIENTAS);
+  await writeFile(join(repository, ".agents", "VERSION"), "0.0.1\n", "utf8");
+  await writeFile(join(repository, ".agents", "policies", "orquestacion.md"), "estado previo\n", "utf8");
+  await rm(join(repository, ".claude", "agents", "tester.md"));
+  await mkdir(join(repository, ".agents", "skills", "residuo"), { recursive: true });
+  await writeFile(join(repository, ".agents", "skills", "residuo", "SKILL.md"), "previo\n", "utf8");
+  const before = await snapshotDirectory(repository);
+
+  const result = runExecutableWithEnvironment(
+    { CODEX_HOME: codexHome, AGENTIC_INIT_TEST_FAIL_AFTER: "2" },
+    "update",
+    repository,
+    "--yes",
+    "--codex-config",
+    "none",
+  );
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stderr, /restauración verificada/i);
+  assert.deepEqual(await snapshotDirectory(repository), before);
+  assert.equal((await readFile(join(repository, ".agents", "VERSION"), "utf8")).trim(), "0.0.1");
+});
+
+test("update aborta si un archivo aparece entre la revalidación global y su creación", async () => {
+  const repository = await createRepository({
+    "package.json": JSON.stringify({ name: "carrera-creación", description: "Prueba carrera." }),
+  });
+  const codexHome = await createRepository();
+  assert.equal(runInitializer(repository).status, SIN_HERRAMIENTAS);
+  const racedPath = join(repository, ".agents", "README.md");
+  await rm(racedPath);
+  const previousVersion = await readFile(join(repository, ".agents", "VERSION"), "utf8");
+
+  const result = runExecutableWithEnvironment(
+    {
+      CODEX_HOME: codexHome,
+      AGENTIC_INIT_TEST_RACE_PATH: ".agents/README.md",
+      AGENTIC_INIT_TEST_RACE_ACTION: "appear",
+    },
+    "update",
+    repository,
+    "--yes",
+    "--codex-config",
+    "none",
+  );
+
+  assert.equal(result.status, 2, result.stderr || result.stdout);
+  assert.match(result.stderr, /apareció después del plan/i);
+  assert.equal(await readFile(racedPath, "utf8"), "contenido aparecido durante la aplicación\n");
+  assert.equal(await readFile(join(repository, ".agents", "VERSION"), "utf8"), previousVersion);
+});
+
+test("update aborta si AGENTS.md es sustituido entre la revalidación global y su reemplazo", async () => {
+  const repository = await createRepository({
+    "package.json": JSON.stringify({ name: "carrera-sustitución", description: "Prueba carrera." }),
+  });
+  const codexHome = await createRepository();
+  assert.equal(runInitializer(repository).status, SIN_HERRAMIENTAS);
+  const agentsPath = join(repository, "AGENTS.md");
+  const agents = await readFile(agentsPath, "utf8");
+  await writeFile(
+    agentsPath,
+    agents.replace("<!-- AGENTIC_PROJECT_CONTRACT_GENERATED -->\n", ""),
+    "utf8",
+  );
+  const previousVersion = await readFile(join(repository, ".agents", "VERSION"), "utf8");
+
+  const result = runExecutableWithEnvironment(
+    {
+      CODEX_HOME: codexHome,
+      AGENTIC_INIT_TEST_RACE_PATH: "AGENTS.md",
+      AGENTIC_INIT_TEST_RACE_ACTION: "replace",
+    },
+    "update",
+    repository,
+    "--yes",
+    "--codex-config",
+    "none",
+  );
+
+  assert.equal(result.status, 2, result.stderr || result.stdout);
+  assert.match(result.stderr, /AGENTS\.md cambió después del plan/i);
+  assert.equal(await readFile(agentsPath, "utf8"), "contenido sustituido durante la aplicación\n");
+  assert.equal(await readFile(join(repository, ".agents", "VERSION"), "utf8"), previousVersion);
+});
+
+test("un rollback incompleto conserva respaldos externos con un manifiesto recuperable", async () => {
+  const repository = await createRepository({
+    "package.json": JSON.stringify({ name: "rollback-incompleto", description: "Prueba respaldo." }),
+  });
+  const codexHome = await createRepository();
+  assert.equal(runInitializer(repository).status, SIN_HERRAMIENTAS);
+  const target = join(repository, ".agents", "README.md");
+  await writeFile(target, "estado recuperable\n", "utf8");
+
+  const result = runExecutableWithEnvironment(
+    {
+      CODEX_HOME: codexHome,
+      AGENTIC_INIT_TEST_FAIL_AFTER: "1",
+      AGENTIC_INIT_TEST_FAIL_ROLLBACK_AFTER: "1",
+    },
+    "update",
+    repository,
+    "--yes",
+    "--codex-config",
+    "none",
+  );
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stderr, /restauración quedó incompleta/i);
+  const backupMatch = result.stderr.match(/Respaldos recuperables conservados en: (.+)\r?$/m);
+  assert.ok(backupMatch, result.stderr);
+  const backupRoot = backupMatch[1].trim();
+  temporaryDirectories.push(backupRoot);
+  const manifest = JSON.parse(await readFile(join(backupRoot, "manifest.json"), "utf8"));
+  const entry = manifest.find((item) => item.target === target);
+  assert.ok(entry, JSON.stringify(manifest));
+  assert.equal(await readFile(join(backupRoot, entry.backup), "utf8"), "estado recuperable\n");
+});
+
+test("rollback bloquea un padre sustituido por enlace y conserva respaldos sin escribir fuera", async () => {
+  const repository = await createRepository({
+    "package.json": JSON.stringify({ name: "rollback-padre", description: "Prueba ancestros." }),
+  });
+  const codexHome = await createRepository();
+  const external = await createRepository({ "sentinel.txt": "exterior intacto\n" });
+  assert.equal(runInitializer(repository).status, SIN_HERRAMIENTAS);
+  await writeFile(join(repository, ".agents", "VERSION"), "0.0.1\n", "utf8");
+  await writeFile(join(repository, ".agents", "README.md"), "estado previo\n", "utf8");
+  const externalBefore = await snapshotDirectory(external);
+
+  const result = runExecutableWithEnvironment(
+    {
+      CODEX_HOME: codexHome,
+      AGENTIC_INIT_TEST_FAIL_AFTER: "2",
+      AGENTIC_INIT_TEST_ROLLBACK_RACE_PATH: ".agents/VERSION",
+      AGENTIC_INIT_TEST_ROLLBACK_RACE_TARGET: external,
+    },
+    "update",
+    repository,
+    "--yes",
+    "--codex-config",
+    "none",
+  );
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stderr, /restauración quedó incompleta/i);
+  assert.match(result.stderr, /ancestro no seguro|enlace simbólico/i);
+  const backupMatch = result.stderr.match(/Respaldos recuperables conservados en: (.+)\r?$/m);
+  assert.ok(backupMatch, result.stderr);
+  temporaryDirectories.push(backupMatch[1].trim());
+  assert.deepEqual(await snapshotDirectory(external), externalBefore);
+
+  const movedAgents = (await readdir(repository)).find((entry) =>
+    entry.startsWith(".agents.agentic-rollback-original-"),
+  );
+  assert.ok(movedAgents, await readdir(repository));
+  await unlink(join(repository, ".agents"));
+  await rename(join(repository, movedAgents), join(repository, ".agents"));
+});
+
+test("Codex efectivo igual o superior a 9 no se pregunta, modifica ni reduce", async () => {
+  const repository = await createRepository({
+    "package.json": JSON.stringify({ name: "codex-listo", description: "Config suficiente." }),
+    ".codex/config.toml": "[agents]\nmax_concurrent_threads_per_session = 12\n",
+  });
+  const codexHome = await createRepository({
+    "config.toml": "[agents]\nmax_concurrent_threads_per_session = 3\n",
+  });
+  assert.equal(runInitializer(repository).status, SIN_HERRAMIENTAS);
+  const beforeLocal = await readFile(join(repository, ".codex", "config.toml"), "utf8");
+  const beforeGlobal = await readFile(join(codexHome, "config.toml"), "utf8");
+
+  const result = runExecutableWithEnvironment(
+    { CODEX_HOME: codexHome },
+    "update",
+    repository,
+    "--yes",
+    "--codex-config",
+    "global",
+  );
+
+  assert.equal(result.status, SIN_HERRAMIENTAS, result.stderr || result.stdout);
+  assert.match(result.stdout, /límite efectivo.*12.*no se modifica/i);
+  assert.equal(await readFile(join(repository, ".codex", "config.toml"), "utf8"), beforeLocal);
+  assert.equal(await readFile(join(codexHome, "config.toml"), "utf8"), beforeGlobal);
+});
+
+test("Codex considera desconocido el efectivo si la capa local o global es ambigua", async () => {
+  const cases = [
+    {
+      name: "local-ambigua",
+      local: "[agents]\nmax_threads = 3\n[agents]\nmax_threads = 4\n",
+      global: "[agents]\nmax_concurrent_threads_per_session = 15\n",
+    },
+    {
+      name: "global-ambigua",
+      local: "[agents]\nmax_concurrent_threads_per_session = 12\n",
+      global: "[agents]\nmax_threads = 3\n[agents]\nmax_threads = 4\n",
+    },
+  ];
+
+  for (const fixture of cases) {
+    const repository = await createRepository({
+      "package.json": JSON.stringify({ name: fixture.name, description: "Prueba ambigüedad." }),
+      ".codex/config.toml": fixture.local,
+    });
+    const codexHome = await createRepository({ "config.toml": fixture.global });
+    assert.equal(runInitializer(repository).status, SIN_HERRAMIENTAS);
+
+    const result = runExecutableWithEnvironment(
+      { CODEX_HOME: codexHome },
+      "update",
+      repository,
+      "--yes",
+      "--codex-config",
+      "local",
+    );
+
+    assert.equal(result.status, SIN_HERRAMIENTAS, result.stderr || result.stdout);
+    assert.match(result.stdout, /valor efectivo.*desconocido/i);
+    assert.match(result.stdout, /edición manual/i);
+    assert.doesNotMatch(result.stdout, /ya tiene un límite efectivo/i);
+    assert.equal(await readFile(join(repository, ".codex", "config.toml"), "utf8"), fixture.local);
+    assert.equal(await readFile(join(codexHome, "config.toml"), "utf8"), fixture.global);
+  }
+});
+
+test("Codex global conserva BOM, EOL, comentarios y claves al actualizar solo la clave objetivo", async () => {
+  const repository = await createRepository({
+    "package.json": JSON.stringify({ name: "codex-global", description: "Edita global." }),
+  });
+  const original =
+    "\uFEFF# configuración\r\nmodel = \"gpt\"\r\n\r\n[agents]\r\nmax_concurrent_threads_per_session = 4 # anterior\r\nfoo = true\r\n\r\n[otro]\r\nvalor = 1\r\n";
+  const codexHome = await createRepository({ "config.toml": original });
+  assert.equal(runInitializer(repository).status, SIN_HERRAMIENTAS);
+
+  const result = runExecutableWithEnvironment(
+    { CODEX_HOME: codexHome },
+    "update",
+    repository,
+    "--yes",
+    "--codex-config",
+    "global",
+  );
+
+  assert.equal(result.status, SIN_HERRAMIENTAS, result.stderr || result.stdout);
+  assert.equal(
+    await readFile(join(codexHome, "config.toml"), "utf8"),
+    original.replace("= 4 # anterior", "= 9 # anterior"),
+  );
+  assert.equal(existsSync(join(repository, ".codex", "config.toml")), false);
+});
+
+test("Codex local crea o migra max_threads solo con autorización explícita", async () => {
+  const repository = await createRepository({
+    "package.json": JSON.stringify({ name: "codex-local", description: "Edita local." }),
+  });
+  const codexHome = await createRepository({
+    "config.toml": "[agents]\nmax_threads = 5 # legacy\nmodel_reasoning_effort = \"high\"\n",
+  });
+  assert.equal(runInitializer(repository).status, SIN_HERRAMIENTAS);
+
+  const pending = runExecutableWithEnvironment(
+    { CODEX_HOME: codexHome },
+    "update",
+    repository,
+    "--yes",
+  );
+  assert.equal(pending.status, SIN_HERRAMIENTAS, pending.stderr || pending.stdout);
+  assert.match(pending.stdout, /configuración de Codex.*pendiente/i);
+  assert.equal(existsSync(join(repository, ".codex", "config.toml")), false);
+  assert.match(await readFile(join(codexHome, "config.toml"), "utf8"), /max_threads = 5/);
+
+  const local = runExecutableWithEnvironment(
+    { CODEX_HOME: codexHome },
+    "update",
+    repository,
+    "--yes",
+    "--codex-config",
+    "local",
+  );
+  assert.equal(local.status, SIN_HERRAMIENTAS, local.stderr || local.stdout);
+  assert.equal(
+    await readFile(join(repository, ".codex", "config.toml"), "utf8"),
+    "[agents]\nmax_concurrent_threads_per_session = 9\n",
+  );
+
+  await rm(join(repository, ".codex", "config.toml"));
+  const global = runExecutableWithEnvironment(
+    { CODEX_HOME: codexHome },
+    "update",
+    repository,
+    "--yes",
+    "--codex-config",
+    "global",
+  );
+  assert.equal(global.status, SIN_HERRAMIENTAS, global.stderr || global.stdout);
+  assert.equal(
+    await readFile(join(codexHome, "config.toml"), "utf8"),
+    "[agents]\nmax_concurrent_threads_per_session = 9 # legacy\nmodel_reasoning_effort = \"high\"\n",
+  );
+});
+
+test("Codex ambiguo queda manual y la precedencia local inferior no se oculta", async () => {
+  const ambiguousRepository = await createRepository({
+    "package.json": JSON.stringify({ name: "codex-ambiguo", description: "TOML ambiguo." }),
+    ".codex/config.toml": "[agents]\nmax_threads = 3\n[agents]\nmax_threads = 4\n",
+  });
+  const codexHome = await createRepository({
+    "config.toml": "[agents]\nmax_concurrent_threads_per_session = 15\n",
+  });
+  assert.equal(runInitializer(ambiguousRepository).status, SIN_HERRAMIENTAS);
+  const before = await readFile(join(ambiguousRepository, ".codex", "config.toml"), "utf8");
+
+  const ambiguous = runExecutableWithEnvironment(
+    { CODEX_HOME: codexHome },
+    "update",
+    ambiguousRepository,
+    "--yes",
+    "--codex-config",
+    "local",
+  );
+  assert.equal(ambiguous.status, SIN_HERRAMIENTAS, ambiguous.stderr || ambiguous.stdout);
+  assert.match(ambiguous.stdout, /TOML ambiguo|edición manual/i);
+  assert.equal(await readFile(join(ambiguousRepository, ".codex", "config.toml"), "utf8"), before);
+
+  const precedenceRepository = await createRepository({
+    "package.json": JSON.stringify({ name: "codex-precedencia", description: "Precedencia local." }),
+    ".codex/config.toml": "[agents]\nmax_concurrent_threads_per_session = 2\n",
+  });
+  assert.equal(runInitializer(precedenceRepository).status, SIN_HERRAMIENTAS);
+  const precedence = runExecutableWithEnvironment(
+    { CODEX_HOME: codexHome },
+    "update",
+    precedenceRepository,
+    "--yes",
+    "--codex-config",
+    "global",
+  );
+  assert.equal(precedence.status, SIN_HERRAMIENTAS, precedence.stderr || precedence.stdout);
+  assert.match(precedence.stdout, /local.*precedencia.*seguirá usando.*2/i);
+  assert.match(
+    await readFile(join(precedenceRepository, ".codex", "config.toml"), "utf8"),
+    /max_concurrent_threads_per_session = 2/,
+  );
+  assert.match(await readFile(join(codexHome, "config.toml"), "utf8"), /= 15/);
+});
+
+test("Codex deriva a edición manual toda definición agents o clave objetivo no soportada", async () => {
+  const variants = [
+    "agents = { max_concurrent_threads_per_session = 3 }\n",
+    "[\"agents\"]\nmax_concurrent_threads_per_session = 3\n",
+    "[[agents]]\nmax_concurrent_threads_per_session = 3\n",
+    "[agents.worker]\nmax_concurrent_threads_per_session = 3\n",
+    "agents.max_concurrent_threads_per_session = 3\n",
+    "[agents]\n\"max_concurrent_threads_per_session\" = 3\n",
+    "[agents]\n'max_threads' = 3\n",
+  ];
+
+  for (const source of variants) {
+    const repository = await createRepository({
+      "package.json": JSON.stringify({ name: "toml-conservador", description: "Prueba TOML." }),
+      ".codex/config.toml": source,
+    });
+    const codexHome = await createRepository();
+    assert.equal(runInitializer(repository).status, SIN_HERRAMIENTAS);
+
+    const result = runExecutableWithEnvironment(
+      { CODEX_HOME: codexHome },
+      "update",
+      repository,
+      "--yes",
+      "--codex-config",
+      "local",
+    );
+
+    assert.equal(result.status, SIN_HERRAMIENTAS, `${source}\n${result.stderr || result.stdout}`);
+    assert.match(result.stdout, /TOML ambigu|edición manual/i);
+    assert.equal(await readFile(join(repository, ".codex", "config.toml"), "utf8"), source);
+  }
+});
+
+test("Codex conserva byte a byte strings TOML multilínea con tablas y claves aparentes", async () => {
+  const variants = [
+    'mensaje = """\n[agents]\nmax_concurrent_threads_per_session = 2\n"""\n',
+    "mensaje = '''\n[agents]\nmax_threads = 2\n'''\n",
+  ];
+
+  for (const source of variants) {
+    const repository = await createRepository({
+      "package.json": JSON.stringify({ name: "toml-multilinea", description: "Prueba léxica." }),
+      ".codex/config.toml": source,
+    });
+    const codexHome = await createRepository();
+    assert.equal(runInitializer(repository).status, SIN_HERRAMIENTAS);
+
+    const result = runExecutableWithEnvironment(
+      { CODEX_HOME: codexHome },
+      "update",
+      repository,
+      "--yes",
+      "--codex-config",
+      "local",
+    );
+
+    assert.equal(result.status, SIN_HERRAMIENTAS, `${source}\n${result.stderr || result.stdout}`);
+    assert.match(result.stdout, /TOML.*multilínea|edición manual/i);
+    assert.equal(await readFile(join(repository, ".codex", "config.toml"), "utf8"), source);
+  }
+});
+
+test("Codex local revalida ancestros no-follow justo antes de crear el temporal", async () => {
+  const repository = await createRepository({
+    "package.json": JSON.stringify({ name: "codex-carrera-local", description: "Prueba no-follow." }),
+  });
+  const codexHome = await createRepository();
+  const external = await createRepository({ "sentinel.txt": "exterior intacto\n" });
+  assert.equal(runInitializer(repository).status, SIN_HERRAMIENTAS);
+  const externalBefore = await snapshotDirectory(external);
+
+  const result = runExecutableWithEnvironment(
+    {
+      CODEX_HOME: codexHome,
+      AGENTIC_INIT_TEST_CODEX_RACE_STAGE: "before-temporary",
+      AGENTIC_INIT_TEST_CODEX_RACE_TARGET: external,
+    },
+    "update",
+    repository,
+    "--yes",
+    "--codex-config",
+    "local",
+  );
+
+  assert.equal(result.status, SIN_HERRAMIENTAS, result.stderr || result.stdout);
+  assert.match(result.stdout, /enlace simbólico no seguro|ancestro no seguro/i);
+  assert.match(result.stdout, /Editar manualmente .*config\.toml/i);
+  assert.deepEqual(await snapshotDirectory(external), externalBefore);
+});
+
+test("Codex global revalida ancestros no-follow justo antes de la mutación final", async () => {
+  const container = await createRepository();
+  const codexHome = join(container, "codex-home");
+  const external = join(container, "external");
+  await mkdir(codexHome);
+  await mkdir(external);
+  await writeFile(join(external, "sentinel.txt"), "exterior intacto\n", "utf8");
+  const repository = await createRepository({
+    "package.json": JSON.stringify({ name: "codex-carrera-global", description: "Prueba no-follow." }),
+  });
+  assert.equal(runInitializer(repository).status, SIN_HERRAMIENTAS);
+  const externalBefore = await snapshotDirectory(external);
+
+  const result = runExecutableWithEnvironment(
+    {
+      CODEX_HOME: codexHome,
+      AGENTIC_INIT_TEST_CODEX_RACE_STAGE: "before-mutation",
+      AGENTIC_INIT_TEST_CODEX_RACE_TARGET: external,
+    },
+    "update",
+    repository,
+    "--yes",
+    "--codex-config",
+    "global",
+  );
+
+  assert.equal(result.status, SIN_HERRAMIENTAS, result.stderr || result.stdout);
+  assert.match(result.stdout, /enlace simbólico no seguro|ancestro no seguro/i);
+  assert.match(result.stdout, /Editar manualmente .*config\.toml/i);
+  assert.deepEqual(await snapshotDirectory(external), externalBefore);
+});
+
+test("Codex delimita agents ante tablas-array y conserva sus claves objetivo byte a byte", async () => {
+  const source =
+    "[agents]\r\nfoo = true\r\n\r\n[[workers]]\r\nmax_concurrent_threads_per_session = 3 # worker\r\nmax_threads = 4 # legacy worker\r\n";
+  const repository = await createRepository({
+    "package.json": JSON.stringify({ name: "toml-array", description: "Prueba límite TOML." }),
+    ".codex/config.toml": source,
+  });
+  const codexHome = await createRepository();
+  assert.equal(runInitializer(repository).status, SIN_HERRAMIENTAS);
+
+  const result = runExecutableWithEnvironment(
+    { CODEX_HOME: codexHome },
+    "update",
+    repository,
+    "--yes",
+    "--codex-config",
+    "local",
+  );
+
+  assert.equal(result.status, SIN_HERRAMIENTAS, result.stderr || result.stdout);
+  assert.equal(
+    await readFile(join(repository, ".codex", "config.toml"), "utf8"),
+    source.replace("foo = true\r\n", "max_concurrent_threads_per_session = 9\r\nfoo = true\r\n"),
+  );
 });
 
 test("--force reemplaza solo archivos canónicos divergentes", async () => {
@@ -2100,17 +3148,25 @@ test("session controller se distribuye con contratos portables y excluye sesione
   const skill = await readFile(join(ROOT, ".agents", "skills", "orquestar", "SKILL.md"), "utf8");
   const codex = await readFile(join(ROOT, ".codex", "agents", "implementador.toml"), "utf8");
   const claude = await readFile(join(ROOT, ".claude", "agents", "implementador.md"), "utf8");
-  const activeSession = join(ROOT, ".agents", "sessions", "validacion-activa.md");
+  const repository = await createRepository({
+    "package.json": JSON.stringify({
+      name: "adopcion-controlador",
+      description: "Comprueba la distribución del controlador.",
+    }),
+  });
+  const codexHome = await createRepository();
+  const adoption = runInitializer(repository);
+  const activeSession = join(repository, ".agents", "sessions", "validacion-activa.md");
   await writeFile(activeSession, "# DevSession: validacion-activa\n", "utf8");
   try {
-    const validation = runInitializer(ROOT, "--dry-run");
-    const repository = await createRepository({
-      "package.json": JSON.stringify({
-        name: "adopcion-controlador",
-        description: "Comprueba la distribución del controlador.",
-      }),
-    });
-    const adoption = runInitializer(repository);
+    const validation = runExecutableWithEnvironment(
+      { CODEX_HOME: codexHome },
+      "update",
+      repository,
+      "--dry-run",
+      "--codex-config",
+      "none",
+    );
 
     assert.deepEqual(
       {

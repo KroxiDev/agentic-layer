@@ -5,13 +5,14 @@ interface de configuración es el contrato delimitado de `AGENTS.md`: un
 proyecto consumidor declara allí sus hechos, comandos y restricciones sin
 editar roles, workflows, políticas, skills ni adapters.
 
-`scripts/agentic-init.mjs` es la única superficie de adopción automatizada y la
-única implementación del inicializador. No forma parte del núcleo de
-orquestación: detecta hechos del proyecto, copia o valida el inventario
-canónico y modifica exclusivamente el bloque contractual de `AGENTS.md`.
-`bin/agentic.mjs` es el ejecutable distribuible y solo despacha el subcomando
-`init` hacia esa implementación. Su comportamiento público se verifica en
-`tests/agentic-init.test.mjs` con `node:test` y directorios temporales.
+`scripts/agentic-init.mjs` es la única superficie automatizada y la única
+implementación de adopción y actualización. No forma parte del núcleo de
+orquestación: detecta hechos y versiones, planifica el inventario canónico,
+migra exclusivamente el bloque contractual de `AGENTS.md` y aplica cambios de
+forma recuperable. `bin/agentic.mjs` es el ejecutable distribuible y solo
+despacha `init` y `update` hacia esa implementación. Su comportamiento público
+se verifica en `tests/agentic-init.test.mjs` con `node:test`, directorios
+temporales y `CODEX_HOME` aislado.
 
 El inicializador no interroga por hechos del contrato. Escribe lo que infiere
 —incluidos los valores recomendados del perfil de ecosistema detectado— y deja
@@ -25,7 +26,17 @@ atajo para declararlos en la propia adopción, nunca un requisito.
 La capa se obtiene desde GitHub como paquete ejecutable y se adopta con
 `npx --yes github:KroxiDev/agentic-layer init .`. La adopción es una
 copia: el proyecto consumidor no declara dependencia, no consulta un upstream
-y no recibe actualizaciones automáticas.
+y no recibe actualizaciones automáticas. Una copia existente se actualiza solo
+por orden explícita con `agentic update`: el comando conserva DevSessions y
+archivos ajenos, repara el inventario incluso con la misma versión y escribe
+`.agents/VERSION` al final de la transacción.
+
+Después de actualizar la capa, `update` puede configurar explícitamente 9
+subagentes en un `config.toml` global o local. `--yes` no autoriza esa operación:
+requiere `--codex-config global|local|none`. El editor conserva el TOML que no
+gestiona y deriva estructuras ambiguas o strings multilínea a edición manual.
+Toda escritura autorizada usa un temporal hermano y revalida ancestros no-follow
+justo antes de crearlo y antes de la mutación final.
 
 ## Mapa
 
@@ -40,12 +51,12 @@ y no recibe actualizaciones automáticas.
   control de versiones; `gitignore.asset` es el `.gitignore` que el
   inicializador instala allí.
 - `VERSION`: versión de la capa adoptada. La genera el inicializador en el
-  destino, no viaja en el paquete y permite reconocer una instalación previa
-  para ofrecer su reemplazo. `policies/`, `roles/`, `skills/`, `templates/` y
+  destino, no viaja en el paquete y permite clasificar una instalación como
+  legacy, anterior, igual o posterior durante `update`. `policies/`, `roles/`, `skills/`, `templates/` y
   `workflows/` se gestionan por completo: al reemplazar, todo archivo ajeno al
   inventario canónico se elimina como residuo. `sessions/` y esta raíz no.
-- `../bin/agentic.mjs`: ejecutable `agentic` con el subcomando `init`.
-- `../scripts/agentic-init.mjs`: inicializador sin dependencias externas.
+- `../bin/agentic.mjs`: ejecutable `agentic` con `init` y `update`.
+- `../scripts/agentic-init.mjs`: inicializador y actualizador sin dependencias externas.
 - `../tests/agentic-init.test.mjs`: pruebas de adopción, seguridad,
   idempotencia y contenido del paquete.
 
@@ -82,3 +93,7 @@ canónicos. No contienen workflows ni políticas completas.
 10. La distribución transporta únicamente el inventario canónico: nunca
     índices, memorias, sesiones reales, configuraciones personales ni tests.
 11. La adopción no crea dependencia ni sincronización con la plantilla.
+12. `update` aplica primero la capa como una transacción recuperable y trata la
+    configuración de Codex como una operación opcional posterior.
+13. Los valores contractuales explícitos, incluidos autolinks y texto con
+    ángulos, no se confunden con placeholders pendientes.

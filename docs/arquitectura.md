@@ -10,16 +10,16 @@ El repositorio hace dos cosas independientes, y conviene no confundirlas:
 
 1. **El proceso** (`.agents/` y sus adapters): lo que gobierna cómo un agente
    desarrolla en un proyecto. Es texto; no se ejecuta.
-2. **La adopción** (`bin/` y `scripts/`): lo que copia ese proceso a un
-   proyecto y genera su contrato. Es código; se ejecuta una vez por adopción y
-   no participa después.
+2. **La adopción y actualización** (`bin/` y `scripts/`): lo que copia o
+   actualiza ese proceso y mantiene su contrato. Es código; se ejecuta solo por
+   orden explícita del propietario y no sincroniza el destino automáticamente.
 
 ```mermaid
 flowchart TB
     subgraph plantilla["Plantilla (esta fuente canónica)"]
         nucleo[".agents/<br/>núcleo del proceso"]
         adapters[".codex/ · .claude/ · CLAUDE.md<br/>adapters delgados"]
-        init["scripts/agentic-init.mjs<br/>inicializador"]
+        init["scripts/agentic-init.mjs<br/>inicializador y actualizador"]
         bin["bin/agentic.mjs<br/>ejecutable agentic"]
         bin --> init
     end
@@ -32,9 +32,9 @@ flowchart TB
 
     nucleo -.->|inventario canónico| init
     adapters -.->|inventario canónico| init
-    init ==>|copia| copia
-    init ==>|genera solo el bloque delimitado| contrato
-    init ==>|escribe| version
+    init ==>|copia o actualiza| copia
+    init ==>|genera o migra solo el bloque delimitado| contrato
+    init ==>|escribe al final| version
 
     contrato --> orquesta["Orquestación:<br/>roles aislados sobre el contrato"]
     copia --> orquesta
@@ -56,9 +56,9 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 ├── package.json                 # manifiesto e inventario canónico
 ├── .gitignore
 ├── bin/
-│   └── agentic.mjs              # ejecutable; solo despacha `init`
+│   └── agentic.mjs              # ejecutable; despacha `init` y `update`
 ├── scripts/
-│   └── agentic-init.mjs         # única implementación del inicializador
+│   └── agentic-init.mjs         # única implementación de init/update
 ├── tests/
 │   └── agentic-init.test.mjs    # especificación ejecutable de la CLI
 ├── docs/                        # documentación interna (no se distribuye)
@@ -119,8 +119,8 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 | `.claude/agents/*.md` | Frontmatter de herramientas y permisos, y puntero al rol | Delgado por diseño |
 | `.claude/skills/orquestar/` | Activación nativa que remite a la skill canónica | Delgado por diseño |
 | `CLAUDE.md` | `@AGENTS.md` y nada más | Delgado por diseño |
-| `bin/agentic.mjs` | Despacho del subcomando `init` y ayuda | Delgado: no reimplementa nada |
-| `scripts/agentic-init.mjs` | Detección, plan, copia segura, contrato, comprobaciones | Profundo: toda la adopción |
+| `bin/agentic.mjs` | Despacho de `init`, `update` y ayuda | Delgado: no reimplementa nada |
+| `scripts/agentic-init.mjs` | Detección, plan, copia/actualización recuperable, contrato, configuración opcional de Codex y comprobaciones | Profundo: toda la adopción y actualización |
 | `tests/agentic-init.test.mjs` | Comportamiento público de la CLI en directorios temporales | Especificación ejecutable |
 
 La regla que mantiene la interface pequeña: un proyecto normal edita
@@ -170,6 +170,45 @@ Puntos que no son obvios leyendo el código por partes:
 - **Salida 4 no revierte nada.** La capa queda instalada; lo que falta son las
   herramientas que el preflight de orquestación exigirá después — ver
   [ADR 0004](adr/0004-requisitos-obligatorios-con-fallo-cerrado.md).
+
+## Flujo de actualización
+
+`agentic update` reutiliza el mismo motor y añade una transacción recuperable.
+La configuración opcional de Codex ocurre después del éxito de la capa y nunca
+la revierte.
+
+```mermaid
+flowchart TD
+    start["agentic update [destino]"] --> detect["detectar marcadores y VERSION"]
+    detect --> exists{"¿existe la capa?"}
+    exists -->|no| init["salida 2 · usar agentic init"]
+    exists -->|sí| version{"legacy, anterior,<br/>igual o posterior"}
+    version -->|posterior sin permiso| block["salida 2 · cero escrituras"]
+    version --> plan["plan completo:<br/>copias · reemplazos · residuos · contrato"]
+    plan --> confirm{"confirmación general"}
+    confirm -->|cancelar| cancel["salida 3"]
+    confirm -->|aplicar| revalidate["revalidar contenido, identidad<br/>y ancestros no-follow"]
+    revalidate --> tx["respaldar · aplicar · VERSION al final"]
+    tx -->|falla| rollback["restaurar y verificar;<br/>conservar respaldos si queda incompleto"]
+    tx -->|éxito| codex{"configuración Codex<br/>autorizada y segura"}
+    codex -->|no o ambigua| pending["conservar · edición manual pendiente"]
+    codex -->|sí| atomic["temporal hermano · revalidar ancestros · mutar"]
+    atomic --> done["capa actualizada"]
+    pending --> done
+```
+
+La migración contractual reconoce campos históricos por alias y los contratos
+nuevos por IDs estables. Solo `<pendiente: …>`, el placeholder histórico
+admitido y los estados textuales `TODO`, `pendiente`, `por definir` o `TBD`
+cuentan como valores ausentes; autolinks Markdown y otros hechos legítimos con
+ángulos se preservan.
+
+El editor de `config.toml` entiende únicamente la forma inequívoca de `[agents]`
+y las claves `max_concurrent_threads_per_session` o `max_threads`. Conserva BOM,
+finales de línea, comentarios y el resto del archivo. Tablas o claves ambiguas,
+UTF-8 inválido y strings TOML multilínea se derivan a edición manual sin escribir.
+La ruta global se obtiene de `CODEX_HOME` o del directorio personal; las pruebas
+siempre inyectan una raíz temporal.
 
 ## Flujo de orquestación
 
@@ -254,8 +293,10 @@ conserva literalmente todo lo que haya antes y después:
 <!-- AGENTIC_PROJECT_CONTRACT_END -->
 ```
 
-Cualquier valor con forma `<…>`, vacío o que empiece por `TODO`, `pendiente`,
-`por definir` o `TBD` cuenta como ausente. La regla
+Solo el marcador generado `<pendiente: …>`, el placeholder histórico admitido,
+un valor vacío o uno que empiece por `TODO`, `pendiente`, `por definir` o `TBD`
+cuenta como ausente. Los autolinks y otros valores explícitos con ángulos no son
+placeholders. La regla
 `STRICT_PROJECT_CONTRACT_RULE` de `.agents/policies/orquestacion.md` lo cobra y
 detiene la orquestación indicando archivo, sección y campo exactos. El
 propietario puede flexibilizar o eliminar ese bloque delimitado; hacerlo cambia

@@ -4,16 +4,20 @@ import { spawnSync } from "node:child_process";
 import { constants as fsConstants, existsSync } from "node:fs";
 import {
   access,
-  copyFile,
+  chmod,
+  link,
   lstat,
   mkdir,
+  mkdtemp,
   readFile,
   readdir,
+  rename,
   rm,
   rmdir,
+  symlink,
   writeFile,
 } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename, delimiter, dirname, join, parse, relative, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
@@ -23,9 +27,11 @@ const CONTRACT_START = "<!-- AGENTIC_PROJECT_CONTRACT_START -->";
 const CONTRACT_END = "<!-- AGENTIC_PROJECT_CONTRACT_END -->";
 const GENERATED_CONTRACT_MARKER = "<!-- AGENTIC_PROJECT_CONTRACT_GENERATED -->";
 const GOLDEN_RULE_POLICY = ".agents/policies/regla-de-oro.md";
+const GOLDEN_RULE_DEVELOPMENT_BULLET =
+  `- Antes de agregar o modificar código o pruebas, leer y aplicar \`${GOLDEN_RULE_POLICY}\`, tanto en tareas directas como orquestadas.`;
 const GOLDEN_RULE_DEVELOPMENT = `## Desarrollo
 
-- Antes de agregar o modificar código o pruebas, leer y aplicar \`${GOLDEN_RULE_POLICY}\`, tanto en tareas directas como orquestadas.`;
+${GOLDEN_RULE_DEVELOPMENT_BULLET}`;
 const SOURCE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TEMPLATE_FILES = [
   ".agents/README.md",
@@ -147,12 +153,13 @@ const IGNORED_SCAN_DIRECTORIES = new Set([
   "node_modules",
 ]);
 
-function parseArguments(argv) {
+function parseArguments(argv, operation = "init") {
   const options = {
     destination: process.cwd(),
     dryRun: false,
     force: false,
     nonInteractive: false,
+    operation,
     yes: false,
   };
   let positionalDestination = false;
@@ -189,6 +196,15 @@ function parseArguments(argv) {
       options.dryRun = true;
     } else if (argument === "--force") {
       options.force = true;
+    } else if (argument === "--allow-downgrade") {
+      options.allowDowngrade = true;
+    } else if (argument === "--codex-config") {
+      const value = argv[index + 1];
+      if (!value || !["global", "local", "none"].includes(value)) {
+        throw new Error("--codex-config exige global, local o none.");
+      }
+      options.codexConfig = value;
+      index += 1;
     } else if (argument === "--yes" || argument === "-y" || argument === "--non-interactive") {
       options.nonInteractive = true;
       options.yes = true;
@@ -220,11 +236,14 @@ function parseArguments(argv) {
       throw new Error(`${flag} debe ser texto de una sola línea sin marcadores contractuales.`);
     }
   }
+  if (operation !== "update" && (options.allowDowngrade || options.codexConfig)) {
+    throw new Error("--allow-downgrade y --codex-config solo se admiten con agentic update.");
+  }
   options.destination = resolve(options.destination);
   return options;
 }
 
-function printHelp(invocation = "node scripts/agentic-init.mjs") {
+function printHelp(invocation = "node scripts/agentic-init.mjs", operation = "init") {
   console.log(`Uso: ${invocation} [destino] [opciones]
 
 Opciones:
@@ -241,7 +260,9 @@ Opciones:
                         archivos canónicos divergentes y elimina residuos de
                         otras versiones. Nunca toca AGENTS.md fuera del
                         contrato, DevSessions, enlaces ni directorios ajenos.
-  --init-codegraph      Confirma explícitamente inicializar CodeGraph.
+${operation === "update" ? `  --allow-downgrade     Autoriza instalar una versión anterior a la declarada.
+  --codex-config <nivel> Autoriza configurar Codex en global, local o none.
+` : ""}  --init-codegraph      Confirma explícitamente inicializar CodeGraph.
   --update-codegraph    Confirma explícitamente sincronizar CodeGraph.
   -v, --version         Muestra la versión de la distribución.
   -h, --help            Muestra esta ayuda.
@@ -261,6 +282,55 @@ async function readDistributionVersion() {
   return manifest.version.trim();
 }
 
+function parseSemVer(value) {
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(
+    value,
+  );
+  if (!match) return null;
+  const prerelease = match[4]?.split(".") ?? [];
+  if (
+    prerelease.some(
+      (identifier) =>
+        /^\d+$/.test(identifier) && identifier.length > 1 && identifier.startsWith("0"),
+    )
+  ) {
+    return null;
+  }
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+    prerelease,
+  };
+}
+
+function compareSemVer(leftValue, rightValue) {
+  const left = parseSemVer(leftValue);
+  const right = parseSemVer(rightValue);
+  if (!left || !right) throw new Error("No se pueden comparar versiones SemVer inválidas.");
+  for (const key of ["major", "minor", "patch"]) {
+    if (left[key] !== right[key]) return left[key] < right[key] ? -1 : 1;
+  }
+  if (!left.prerelease.length || !right.prerelease.length) {
+    if (left.prerelease.length === right.prerelease.length) return 0;
+    return left.prerelease.length ? -1 : 1;
+  }
+  const length = Math.max(left.prerelease.length, right.prerelease.length);
+  for (let index = 0; index < length; index += 1) {
+    const leftId = left.prerelease[index];
+    const rightId = right.prerelease[index];
+    if (leftId === undefined) return -1;
+    if (rightId === undefined) return 1;
+    if (leftId === rightId) continue;
+    const leftNumeric = /^\d+$/.test(leftId);
+    const rightNumeric = /^\d+$/.test(rightId);
+    if (leftNumeric && rightNumeric) return Number(leftId) < Number(rightId) ? -1 : 1;
+    if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1;
+    return leftId < rightId ? -1 : 1;
+  }
+  return 0;
+}
+
 function assertSafeDestination(destination) {
   const root = parse(destination).root;
   if (destination === root || destination === resolve(homedir())) {
@@ -274,6 +344,95 @@ async function pathState(path) {
   } catch (error) {
     if (error.code === "ENOENT") return null;
     throw error;
+  }
+}
+
+function sameFileIdentity(left, right) {
+  return Boolean(left && right && left.dev === right.dev && left.ino === right.ino);
+}
+
+function changedAfterPlan(message) {
+  const error = new Error(message);
+  error.exitCode = 2;
+  return error;
+}
+
+async function assertAbsentFile(path, label) {
+  if (await pathState(path)) {
+    throw changedAfterPlan(`${label} apareció después del plan; no se escribió ningún archivo.`);
+  }
+}
+
+async function assertExpectedRegularFile(path, expectedContent, expectedState, label) {
+  const before = await pathState(path);
+  if (
+    !before?.isFile() ||
+    before.isSymbolicLink() ||
+    !sameFileIdentity(before, expectedState)
+  ) {
+    throw changedAfterPlan(`${label} cambió después del plan; no se escribió ningún archivo.`);
+  }
+  const content = await readFile(path);
+  const after = await pathState(path);
+  const expected = Buffer.isBuffer(expectedContent)
+    ? expectedContent
+    : Buffer.from(expectedContent, "utf8");
+  if (!after?.isFile() || after.isSymbolicLink() || !sameFileIdentity(before, after) || !content.equals(expected)) {
+    throw changedAfterPlan(`${label} cambió después del plan; no se escribió ningún archivo.`);
+  }
+  return after;
+}
+
+async function writeSiblingTemporary(path, content, mode = null) {
+  const temporary = join(
+    dirname(path),
+    `.${basename(path)}.agentic-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.tmp`,
+  );
+  await writeFile(temporary, content, { flag: "wx" });
+  if (mode !== null) await chmod(temporary, mode);
+  return { temporary, state: await lstat(temporary) };
+}
+
+async function atomicCreateNoFollow(
+  path,
+  content,
+  mode = null,
+  label = path,
+  assertSafeParent = null,
+) {
+  if (assertSafeParent) await assertSafeParent();
+  const { temporary, state } = await writeSiblingTemporary(path, content, mode);
+  try {
+    await assertAbsentFile(path, label);
+    if (assertSafeParent) await assertSafeParent();
+    await link(temporary, path);
+    return state;
+  } catch (error) {
+    if (error.code === "EEXIST") throw changedAfterPlan(`${label} apareció después del plan; no se escribió ningún archivo.`);
+    throw error;
+  } finally {
+    await rm(temporary, { force: true }).catch(() => {});
+  }
+}
+
+async function atomicReplaceNoFollow(
+  path,
+  expectedContent,
+  expectedState,
+  content,
+  mode,
+  label,
+  assertSafeParent = null,
+) {
+  if (assertSafeParent) await assertSafeParent();
+  const { temporary, state } = await writeSiblingTemporary(path, content, mode);
+  try {
+    await assertExpectedRegularFile(path, expectedContent, expectedState, label);
+    if (assertSafeParent) await assertSafeParent();
+    await rename(temporary, path);
+    return state;
+  } finally {
+    await rm(temporary, { force: true }).catch(() => {});
   }
 }
 
@@ -430,10 +589,10 @@ function quotePaths(paths) {
 }
 
 // Marcador de un campo contractual que el inicializador no puede inferir. Su
-// forma `<...>` casa con `isMissingContractValue`, así que la regla
-// STRICT_PROJECT_CONTRACT_RULE de `.agents/policies/orquestacion.md` lo cobra
-// como contrato incompleto y detiene cualquier tarea orquestada. La primera
-// sesión del agente lo completa con la skill `agentic-grilling`.
+// forma cerrada `<pendiente: ...>` casa con `isMissingContractValue`, así que la
+// regla STRICT_PROJECT_CONTRACT_RULE de `.agents/policies/orquestacion.md` lo
+// cobra como contrato incompleto y detiene cualquier tarea orquestada. La
+// primera sesión del agente lo completa con la skill `agentic-grilling`.
 function pendingField(hint) {
   return `<pendiente: ${hint}>`;
 }
@@ -705,12 +864,15 @@ const REQUIRED_CONTRACT_FIELDS = [
   "documentation",
   "adrs",
 ];
+const CONTRACT_FIELD_IDS = new Set(REQUIRED_CONTRACT_FIELDS);
+const CONTRACT_FIELD_MARKER_PATTERN = /^<!-- agentic-contract-field:v1 ([A-Za-z][A-Za-z0-9]*) -->$/;
+const CONTRACT_FIELD_MARKER_LIKE = /<!--\s*agentic-contract-field\b/i;
 
 function isMissingContractValue(value) {
   const normalized = value.trim();
   return (
     !normalized ||
-    /<[^>]+>/.test(normalized) ||
+    /^<(?:pendiente:\s*[^<>]+|módulos relevantes)>$/i.test(normalized) ||
     /^(todo|pendiente|por definir|tbd)(?:\b|\s|\.)/i.test(normalized)
   );
 }
@@ -730,16 +892,76 @@ function parseContractFields(source) {
   if (start < 0 || end < start) return new Map();
   const block = source.slice(start + CONTRACT_START.length, end);
   const fields = new Map();
+  const seenKeys = new Set();
   let activeKey = null;
+  let pendingId = null;
 
   for (const line of block.split(/\r?\n/)) {
-    const bullet = line.match(/^-\s+([^:]+):\s*(.*)$/);
+    const heading = line.match(/^##\s+(.+?)\s*$/);
+    if (heading) {
+      activeKey = null;
+      continue;
+    }
+    const marker = line.trim().match(CONTRACT_FIELD_MARKER_PATTERN);
+    if (!marker && CONTRACT_FIELD_MARKER_LIKE.test(line.trim())) {
+      const error = new Error(
+        `AGENTS.md contiene un marcador contractual con versión o sintaxis desconocida: ${line.trim()}.`,
+      );
+      error.exitCode = 2;
+      throw error;
+    }
+    if (marker) {
+      if (pendingId || !CONTRACT_FIELD_IDS.has(marker[1]) || seenKeys.has(marker[1])) {
+        const error = new Error(
+          `AGENTS.md contiene un ID contractual ambiguo o desconocido: ${marker[1]}.`,
+        );
+        error.exitCode = 2;
+        throw error;
+      }
+      pendingId = marker[1];
+      activeKey = null;
+      continue;
+    }
+    const bullet = line.match(/^[-*+]\s+([^:]+):\s*(.*)$/);
     if (bullet) {
-      activeKey = FIELD_ALIASES.get(normalizeLabel(bullet[1])) ?? null;
+      const aliasKey = FIELD_ALIASES.get(normalizeLabel(bullet[1])) ?? null;
+      activeKey = pendingId ?? aliasKey;
+      if (!activeKey) {
+        const error = new Error(
+          `AGENTS.md contiene un campo contractual no mapeable: ${bullet[1].trim()}.`,
+        );
+        error.exitCode = 2;
+        throw error;
+      }
+      if (pendingId && aliasKey && aliasKey !== pendingId) {
+        const error = new Error(
+          `AGENTS.md contradice el ID contractual ${pendingId} con la etiqueta ${bullet[1].trim()}.`,
+        );
+        error.exitCode = 2;
+        throw error;
+      }
+      if (seenKeys.has(activeKey)) {
+        const error = new Error(`AGENTS.md duplica el campo contractual ${bullet[1].trim()}.`);
+        error.exitCode = 2;
+        throw error;
+      }
+      pendingId = null;
+      seenKeys.add(activeKey);
       if (activeKey && !isMissingContractValue(bullet[2])) {
         fields.set(activeKey, bullet[2].trim());
       }
       continue;
+    }
+    if (line === GOLDEN_RULE_DEVELOPMENT_BULLET) {
+      activeKey = null;
+      continue;
+    }
+    if (/^[-*+]\s+/.test(line)) {
+      const error = new Error(
+        `AGENTS.md contiene un campo contractual no mapeable: ${line.trim()}.`,
+      );
+      error.exitCode = 2;
+      throw error;
     }
     if (activeKey && /^\s{2,}\S/.test(line)) {
       const previous = fields.get(activeKey);
@@ -747,6 +969,12 @@ function parseContractFields(source) {
     } else if (line.trim()) {
       activeKey = null;
     }
+  }
+
+  if (pendingId) {
+    const error = new Error(`AGENTS.md deja el ID contractual ${pendingId} sin campo asociado.`);
+    error.exitCode = 2;
+    throw error;
   }
 
   return fields;
@@ -793,35 +1021,50 @@ ${GOLDEN_RULE_DEVELOPMENT}
 
 ## Proyecto
 
+<!-- agentic-contract-field:v1 purpose -->
 - Propósito: ${contractValue(existingFields, "purpose", project.purpose)}
+<!-- agentic-contract-field:v1 architecture -->
 - Arquitectura: ${contractValue(existingFields, "architecture", project.architecture)}
+<!-- agentic-contract-field:v1 entrypoints -->
 - Entrypoints: ${contractValue(existingFields, "entrypoints", project.entrypoints)}
 
 ## Validación
 
+<!-- agentic-contract-field:v1 focusedValidation -->
 - Focalizada: ${contractValue(existingFields, "focusedValidation", project.focusedValidation)}
+<!-- agentic-contract-field:v1 completeValidation -->
 - Completa: ${contractValue(existingFields, "completeValidation", project.completeValidation)}
 
 ## Tests
 
+<!-- agentic-contract-field:v1 testFramework -->
 - Framework: ${contractValue(existingFields, "testFramework", project.testFramework)}
+<!-- agentic-contract-field:v1 testLocation -->
 - Ubicación: ${contractValue(existingFields, "testLocation", project.testLocation)}
+<!-- agentic-contract-field:v1 testLifecycle -->
 - Ciclo de vida: ${contractValue(existingFields, "testLifecycle", "conservar tests de regresión y retirar solo pruebas explícitamente temporales.")}
 
 ## Git
 
+<!-- agentic-contract-field:v1 gitStrategy -->
 - Rama o estrategia permitida: ${gitStrategy}
 
 ## Seguridad
 
+<!-- agentic-contract-field:v1 secrets -->
 - Secretos: ${contractValue(existingFields, "secrets", "no almacenar credenciales; usar mecanismos externos o variables de entorno.")}
+<!-- agentic-contract-field:v1 protectedPaths -->
 - Rutas protegidas: ${contractValue(existingFields, "protectedPaths", "`.git/`, `.codegraph/`, `.engram/` y archivos de secretos.")}
+<!-- agentic-contract-field:v1 immutableData -->
 - Datos inmutables: ${contractValue(existingFields, "immutableData", "No aplica.")}
+<!-- agentic-contract-field:v1 restrictedActions -->
 - Acciones restringidas: ${contractValue(existingFields, "restrictedActions", "no instalar herramientas, acceder a remotos, publicar paquetes ni modificar Git sin autorización explícita.")}
+<!-- agentic-contract-field:v1 originContamination -->
 - Contaminación de origen: ${contractValue(existingFields, "originContamination", "No aplica; esta adopción parte de la plantilla canónica y no de una extracción manual de otro repositorio.")}
 
 ## Documentación
 
+<!-- agentic-contract-field:v1 documentation -->
 - README y documentación técnica: ${contractValue(
     existingFields,
     "documentation",
@@ -829,6 +1072,7 @@ ${GOLDEN_RULE_DEVELOPMENT}
       ? `${project.documentation}; actualizar cuando cambien uso, arquitectura o validación.`
       : pendingField("ubicaciones de documentación y criterio de actualización"),
   )}
+<!-- agentic-contract-field:v1 adrs -->
 - ADRs: ${contractValue(existingFields, "adrs", "No aplica mientras el proyecto no declare una ubicación.")}
 
 ${CONTRACT_END}`;
@@ -907,7 +1151,8 @@ function replaceContract(source, contract) {
     const separator = source.length === 0 ? "" : source.endsWith(eol) ? eol : `${eol}${eol}`;
     return `${source}${separator}${contract.replaceAll("\n", eol)}${eol}`;
   }
-  return `${source.slice(0, start)}${contract}${source.slice(end + CONTRACT_END.length)}`;
+  const eol = source.includes("\r\n") ? "\r\n" : "\n";
+  return `${source.slice(0, start)}${contract.replaceAll("\n", eol)}${source.slice(end + CONTRACT_END.length)}`;
 }
 
 async function planTemplateFiles(destination, force) {
@@ -928,7 +1173,14 @@ async function planTemplateFiles(destination, force) {
     }
     const destinationState = await pathState(destinationPath);
     if (!destinationState) {
-      actions.push({ type: "copy", relativePath, sourcePath, destinationPath });
+      actions.push({
+        type: "copy",
+        relativePath,
+        sourcePath,
+        destinationPath,
+        sourceState,
+        sourceContent: await readFile(sourcePath),
+      });
       continue;
     }
     if (!destinationState.isFile() || destinationState.isSymbolicLink()) {
@@ -940,14 +1192,26 @@ async function planTemplateFiles(destination, force) {
       readFile(destinationPath),
     ]);
     if (sourceContent.equals(destinationContent)) {
-      actions.push({ type: "validate", relativePath });
+      actions.push({
+        type: "validate",
+        relativePath,
+        sourcePath,
+        destinationPath,
+        sourceState,
+        destinationState,
+        plannedContent: destinationContent,
+        sourceContent,
+      });
     } else if (force) {
       actions.push({
         type: "overwrite",
         relativePath,
         sourcePath,
         destinationPath,
+        sourceState,
+        destinationState,
         replacedContent: destinationContent,
+        sourceContent,
       });
     } else {
       collisions.push(relativePath);
@@ -965,14 +1229,24 @@ async function detectInstalledLayer(destination) {
   }
 
   let version = null;
+  let invalidVersion = null;
   const versionPath = join(destination, ...LAYER_VERSION_FILE.split("/"));
   const versionState = await pathState(versionPath);
   if (versionState?.isFile() && !versionState.isSymbolicLink()) {
     const declared = withoutByteOrderMark(await readFile(versionPath, "utf8")).trim();
-    if (SEMVER_PATTERN.test(declared)) version = declared;
+    if (parseSemVer(declared)) version = declared;
+    else invalidVersion = declared || "<vacía>";
   }
 
-  return { present: markers.length > 0, markers, version };
+  return { present: markers.length > 0 || Boolean(versionState), markers, version, invalidVersion };
+}
+
+function classifyInstalledLayer(layer, distributionVersion) {
+  if (!layer.version) return "legacy-sin-version";
+  const comparison = compareSemVer(layer.version, distributionVersion);
+  if (comparison < 0) return "anterior";
+  if (comparison > 0) return "posterior";
+  return "igual";
 }
 
 // Residuos de otra versión de la capa: archivos dentro de los directorios que
@@ -991,12 +1265,28 @@ async function planOrphanFiles(destination) {
     }
     for (const entry of entries) {
       const absolutePath = join(directory, entry.name);
-      if (entry.isSymbolicLink()) continue;
+      if (entry.isSymbolicLink()) {
+        const relativePath = relative(destination, absolutePath).replaceAll("\\", "/");
+        const error = new Error(
+          `El directorio administrado contiene un enlace simbólico no seguro: ${relativePath}.`,
+        );
+        error.exitCode = 2;
+        throw error;
+      }
       if (entry.isDirectory()) {
         await visit(absolutePath);
       } else if (entry.isFile()) {
         const relativePath = relative(destination, absolutePath).replaceAll("\\", "/");
-        if (!canonical.has(relativePath)) orphans.push({ relativePath, absolutePath });
+        if (!canonical.has(relativePath)) {
+          const previousState = await lstat(absolutePath);
+          orphans.push({
+            relativePath,
+            absolutePath,
+            previousContent: await readFile(absolutePath),
+            previousMode: previousState.mode,
+            previousState,
+          });
+        }
       }
     }
   }
@@ -1004,7 +1294,12 @@ async function planOrphanFiles(destination) {
   for (const managed of MANAGED_DIRECTORIES) {
     const base = join(destination, ...managed.split("/"));
     const state = await pathState(base);
-    if (!state?.isDirectory() || state.isSymbolicLink()) continue;
+    if (state?.isSymbolicLink()) {
+      const error = new Error(`El directorio administrado es un enlace simbólico no seguro: ${managed}.`);
+      error.exitCode = 2;
+      throw error;
+    }
+    if (!state?.isDirectory()) continue;
     await visit(base);
   }
 
@@ -1099,6 +1394,889 @@ async function confirmApplication(actions, agentsAction, orphans, versionAction)
     return /^(s|si|sí|y|yes)$/i.test(answer);
   } finally {
     readline.close();
+  }
+}
+
+async function revalidateLayerPlan({
+  destination,
+  templateActions,
+  destinationAgentsPath,
+  destinationAgentsState,
+  currentAgents,
+  orphans,
+  versionPath,
+  versionState,
+  currentVersionContent,
+}) {
+  await assertSafeDestinationAncestors(destination);
+  if (destinationAgentsState) {
+    await assertExpectedRegularFile(
+      destinationAgentsPath,
+      currentAgents,
+      destinationAgentsState,
+      "AGENTS.md",
+    );
+  } else await assertAbsentFile(destinationAgentsPath, "AGENTS.md");
+
+  for (const action of templateActions) {
+    const unsafeParent = await unsafeDestinationParent(destination, action.relativePath);
+    if (unsafeParent) {
+      throw new Error(
+        `${action.relativePath} tiene un ancestro no seguro después del plan: ${unsafeParent}.`,
+      );
+    }
+    await assertExpectedRegularFile(
+      action.sourcePath,
+      action.sourceContent,
+      action.sourceState,
+      `${action.relativePath} en la distribución`,
+    );
+    if (action.type === "copy") {
+      await assertAbsentFile(action.destinationPath, action.relativePath);
+      continue;
+    }
+    const expected = action.type === "overwrite" ? action.replacedContent : action.plannedContent;
+    await assertExpectedRegularFile(
+      action.destinationPath,
+      expected,
+      action.destinationState,
+      action.relativePath,
+    );
+  }
+
+  for (const orphan of orphans) {
+    const unsafeParent = await unsafeDestinationParent(destination, orphan.relativePath);
+    if (unsafeParent) {
+      throw new Error(
+        `${orphan.relativePath} cambió después del plan; no se escribió ningún archivo.`,
+      );
+    }
+    await assertExpectedRegularFile(
+      orphan.absolutePath,
+      orphan.previousContent,
+      orphan.previousState,
+      orphan.relativePath,
+    );
+  }
+
+  if (versionState) {
+    await assertExpectedRegularFile(
+      versionPath,
+      currentVersionContent,
+      versionState,
+      LAYER_VERSION_FILE,
+    );
+  } else await assertAbsentFile(versionPath, LAYER_VERSION_FILE);
+}
+
+async function applyLayerTransaction({
+  options,
+  templateActions,
+  agentsAction,
+  destinationAgentsPath,
+  destinationAgentsState,
+  currentAgents,
+  nextAgents,
+  orphans,
+  versionAction,
+  versionPath,
+  versionState,
+  currentVersionContent,
+  versionContent,
+}) {
+  const mutations = [];
+  const createdDirectories = new Set();
+  let mutationCount = 0;
+  let backupRoot = null;
+  const backupManifest = [];
+  let raceInjected = false;
+  let rollbackRaceInjected = false;
+  const injectedFailureAfter = Number(process.env.AGENTIC_INIT_TEST_FAIL_AFTER ?? 0);
+  const injectedRollbackFailureAfter = Number(
+    process.env.AGENTIC_INIT_TEST_FAIL_ROLLBACK_AFTER ?? 0,
+  );
+
+  async function persistBackupManifest() {
+    await writeFile(
+      join(backupRoot, "manifest.json"),
+      `${JSON.stringify(backupManifest, null, 2)}\n`,
+      "utf8",
+    );
+  }
+
+  async function stageBackup(filePath, previousContent, previousMode) {
+    if (!backupRoot) backupRoot = await mkdtemp(join(tmpdir(), "agentic-layer-backup-"));
+    const backup = previousContent === null
+      ? null
+      : `${String(backupManifest.length + 1).padStart(4, "0")}.bin`;
+    if (backup) await writeFile(join(backupRoot, backup), previousContent, { flag: "wx" });
+    const entry = {
+      target: filePath,
+      backup,
+      mode: previousMode,
+      previousExists: previousContent !== null,
+      status: "staged",
+    };
+    backupManifest.push(entry);
+    await persistBackupManifest();
+    return entry;
+  }
+
+  async function injectConfiguredRace(relativePath, filePath) {
+    if (
+      raceInjected ||
+      process.env.AGENTIC_INIT_TEST_RACE_PATH !== relativePath ||
+      !process.env.AGENTIC_INIT_TEST_RACE_ACTION
+    ) {
+      return;
+    }
+    raceInjected = true;
+    await mkdir(dirname(filePath), { recursive: true });
+    const content =
+      process.env.AGENTIC_INIT_TEST_RACE_ACTION === "appear"
+        ? "contenido aparecido durante la aplicación\n"
+        : "contenido sustituido durante la aplicación\n";
+    await writeFile(filePath, content, "utf8");
+  }
+
+  async function injectConfiguredRollbackRace(mutation) {
+    if (
+      rollbackRaceInjected ||
+      process.env.AGENTIC_INIT_TEST_ROLLBACK_RACE_PATH !== mutation.relativePath ||
+      !process.env.AGENTIC_INIT_TEST_ROLLBACK_RACE_TARGET
+    ) {
+      return;
+    }
+    rollbackRaceInjected = true;
+    const parent = dirname(mutation.filePath);
+    const external = resolve(process.env.AGENTIC_INIT_TEST_ROLLBACK_RACE_TARGET);
+    const externalState = await pathState(external);
+    if (!externalState?.isDirectory() || externalState.isSymbolicLink()) {
+      throw new Error("el destino de la carrera de rollback no es un directorio real");
+    }
+    const originalParent = `${parent}.agentic-rollback-original-${process.pid}`;
+    await rename(parent, originalParent);
+    await symlink(external, parent, process.platform === "win32" ? "junction" : "dir");
+  }
+
+  async function ensureParent(filePath) {
+    const parent = dirname(filePath);
+    const segments = relative(options.destination, parent).split(/[\\/]/).filter(Boolean);
+    let current = options.destination;
+    for (const segment of segments) {
+      current = join(current, segment);
+      let state = await pathState(current);
+      if (!state) {
+        try {
+          await mkdir(current);
+          createdDirectories.add(current);
+        } catch (error) {
+          if (error.code !== "EEXIST") throw error;
+        }
+        state = await pathState(current);
+      }
+      if (!state?.isDirectory() || state.isSymbolicLink()) {
+        throw changedAfterPlan(
+          `${relative(options.destination, current).replaceAll("\\", "/")} es un ancestro no seguro después del plan.`,
+        );
+      }
+    }
+  }
+
+  async function assertSafeMutationParent(relativePath) {
+    try {
+      await assertSafeDestinationAncestors(options.destination);
+    } catch (error) {
+      throw changedAfterPlan(`${relativePath} tiene un ancestro no seguro: ${error.message}`);
+    }
+    const unsafeParent = await unsafeDestinationParent(options.destination, relativePath);
+    if (unsafeParent) {
+      throw changedAfterPlan(
+        `${relativePath} tiene un ancestro no seguro después del plan: ${unsafeParent}.`,
+      );
+    }
+  }
+
+  async function mutate({
+    filePath,
+    relativePath,
+    previousContent,
+    previousMode,
+    previousState,
+    nextContent,
+    operation,
+  }) {
+    const backup = await stageBackup(filePath, previousContent, previousMode);
+    const appliedState = await operation();
+    mutations.push({
+      filePath,
+      relativePath,
+      previousContent,
+      previousMode,
+      previousState,
+      appliedContent: operation.kind === "remove" ? null : nextContent,
+      appliedState,
+      backup,
+    });
+    backup.status = "confirmed";
+    await persistBackupManifest();
+    mutationCount += 1;
+    if (
+      options.operation === "update" &&
+      Number.isInteger(injectedFailureAfter) &&
+      injectedFailureAfter > 0 &&
+      mutationCount === injectedFailureAfter
+    ) {
+      throw new Error(`fallo inyectado después de ${mutationCount} escrituras`);
+    }
+  }
+
+  try {
+    await mkdir(options.destination, { recursive: true });
+    for (const action of templateActions) {
+      if (action.type === "copy") {
+        await ensureParent(action.destinationPath);
+        await injectConfiguredRace(action.relativePath, action.destinationPath);
+        const operation = async () => {
+          await assertExpectedRegularFile(
+            action.sourcePath,
+            action.sourceContent,
+            action.sourceState,
+            `${action.relativePath} en la distribución`,
+          );
+          return atomicCreateNoFollow(
+            action.destinationPath,
+            action.sourceContent,
+            action.sourceState.mode,
+            action.relativePath,
+            () => assertSafeMutationParent(action.relativePath),
+          );
+        };
+        operation.kind = "create";
+        await mutate({
+          filePath: action.destinationPath,
+          relativePath: action.relativePath,
+          previousContent: null,
+          previousMode: null,
+          previousState: null,
+          nextContent: action.sourceContent,
+          operation,
+        });
+      } else if (action.type === "overwrite") {
+        await injectConfiguredRace(action.relativePath, action.destinationPath);
+        const operation = async () => {
+          await assertExpectedRegularFile(
+            action.sourcePath,
+            action.sourceContent,
+            action.sourceState,
+            `${action.relativePath} en la distribución`,
+          );
+          return atomicReplaceNoFollow(
+            action.destinationPath,
+            action.replacedContent,
+            action.destinationState,
+            action.sourceContent,
+            action.destinationState.mode,
+            action.relativePath,
+            () => assertSafeMutationParent(action.relativePath),
+          );
+        };
+        operation.kind = "replace";
+        await mutate({
+          filePath: action.destinationPath,
+          relativePath: action.relativePath,
+          previousContent: action.replacedContent,
+          previousMode: action.destinationState.mode,
+          previousState: action.destinationState,
+          nextContent: action.sourceContent,
+          operation,
+        });
+      }
+    }
+    if (agentsAction !== "validate") {
+      await ensureParent(destinationAgentsPath);
+      await injectConfiguredRace("AGENTS.md", destinationAgentsPath);
+      const operation = destinationAgentsState
+        ? async () => {
+            return atomicReplaceNoFollow(
+              destinationAgentsPath,
+              currentAgents,
+              destinationAgentsState,
+              nextAgents,
+              destinationAgentsState.mode,
+              "AGENTS.md",
+              () => assertSafeMutationParent("AGENTS.md"),
+            );
+          }
+        : async () => {
+            return atomicCreateNoFollow(
+              destinationAgentsPath,
+              nextAgents,
+              null,
+              "AGENTS.md",
+              () => assertSafeMutationParent("AGENTS.md"),
+            );
+          };
+      operation.kind = destinationAgentsState ? "replace" : "create";
+      await mutate({
+        filePath: destinationAgentsPath,
+        relativePath: "AGENTS.md",
+        previousContent: destinationAgentsState ? Buffer.from(currentAgents, "utf8") : null,
+        previousMode: destinationAgentsState?.mode ?? null,
+        previousState: destinationAgentsState,
+        nextContent: Buffer.from(nextAgents, "utf8"),
+        operation,
+      });
+    }
+    for (const orphan of orphans) {
+      await injectConfiguredRace(orphan.relativePath, orphan.absolutePath);
+      const operation = async () => {
+        await assertSafeMutationParent(orphan.relativePath);
+        await assertExpectedRegularFile(
+          orphan.absolutePath,
+          orphan.previousContent,
+          orphan.previousState,
+          orphan.relativePath,
+        );
+        await rm(orphan.absolutePath);
+        return null;
+      };
+      operation.kind = "remove";
+      await mutate({
+        filePath: orphan.absolutePath,
+        relativePath: orphan.relativePath,
+        previousContent: orphan.previousContent,
+        previousMode: orphan.previousMode,
+        previousState: orphan.previousState,
+        nextContent: null,
+        operation,
+      });
+    }
+    if (versionAction !== "validate") {
+      await ensureParent(versionPath);
+      await injectConfiguredRace(LAYER_VERSION_FILE, versionPath);
+      const operation = versionState
+        ? async () => {
+            return atomicReplaceNoFollow(
+              versionPath,
+              currentVersionContent,
+              versionState,
+              versionContent,
+              versionState.mode,
+              LAYER_VERSION_FILE,
+              () => assertSafeMutationParent(LAYER_VERSION_FILE),
+            );
+          }
+        : async () => {
+            return atomicCreateNoFollow(
+              versionPath,
+              versionContent,
+              null,
+              LAYER_VERSION_FILE,
+              () => assertSafeMutationParent(LAYER_VERSION_FILE),
+            );
+          };
+      operation.kind = versionState ? "replace" : "create";
+      await mutate({
+        filePath: versionPath,
+        relativePath: LAYER_VERSION_FILE,
+        previousContent: versionState ? Buffer.from(currentVersionContent, "utf8") : null,
+        previousMode: versionState?.mode ?? null,
+        previousState: versionState,
+        nextContent: Buffer.from(versionContent, "utf8"),
+        operation,
+      });
+    }
+  } catch (cause) {
+    const rollbackErrors = [];
+    let rollbackCount = 0;
+    for (const mutation of [...mutations].reverse()) {
+      try {
+        await injectConfiguredRollbackRace(mutation);
+        rollbackCount += 1;
+        if (injectedRollbackFailureAfter === rollbackCount) {
+          throw new Error(`fallo inyectado durante la restauración ${rollbackCount}`);
+        }
+        if (mutation.previousContent === null) {
+          await assertSafeMutationParent(mutation.relativePath);
+          await assertExpectedRegularFile(
+            mutation.filePath,
+            mutation.appliedContent,
+            mutation.appliedState,
+            mutation.relativePath,
+          );
+          await rm(mutation.filePath, { force: true });
+        } else if (mutation.appliedState) {
+          await atomicReplaceNoFollow(
+            mutation.filePath,
+            mutation.appliedContent,
+            mutation.appliedState,
+            mutation.previousContent,
+            mutation.previousMode,
+            mutation.relativePath,
+            () => assertSafeMutationParent(mutation.relativePath),
+          );
+        } else {
+          await atomicCreateNoFollow(
+            mutation.filePath,
+            mutation.previousContent,
+            mutation.previousMode,
+            mutation.relativePath,
+            () => assertSafeMutationParent(mutation.relativePath),
+          );
+        }
+      } catch (error) {
+        rollbackErrors.push(`${mutation.filePath}: ${error.message}`);
+      }
+    }
+    for (const directory of [...createdDirectories].sort((left, right) => right.length - left.length)) {
+      try {
+        const relativeDirectory = relative(options.destination, directory).replaceAll("\\", "/");
+        await assertSafeMutationParent(`${relativeDirectory}/.agentic-rollback-check`);
+        const directoryState = await pathState(directory);
+        if (!directoryState) continue;
+        if (!directoryState.isDirectory() || directoryState.isSymbolicLink()) {
+          throw changedAfterPlan(`${relativeDirectory} cambió durante la restauración.`);
+        }
+        await rmdir(directory);
+      } catch (error) {
+        if (!["ENOENT", "ENOTEMPTY"].includes(error.code)) {
+          rollbackErrors.push(`${directory}: ${error.message}`);
+        }
+      }
+    }
+    for (const mutation of mutations) {
+      try {
+        await assertSafeMutationParent(mutation.relativePath);
+        const restoredState = await pathState(mutation.filePath);
+        if (mutation.previousContent === null) {
+          if (restoredState) rollbackErrors.push(`${mutation.filePath}: debía quedar ausente`);
+        } else {
+          const restored =
+            restoredState?.isFile() && !restoredState.isSymbolicLink()
+              ? await readFile(mutation.filePath)
+              : null;
+          if (!restored?.equals(mutation.previousContent)) {
+            rollbackErrors.push(`${mutation.filePath}: contenido no restaurado`);
+          } else if (
+            mutation.previousMode !== null &&
+            (restoredState.mode & 0o777) !== (mutation.previousMode & 0o777)
+          ) {
+            rollbackErrors.push(`${mutation.filePath}: permisos no restaurados`);
+          }
+        }
+      } catch (error) {
+        rollbackErrors.push(`${mutation.filePath}: ${error.message}`);
+      }
+    }
+    if (rollbackErrors.length) {
+      if (backupRoot) await persistBackupManifest().catch(() => {});
+      throw new Error(
+        `Falló la actualización (${cause.message}) y la restauración quedó incompleta:\n${rollbackErrors
+          .map((item) => `- ${item}`)
+          .join("\n")}${
+          backupRoot ? `\nRespaldos recuperables conservados en: ${backupRoot}` : ""
+        }`,
+      );
+    }
+    if (backupRoot) await rm(backupRoot, { recursive: true, force: true });
+    if (mutations.length === 0 && cause.exitCode) throw cause;
+    throw new Error(`Falló la actualización (${cause.message}); restauración verificada.`);
+  }
+
+  if (backupRoot) await rm(backupRoot, { recursive: true, force: true });
+
+  return {
+    copied: templateActions.filter((action) => action.type === "copy").length,
+    overwritten: templateActions.filter((action) => action.type === "overwrite").length,
+    removed: orphans.length,
+  };
+}
+
+const CODEX_THREADS_KEY = "max_concurrent_threads_per_session";
+const CODEX_THREADS_LEGACY_KEY = "max_threads";
+
+function hasTomlMultilineString(text) {
+  let quote = null;
+  let comment = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (comment) {
+      if (character === "\n") comment = false;
+      continue;
+    }
+    if (quote) {
+      if (quote === '"' && character === "\\") index += 1;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === "#") {
+      comment = true;
+      continue;
+    }
+    if (text.startsWith("'''", index) || text.startsWith('\"\"\"', index)) return true;
+    if (character === '"' || character === "'") quote = character;
+  }
+  return false;
+}
+
+function parseCodexToml(source, pathLabel) {
+  const text = source.startsWith("\uFEFF") ? source.slice(1) : source;
+  if (hasTomlMultilineString(text)) {
+    return { ambiguous: `${pathLabel} contiene un string TOML multilínea; requiere edición manual.` };
+  }
+  let inAgents = false;
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    if (trimmed.startsWith("[")) {
+      const supportedHeader =
+        /^\[[^\[\]\r\n]+\][ \t]*(?:#.*)?$/.test(trimmed) ||
+        /^\[\[[^\[\]\r\n]+\]\][ \t]*(?:#.*)?$/.test(trimmed);
+      if (!supportedHeader) {
+        return { ambiguous: `${pathLabel} contiene una cabecera TOML no soportada.` };
+      }
+      if (/^\[agents\][ \t]*(?:#.*)?$/.test(trimmed)) {
+        inAgents = true;
+        continue;
+      }
+      if (/(?:^|[.\[\s"'])agents(?:$|[.\]\s"'])/.test(trimmed)) {
+        return { ambiguous: `${pathLabel} contiene una definición agents no soportada.` };
+      }
+      inAgents = false;
+      continue;
+    }
+    const assignment = trimmed.indexOf("=");
+    if (assignment < 0) continue;
+    const key = trimmed.slice(0, assignment).trim();
+    if (/^(?:agents|["']agents["'])(?:\s*\.|\s*$)/.test(key)) {
+      return { ambiguous: `${pathLabel} contiene una definición agents no soportada.` };
+    }
+    if (
+      inAgents &&
+      new RegExp(
+        `(?:["'](?:${CODEX_THREADS_KEY}|${CODEX_THREADS_LEGACY_KEY})["']|(?:^|\\.)\\s*(?:${CODEX_THREADS_KEY}|${CODEX_THREADS_LEGACY_KEY})\\s*\\.)`,
+      ).test(key)
+    ) {
+      return { ambiguous: `${pathLabel} contiene una clave de concurrencia TOML no soportada.` };
+    }
+  }
+  const sections = [...text.matchAll(/^[ \t]*\[agents\][ \t]*(?:#[^\r\n]*)?\r?$/gm)];
+  if (sections.length > 1) {
+    return { ambiguous: `${pathLabel} contiene tablas [agents] duplicadas.` };
+  }
+  if (
+    new RegExp(
+      `^[ \\t]*agents\\.(?:${CODEX_THREADS_KEY}|${CODEX_THREADS_LEGACY_KEY})\\b`,
+      "m",
+    ).test(text)
+  ) {
+    return { ambiguous: `${pathLabel} usa una clave de concurrencia punteada no editable con seguridad.` };
+  }
+  if (!sections.length) {
+    return { source, text, value: null, target: null, sectionHeaderEnd: null };
+  }
+
+  const section = sections[0];
+  const headerEnd = text.indexOf("\n", section.index);
+  const contentStart = headerEnd < 0 ? text.length : headerEnd + 1;
+  const following = /^[ \t]*(?:\[[^\[\]\r\n]+\]|\[\[[^\[\]\r\n]+\]\])[ \t]*(?:#[^\r\n]*)?\r?$/gm;
+  following.lastIndex = contentStart;
+  const next = following.exec(text);
+  const contentEnd = next?.index ?? text.length;
+  const content = text.slice(contentStart, contentEnd);
+  const possible = [
+    ...content.matchAll(
+      new RegExp(`^[ \\t]*(?:${CODEX_THREADS_KEY}|${CODEX_THREADS_LEGACY_KEY})\\b[^\\r\\n]*$`, "gm"),
+    ),
+  ];
+  const parsed = [
+    ...content.matchAll(
+      new RegExp(
+        `^([ \\t]*)(${CODEX_THREADS_KEY}|${CODEX_THREADS_LEGACY_KEY})([ \\t]*=[ \\t]*)(\\d+)([ \\t]*(?:#[^\\r\\n]*)?)(\\r?)$`,
+        "gm",
+      ),
+    ),
+  ];
+  if (possible.length !== parsed.length || parsed.length > 1) {
+    return { ambiguous: `${pathLabel} contiene una clave de concurrencia TOML ambigua.` };
+  }
+  const target = parsed[0];
+  return {
+    source,
+    text,
+    value: target ? Number(target[4]) : null,
+    target: target
+      ? {
+          index: contentStart + target.index,
+          length: target[0].length,
+          indent: target[1],
+          assignment: target[3],
+          suffix: target[5],
+          carriageReturn: target[6],
+          legacy: target[2] === CODEX_THREADS_LEGACY_KEY,
+        }
+      : null,
+    sectionHeaderEnd: contentStart,
+  };
+}
+
+async function inspectCodexFile(path, label, { rootPath, requireExistingRoot = false } = {}) {
+  const allowParentCreation = !requireExistingRoot;
+  try {
+    if (rootPath) {
+      const rootState = await pathState(rootPath);
+      if (!rootState) {
+        if (requireExistingRoot) {
+          return {
+            allowParentCreation,
+            path,
+            label,
+            ambiguous: `${label}: CODEX_HOME no existe; se requiere edición manual.`,
+          };
+        }
+      } else if (!rootState.isDirectory() || rootState.isSymbolicLink()) {
+        return {
+          allowParentCreation,
+          path,
+          label,
+          ambiguous: `${label}: la raíz no es un directorio real seguro.`,
+        };
+      }
+    }
+    const state = await pathState(path);
+    if (!state) return { allowParentCreation, path, label, exists: false, value: null };
+    if (!state.isFile() || state.isSymbolicLink()) {
+      return {
+        allowParentCreation,
+        path,
+        label,
+        ambiguous: `${label}: config.toml no es un archivo regular seguro.`,
+      };
+    }
+    const bytes = await readFile(path);
+    let source;
+    try {
+      source = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+    } catch {
+      return {
+        allowParentCreation,
+        path,
+        label,
+        ambiguous: `${label}: config.toml no contiene UTF-8 válido.`,
+      };
+    }
+    return {
+      allowParentCreation,
+      path,
+      label,
+      exists: true,
+      mode: state.mode,
+      state,
+      ...parseCodexToml(source, label),
+    };
+  } catch (error) {
+    return {
+      allowParentCreation,
+      path,
+      label,
+      ambiguous: `${label}: no se pudo inspeccionar (${error.message}).`,
+    };
+  }
+}
+
+async function inspectCodexConfiguration(destination) {
+  const explicitCodexHome = Object.hasOwn(process.env, "CODEX_HOME") && process.env.CODEX_HOME !== "";
+  const globalRoot = explicitCodexHome ? resolve(process.env.CODEX_HOME) : join(homedir(), ".codex");
+  const localRoot = join(destination, ".codex");
+  const [global, local] = await Promise.all([
+    inspectCodexFile(join(globalRoot, "config.toml"), "configuración global de Codex", {
+      rootPath: globalRoot,
+      requireExistingRoot: explicitCodexHome,
+    }),
+    inspectCodexFile(join(localRoot, "config.toml"), "configuración local de Codex", {
+      rootPath: localRoot,
+    }),
+  ]);
+  const effectiveUnknown = Boolean(local.ambiguous || global.ambiguous);
+  const effectiveSource = effectiveUnknown
+    ? null
+    : typeof local.value === "number"
+      ? "local"
+      : typeof global.value === "number"
+        ? "global"
+        : null;
+  const effective = effectiveSource ? (effectiveSource === "local" ? local.value : global.value) : null;
+  return { global, local, effective, effectiveSource, effectiveUnknown };
+}
+
+function renderCodexTomlUpdate(inspection) {
+  if (!inspection.exists) return `[agents]\n${CODEX_THREADS_KEY} = 9\n`;
+  const { source, text, target, sectionHeaderEnd } = inspection;
+  const bom = source.startsWith("\uFEFF") ? "\uFEFF" : "";
+  if (target) {
+    const line = `${target.indent}${CODEX_THREADS_KEY}${target.assignment}9${target.suffix}${target.carriageReturn}`;
+    return `${bom}${text.slice(0, target.index)}${line}${text.slice(target.index + target.length)}`;
+  }
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  if (sectionHeaderEnd !== null) {
+    const separator = sectionHeaderEnd === text.length && !text.endsWith("\n") ? eol : "";
+    return `${bom}${text.slice(0, sectionHeaderEnd)}${separator}${CODEX_THREADS_KEY} = 9${eol}${text.slice(sectionHeaderEnd)}`;
+  }
+  const separator = text.length === 0 ? "" : text.endsWith(eol) ? eol : `${eol}${eol}`;
+  return `${bom}${text}${separator}[agents]${eol}${CODEX_THREADS_KEY} = 9${eol}`;
+}
+
+async function assertSafeCodexParent(path, allowParentCreation) {
+  const parent = dirname(path);
+  await assertSafeDestinationAncestors(parent);
+  const state = await pathState(parent);
+  if (!state) {
+    if (allowParentCreation) return;
+    throw new Error("el directorio de configuración no existe");
+  }
+  if (!state.isDirectory() || state.isSymbolicLink()) {
+    throw new Error(`el directorio de configuración es un ancestro no seguro: ${parent}`);
+  }
+}
+
+async function injectConfiguredCodexRace(stage, path) {
+  if (
+    process.env.AGENTIC_INIT_TEST_CODEX_RACE_STAGE !== stage ||
+    !process.env.AGENTIC_INIT_TEST_CODEX_RACE_TARGET
+  ) {
+    return;
+  }
+  const external = resolve(process.env.AGENTIC_INIT_TEST_CODEX_RACE_TARGET);
+  const externalState = await pathState(external);
+  if (!externalState?.isDirectory() || externalState.isSymbolicLink()) {
+    throw new Error("el destino de la carrera de Codex no es un directorio real");
+  }
+  const parent = dirname(path);
+  const original = `${parent}.agentic-codex-race-original-${process.pid}`;
+  await rename(parent, original);
+  try {
+    await symlink(external, parent, process.platform === "win32" ? "junction" : "dir");
+  } catch (error) {
+    await rename(original, parent).catch(() => {});
+    throw error;
+  }
+}
+
+async function atomicWriteCodex(path, content, inspection) {
+  await assertSafeCodexParent(path, inspection.allowParentCreation);
+  await mkdir(dirname(path), { recursive: true });
+  let parentCheck = 0;
+  const assertSafeParent = async () => {
+    const stage = parentCheck === 0 ? "before-temporary" : "before-mutation";
+    parentCheck += 1;
+    await injectConfiguredCodexRace(stage, path);
+    await assertSafeCodexParent(path, inspection.allowParentCreation);
+  };
+  if (inspection.exists) {
+    await atomicReplaceNoFollow(
+      path,
+      inspection.source,
+      inspection.state,
+      content,
+      inspection.mode,
+      inspection.label,
+      assertSafeParent,
+    );
+  } else {
+    await atomicCreateNoFollow(path, content, null, inspection.label, assertSafeParent);
+  }
+}
+
+async function askCodexConfiguration(inspection) {
+  const readline = createInterface({ input, output });
+  const recommendLocal = inspection.local.value !== null && inspection.local.value < 9;
+  try {
+    output.write("\nCodex no tiene un límite efectivo de al menos 9 subagentes para este proyecto.\n");
+    output.write("La capa recomienda configurar 9 subagentes concurrentes.\n\n");
+    output.write("¿Dónde desea configurarlo?\n");
+    output.write(`[g] Global: todos los proyectos${recommendLocal ? "" : " (recomendado)"}\n`);
+    output.write(`[l] Local: solamente este proyecto${recommendLocal ? " (recomendado)" : ""}\n`);
+    output.write("[n] Ninguno\n");
+    const answer = (await readline.question("> ")).trim().toLowerCase();
+    if (answer === "g" || answer === "global") return "global";
+    if (answer === "l" || answer === "local") return "local";
+    return "none";
+  } finally {
+    readline.close();
+  }
+}
+
+async function applyCodexConfiguration(options, inspection, { ready, warnings, pending }) {
+  const ambiguity = inspection.local.ambiguous ?? inspection.global.ambiguous;
+  if (ambiguity) {
+    warnings.push(`Valor efectivo de Codex desconocido por TOML ambiguo o ruta no segura: ${ambiguity}`);
+    pending.push("Realizar manualmente la edición de concurrencia de Codex.");
+    return;
+  }
+  if (inspection.effective !== null && inspection.effective >= 9) {
+    ready.push(
+      `Codex ya tiene un límite efectivo de ${inspection.effective} (${inspection.effectiveSource}); no se modifica.`,
+    );
+    return;
+  }
+
+  let choice = options.codexConfig;
+  if (!choice && !options.dryRun && !options.yes && input.isTTY && output.isTTY) {
+    choice = await askCodexConfiguration(inspection);
+  }
+  if (!choice) {
+    pending.push("Configuración de Codex pendiente; --yes no autoriza modificarla sin --codex-config.");
+    return;
+  }
+  if (choice === "none") {
+    ready.push("Configuración de Codex conservada por elección explícita.");
+    return;
+  }
+
+  const selected = inspection[choice];
+  if (choice === "global" && inspection.local.value !== null && inspection.local.value < 9) {
+    warnings.push(
+      `La configuración local tiene precedencia: este proyecto seguirá usando ${inspection.local.value} aunque se elija global.`,
+    );
+    pending.push("Actualizar localmente la concurrencia de Codex para corregir el valor efectivo.");
+  }
+  if (selected.value !== null && selected.value >= 9) {
+    ready.push(`La configuración ${choice} ya declara ${selected.value}; no se reduce ni modifica.`);
+    return;
+  }
+  if (options.dryRun) {
+    ready.push(`Plan de configuración ${choice} de Codex calculado sin escrituras.`);
+    return;
+  }
+  try {
+    const latestParent = await pathState(dirname(selected.path));
+    const latestState = await pathState(selected.path);
+    if (
+      latestParent &&
+      (!latestParent.isDirectory() || latestParent.isSymbolicLink())
+    ) {
+      throw new Error("el directorio de configuración cambió o no es seguro");
+    }
+    if (!latestParent && !selected.allowParentCreation) {
+      throw new Error("el directorio de configuración no existe");
+    }
+    if (selected.exists) {
+      const latestSource =
+        latestState?.isFile() && !latestState.isSymbolicLink()
+          ? await readFile(selected.path, "utf8")
+          : null;
+      if (latestSource !== selected.source) {
+        throw new Error("config.toml cambió después de la inspección");
+      }
+    } else if (latestState) {
+      throw new Error("config.toml apareció después de la inspección");
+    }
+    await atomicWriteCodex(selected.path, renderCodexTomlUpdate(selected), selected);
+    ready.push(`Configuración ${choice} de Codex actualizada a 9 de forma atómica.`);
+  } catch (error) {
+    warnings.push(`La capa quedó actualizada, pero no se pudo escribir Codex: ${error.message}`);
+    pending.push(`Editar manualmente ${selected.path}.`);
   }
 }
 
@@ -1275,6 +2453,23 @@ async function validateTemplateDistribution() {
   }
   if (!/^- Contaminación de origen:/m.test(rootAgents)) {
     errors.push("El contrato raíz no declara Contaminación de origen.");
+  }
+  try {
+    const rootContract = inspectContract(rootAgents, "AGENTS.md de la plantilla");
+    if (!rootContract.present) {
+      errors.push("AGENTS.md no contiene el contrato canónico.");
+    } else {
+      const rootFields = parseContractFields(rootAgents);
+      const missingIds = REQUIRED_CONTRACT_FIELDS.filter((field) => !rootFields.has(field));
+      const declaredIds = [
+        ...rootContract.text.matchAll(/<!-- agentic-contract-field:v1 ([A-Za-z][A-Za-z0-9]*) -->/g),
+      ].map((match) => match[1]);
+      if (missingIds.length || declaredIds.length !== REQUIRED_CONTRACT_FIELDS.length) {
+        errors.push("AGENTS.md no declara una vez cada campo contractual canónico con ID estable.");
+      }
+    }
+  } catch (error) {
+    errors.push(`AGENTS.md contiene un contrato canónico inválido: ${error.message}`);
   }
   if (!rootAgents.includes(GOLDEN_RULE_DEVELOPMENT)) {
     errors.push("AGENTS.md no activa la Regla de Oro para tareas directas y orquestadas.");
@@ -1479,7 +2674,35 @@ async function run(options) {
   const project = await detectProject(options.destination, warnings);
   const distributionVersion = await readDistributionVersion();
   const installedLayer = await detectInstalledLayer(options.destination);
-  let replaceLayer = options.force;
+  if (options.operation === "update" && !installedLayer.present) {
+    const error = new Error(
+      "No se detectó una capa agéntica existente. Use `agentic init [destino]`.",
+    );
+    error.exitCode = 2;
+    throw error;
+  }
+  if (options.operation === "update" && installedLayer.invalidVersion) {
+    const error = new Error(
+      `${LAYER_VERSION_FILE} no contiene SemVer válido (${installedLayer.invalidVersion}); no se escribió ningún archivo.`,
+    );
+    error.exitCode = 2;
+    throw error;
+  }
+  const layerClassification = installedLayer.present
+    ? classifyInstalledLayer(installedLayer, distributionVersion)
+    : null;
+  if (
+    options.operation === "update" &&
+    layerClassification === "posterior" &&
+    !options.allowDowngrade
+  ) {
+    const error = new Error(
+      `La capa instalada ${installedLayer.version} es posterior a ${distributionVersion}; use --allow-downgrade para autorizarlo.`,
+    );
+    error.exitCode = 2;
+    throw error;
+  }
+  let replaceLayer = options.operation === "update" || options.force;
   let replacementConfirmed = false;
   let templatePlan = await planTemplateFiles(options.destination, replaceLayer);
 
@@ -1602,10 +2825,18 @@ async function run(options) {
   const currentVersionContent = versionState ? await readFile(versionPath, "utf8") : null;
   const versionAction =
     currentVersionContent === versionContent ? "validate" : versionState ? "update" : "create";
+  const codexInspection =
+    options.operation === "update" ? await inspectCodexConfiguration(options.destination) : null;
 
   console.log(options.dryRun ? "PLAN (sin escrituras)" : "ACCIONES");
   if (installedLayer.present) {
-    console.log(`- detectada ${describeInstalledLayer(installedLayer, distributionVersion)}`);
+    console.log(
+      `- detectada ${describeInstalledLayer(installedLayer, distributionVersion)} (${layerClassification})${
+        layerClassification === "posterior" && options.allowDowngrade
+          ? "; downgrade autorizado"
+          : ""
+      }`,
+    );
   }
   for (const action of templatePlan.actions) {
     console.log(`- ${ACTION_LABELS[action.type]}: ${action.relativePath}`);
@@ -1627,6 +2858,30 @@ async function run(options) {
   }
   console.log("- comprobar la disponibilidad del ejecutable de Engram");
   console.log("- comprobar exclusiones locales en .gitignore");
+  if (options.operation === "update") {
+    const detected = (item) =>
+      item.ambiguous ? "ambiguo" : item.value === null ? "ausente" : String(item.value);
+    console.log(
+      `- Codex detectado: global=${detected(codexInspection.global)}, local=${detected(codexInspection.local)}, efectivo=${
+        codexInspection.effectiveUnknown ? "desconocido" : (codexInspection.effective ?? "ausente")
+      }`,
+    );
+    if (codexInspection.local.ambiguous || codexInspection.global.ambiguous) {
+      console.log("- configuración de Codex ambigua; dejar una edición manual pendiente");
+    } else if (codexInspection.effective !== null && codexInspection.effective >= 9) {
+      console.log("- Codex ya cumple el mínimo efectivo; no preguntar ni escribir configuración");
+    } else if (options.codexConfig === "global") {
+      console.log("- revisar y, si corresponde, actualizar la configuración global de Codex");
+    } else if (options.codexConfig === "local") {
+      console.log("- revisar y, si corresponde, actualizar la configuración local de Codex");
+    } else if (options.codexConfig === "none") {
+      console.log("- conservar sin cambios la configuración de Codex (elección explícita: none)");
+    } else {
+      console.log(
+        "- configuración de Codex pendiente; ofrecer global, local o none (requiere elección explícita)",
+      );
+    }
+  }
 
   if (!options.dryRun) {
     // Confirmar el reemplazo ya autorizó estas escrituras: no se vuelve a pedir.
@@ -1639,91 +2894,49 @@ async function run(options) {
       error.exitCode = 3;
       throw error;
     }
+    if (options.operation === "update" && !options.yes && !interactive) {
+      const error = new Error(
+        "Cancelado: update exige confirmación interactiva o --yes; no se escribió ningún archivo.",
+      );
+      error.exitCode = 3;
+      throw error;
+    }
 
-    const latestAgentsState = await pathState(destinationAgentsPath);
-    if (Boolean(latestAgentsState) !== Boolean(destinationAgentsState)) {
-      const error = new Error("AGENTS.md cambió después del plan; no se escribió ningún archivo.");
+    try {
+      await revalidateLayerPlan({
+        destination: options.destination,
+        templateActions: templatePlan.actions,
+        destinationAgentsPath,
+        destinationAgentsState,
+        currentAgents,
+        orphans,
+        versionPath,
+        versionState,
+        currentVersionContent,
+      });
+    } catch (error) {
       error.exitCode = 2;
       throw error;
     }
-    if (destinationAgentsState) {
-      const latestAgents = await readFile(destinationAgentsPath, "utf8");
-      if (latestAgents !== currentAgents) {
-        const error = new Error(
-          "AGENTS.md cambió después del plan; no se escribió ningún archivo.",
-        );
-        error.exitCode = 2;
-        throw error;
-      }
-    }
-    for (const action of templatePlan.actions) {
-      if (action.type === "copy" && (await pathState(action.destinationPath))) {
-        const error = new Error(
-          `${action.relativePath} apareció después del plan; no se escribió ningún archivo.`,
-        );
-        error.exitCode = 2;
-        throw error;
-      }
-      if (action.type === "overwrite") {
-        const latestState = await pathState(action.destinationPath);
-        const latestContent =
-          latestState?.isFile() && !latestState.isSymbolicLink()
-            ? await readFile(action.destinationPath)
-            : null;
-        if (!latestContent || !latestContent.equals(action.replacedContent)) {
-          const error = new Error(
-            `${action.relativePath} cambió después del plan; no se escribió ningún archivo.`,
-          );
-          error.exitCode = 2;
-          throw error;
-        }
-      }
-    }
+    const applied = await applyLayerTransaction({
+      options,
+      templateActions: templatePlan.actions,
+      agentsAction,
+      destinationAgentsPath,
+      destinationAgentsState,
+      currentAgents,
+      nextAgents,
+      orphans,
+      versionAction,
+      versionPath,
+      versionState,
+      currentVersionContent,
+      versionContent,
+    });
+    if (applied.removed) await removeEmptyManagedDirectories(options.destination);
 
-    for (const orphan of orphans) {
-      const latestState = await pathState(orphan.absolutePath);
-      if (latestState && (!latestState.isFile() || latestState.isSymbolicLink())) {
-        const error = new Error(
-          `${orphan.relativePath} cambió después del plan; no se escribió ningún archivo.`,
-        );
-        error.exitCode = 2;
-        throw error;
-      }
-    }
-
-    await mkdir(options.destination, { recursive: true });
-    for (const action of templatePlan.actions) {
-      if (action.type === "copy") {
-        await mkdir(dirname(action.destinationPath), { recursive: true });
-        await copyFile(action.sourcePath, action.destinationPath, fsConstants.COPYFILE_EXCL);
-      } else if (action.type === "overwrite") {
-        await copyFile(action.sourcePath, action.destinationPath);
-      }
-    }
-    if (agentsAction !== "validate") {
-      await writeFile(destinationAgentsPath, nextAgents, {
-        encoding: "utf8",
-        flag: destinationAgentsState ? "w" : "wx",
-      });
-    }
-    let removed = 0;
-    for (const orphan of orphans) {
-      try {
-        await rm(orphan.absolutePath);
-        removed += 1;
-      } catch (error) {
-        if (error.code !== "ENOENT") throw error;
-      }
-    }
-    if (removed) await removeEmptyManagedDirectories(options.destination);
-
-    if (versionAction !== "validate") {
-      await mkdir(dirname(versionPath), { recursive: true });
-      await writeFile(versionPath, versionContent, "utf8");
-    }
-
-    ready.push(`${templatePlan.actions.filter((action) => action.type === "copy").length} archivos de la capa copiados.`);
-    const overwritten = templatePlan.actions.filter((action) => action.type === "overwrite").length;
+    ready.push(`${applied.copied} archivos de la capa copiados.`);
+    const overwritten = applied.overwritten;
     if (overwritten) {
       ready.push(
         overwritten === 1
@@ -1731,11 +2944,11 @@ async function run(options) {
           : `${overwritten} archivos canónicos divergentes reemplazados.`,
       );
     }
-    if (removed) {
+    if (applied.removed) {
       ready.push(
-        removed === 1
+        applied.removed === 1
           ? "1 residuo de otra versión eliminado."
-          : `${removed} residuos de otra versión eliminados.`,
+          : `${applied.removed} residuos de otra versión eliminados.`,
       );
     }
     ready.push(
@@ -1748,6 +2961,10 @@ async function run(options) {
     ready.push(`Capa marcada como versión ${distributionVersion}.`);
   } else {
     ready.push("Plan completo calculado sin escrituras.");
+  }
+
+  if (codexInspection) {
+    await applyCodexConfiguration(options, codexInspection, { ready, warnings, pending });
   }
 
   let codeGraph;
@@ -1871,11 +3088,11 @@ async function run(options) {
   return missingRequirements.length ? { exitCode: EXIT_REQUIREMENTS_MISSING } : { exitCode: 0 };
 }
 
-async function runCli(argv, invocation) {
+async function runCli(argv, invocation, operation = "init") {
   try {
-    const options = parseArguments(argv);
+    const options = parseArguments(argv, operation);
     if (options.help) {
-      printHelp(invocation);
+      printHelp(invocation, operation);
       return;
     }
     if (options.version) {

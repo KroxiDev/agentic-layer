@@ -54,23 +54,28 @@ validaciones compatibles y consultar cualquier conflicto real.
 
 ## Proyecto
 
+<!-- agentic-contract-field:v1 purpose -->
 - Propósito: mantener una plantilla declarativa y reusable de desarrollo
   asistido por agentes, adoptable con un solo comando mediante una CLI
   distribuible y sin dependencias.
+<!-- agentic-contract-field:v1 architecture -->
 - Arquitectura: núcleo canónico en `.agents/`, seam de configuración en
   `AGENTS.md`, única implementación del inicializador en
   `scripts/agentic-init.mjs`, ejecutable delgado en `bin/agentic.mjs`,
   manifiesto e inventario de distribución en `package.json`, adapters delgados
   en `.codex/`, `.claude/` y `CLAUDE.md`, y pruebas de la interfaz CLI en
   `tests/`.
+<!-- agentic-contract-field:v1 entrypoints -->
 - Entrypoints: `AGENTS.md`, `bin/agentic.mjs`, `scripts/agentic-init.mjs`,
   `.agents/skills/orquestar/SKILL.md` y `CLAUDE.md`.
 
 ## Validación
 
+<!-- agentic-contract-field:v1 focusedValidation -->
 - Focalizada: ejecutar `node --check scripts/agentic-init.mjs`,
   `node --check bin/agentic.mjs` y el caso relacionado de
   `node --test tests/agentic-init.test.mjs`.
+<!-- agentic-contract-field:v1 completeValidation -->
 - Completa: ejecutar `node --test tests/agentic-init.test.mjs`,
   `node scripts/agentic-init.mjs --dry-run --yes` y `npm pack --dry-run`; la
   suite incluye la validación estructural, el inventario exacto del paquete y
@@ -80,44 +85,55 @@ validaciones compatibles y consultar cualquier conflicto real.
 
 ## Tests
 
+<!-- agentic-contract-field:v1 testFramework -->
 - Framework: `node:test`, sin dependencias externas.
+<!-- agentic-contract-field:v1 testLocation -->
 - Ubicación: `tests/agentic-init.test.mjs`.
+<!-- agentic-contract-field:v1 testLifecycle -->
 - Ciclo de vida: conservar casos permanentes para el comportamiento público del
   inicializador y usar únicamente directorios temporales autolimpiables para
   fixtures y simulaciones.
 
 ## Git
 
+<!-- agentic-contract-field:v1 gitStrategy -->
 - Rama o estrategia permitida: trabajar sobre `main` local; no crear, cambiar,
   fusionar ni publicar ramas, ni hacer push al remoto, sin instrucción
   explícita del propietario.
 
 ## Seguridad
 
+<!-- agentic-contract-field:v1 secrets -->
 - Secretos: este repositorio no requiere ni almacena secretos; publicar en npm
   exige un token que nunca debe versionarse ni escribirse en archivos del
   repositorio.
+<!-- agentic-contract-field:v1 protectedPaths -->
 - Rutas protegidas: no versionar índices de CodeGraph, memorias de Engram,
   sesiones reales, configuraciones personales locales, `node_modules/` ni los
   tarballs generados por `npm pack`.
+<!-- agentic-contract-field:v1 immutableData -->
 - Datos inmutables: No aplica.
+<!-- agentic-contract-field:v1 restrictedActions -->
 - Acciones restringidas: el inicializador no puede instalar herramientas,
   acceder a remotos, publicar paquetes ni modificar Git; solo puede inicializar
   o sincronizar CodeGraph mediante una bandera de confirmación explícita.
   `npm publish`, `npm version`, la creación de tags y cualquier acceso al
   registro requieren autorización explícita del propietario en cada ocasión.
+<!-- agentic-contract-field:v1 originContamination -->
 - Contaminación de origen: No aplica para esta fuente canónica. Toda extracción
   distinta debe declarar en su contrato un corpus reproducible de marcadores o
   justificar explícitamente `No aplica` antes de aprobar la distribución.
 
 ## Documentación
 
+<!-- agentic-contract-field:v1 documentation -->
 - README y documentación técnica: `README.md` documenta adopción, opciones,
   modos, roles y errores comunes; `CONTEXT.md` fija el glosario del dominio;
   `docs/arquitectura.md` mantiene la estructura, los flujos y la frontera de
   distribución; `.agents/README.md` documenta el módulo interno. `CONTEXT.md` y
   `docs/` no se distribuyen. Actualizar los pertinentes cuando cambien el
   inicializador, el ejecutable, sus pruebas o las garantías de distribución.
+<!-- agentic-contract-field:v1 adrs -->
 - ADRs: `docs/adr/`, con numeración secuencial `NNNN-slug.md`; crear una sólo
   cuando la decisión sea difícil de revertir, sorprendente sin contexto y
   resultado de un trade-off real.
