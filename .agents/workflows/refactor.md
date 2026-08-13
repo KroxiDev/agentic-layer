@@ -20,9 +20,11 @@ explícito aprobado.
 
 Cada unidad de implementación debe preservar invariantes observables, declarar
 dependencias y ownership, y recibir testing inmediato antes de habilitar la
-siguiente. Tras el fan-in de todas las unidades consolidadas, `full` usa dos
-Evaluadores de solo lectura para Estándares y Especificación; `light` usa un
-Evaluador para ambos ejes.
+siguiente mediante validación focalizada concreta. Tras el fan-in de todas las
+unidades consolidadas, `full` ejecuta una sola validación completa. Un Evaluador
+de solo lectura cubre Estándares y Especificación de forma combinada por defecto;
+dos Evaluadores independientes solo se habilitan con estrategia dual y un
+`evaluationRisk` admitido y registrado antes del fan-in.
 
 Un Tester rojo o fallido reabre retrabajo sin validar. Cada nuevo fan-in
 invalida la generación anterior y exige reevaluar sus ejes.

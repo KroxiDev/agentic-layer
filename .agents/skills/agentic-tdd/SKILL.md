@@ -34,7 +34,8 @@ plantear la decisión, no una sesión de diseño a ejecutar dentro del ciclo.
 - Nombrar el test como una capacidad o regla, no como un detalle interno.
 - Obtener el valor esperado de una fuente independiente: especificación,
   ejemplo trabajado o literal conocido.
-- Mantener una aserción lógica por test.
+- Probar un comportamiento observable por test, con todas las aserciones
+  necesarias para demostrarlo.
 - Exigir que el test sobreviva una reestructura interna sin cambio de
   comportamiento.
 
@@ -111,11 +112,16 @@ escenario "el total suma las líneas":
    no por setup o infraestructura.
 3. Implementar únicamente lo necesario para ponerlo en verde.
 4. Ejecutar de nuevo y registrar la evidencia.
-5. Repetir con la siguiente rebanada a partir de lo aprendido.
+5. Si mejora de forma evidente la solución, realizar un refactor acotado sin
+   introducir comportamiento, ampliar alcance ni alterar interfaces no
+   aprobadas.
+6. Después del refactor, volver a ejecutar la validación focalizada y registrar
+   la evidencia.
+7. Repetir con la siguiente rebanada a partir de lo aprendido.
 
-La reestructuración no forma parte del ciclo rojo → verde: pertenece a la fase
-de evaluación del workflow, donde el Evaluador la solicita como cambio
-requerido. No anticipar funcionalidad ni abstracciones durante el ciclo.
+El refactor posterior a verde pertenece al mismo ciclo y no necesita esperar un
+rechazo del Evaluador. Debe conservar el comportamiento ya demostrado y no
+anticipar funcionalidad ni abstracciones.
 
 ## Cierre
 

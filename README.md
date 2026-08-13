@@ -133,6 +133,11 @@ los contextos aislados, la revisión del diff, la evidencia de validación y tod
 las restricciones de seguridad. Si el impacto parece considerable, el orquestador
 recomienda `full` y pide una decisión informada antes de continuar.
 
+En TDD, cada test demuestra un comportamiento observable con todas las
+aserciones necesarias. Después de alcanzar verde puede hacerse un refactor
+acotado que no cambie comportamiento, alcance ni interfaces aprobadas; su
+validación focalizada se repite antes de continuar.
+
 Una tarea trivial, local y evidente se resuelve sin pipeline. Si la
 clasificación es dudosa, se consulta antes de actuar.
 
@@ -164,13 +169,18 @@ lock global compartido por todas sus DevSessions. Implementadores y Testers que
 escriben se serializan; la exploración y la evaluación de solo lectura pueden
 usar fan-out cuando sus carriles son independientes.
 
-El fan-in comienza cuando todas las unidades están validadas y consolidadas. En
-`full`, dos Evaluadores `read-only` revisan Estándares y Especificación; en
-`light`, uno cubre ambos ejes. Cada fan-in tiene una generación: reabrir una
-unidad invalida las aprobaciones anteriores e incrementa esa generación. Un
-reintento terminal idéntico de `commit` o `fail` es idempotente y sólo libera la
-reserva de writer si todavía pertenece exactamente a su sesión e intento; nunca
-toca la de un sucesor.
+Cada unidad usa validación focalizada concreta sin repetir la suite completa. El
+fan-in comienza cuando todas están validadas y consolidadas; en `full`, la
+validación completa se ejecuta una sola vez después del fan-in y antes de
+evaluar. Un Evaluador `read-only` cubre conjuntamente Estándares y Especificación
+por defecto, incluso en `full`. Dos Evaluadores independientes sólo se habilitan
+cuando el plan registra antes del fan-in una estrategia dual y un riesgo de
+arquitectura, seguridad o integridad, compatibilidad o migración pública, o un
+fan-in considerable. Cada fan-in tiene una generación: reabrir una unidad
+invalida las aprobaciones anteriores e incrementa esa generación. Un reintento
+terminal idéntico de `commit` o `fail` es idempotente y sólo libera la reserva de
+writer si todavía pertenece exactamente a su sesión e intento; nunca toca la de
+un sucesor.
 
 Las DevSessions anteriores al modelo por unidades siguen siendo compatibles.
 `status` no escribe y `init` puede completar de forma explícita, monotónica e
@@ -199,7 +209,12 @@ usuario ni entre sí: el orquestador es el único interlocutor.
 | `feature` | explorar → planificar → implementar → testear → evaluar → documentar |
 | `bugfix` | reproducir → diagnosticar → planificar → corregir → verificar → evaluar → documentar |
 | `refactor` | explorar → definir invariantes → implementar → testear → evaluar → documentar |
-| `architecture` | explorar → comparar → proponer decisión → **aprobación del usuario** → implementar con otro workflow → evaluar → documentar |
+| `architecture` | explorar → comparar → proponer decisión → **aprobación del usuario** → registrar; si debe implementarse, transferir una vez a `feature` o `refactor` |
+
+Una tarea exclusivamente arquitectónica termina al registrar la decisión
+aprobada. Si hay implementación, el workflow posterior es el único responsable
+de implementar, testear, evaluar y documentar el resultado final; `architecture`
+no repite ese cierre.
 
 El Evaluador puede devolver trabajo al Implementador dos veces como máximo; si el
 rechazo persiste, la tarea se detiene con un diagnóstico.

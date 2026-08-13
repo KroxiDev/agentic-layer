@@ -43,6 +43,12 @@ const MUTATING_COMMANDS = new Set([
 const ATTEMPT_PATTERN = /^([a-z][a-z0-9-]*)--([a-z][a-z0-9-]*)--a(\d{2,})$/;
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const WORK_UNIT_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const DUAL_EVALUATION_RISKS = new Set([
+  "architectural-decision",
+  "considerable-fan-in",
+  "public-compatibility-or-migration",
+  "security-or-integrity",
+]);
 const MODE_LIMITS = {
   full: {
     roles: { documentador: 1, evaluador: 2, explorador: 3, implementador: 1, planificador: 1, tester: 2 },
@@ -407,6 +413,30 @@ function validateGlobal(managed, session) {
   if (managed.kind !== "global" || managed.sessionSlug !== session) {
     throw new ControllerError("session_identity_conflict", "La identidad del bloque global contradice la ruta.");
   }
+  if (managed.evaluationStrategy !== undefined) {
+    if (!["combined", "dual"].includes(managed.evaluationStrategy)) {
+      throw new ControllerError(
+        "invalid_managed_evaluation",
+        "La estrategia de evaluación persistida no es válida.",
+      );
+    }
+    if (
+      managed.evaluationStrategy === "dual" &&
+      !DUAL_EVALUATION_RISKS.has(managed.evaluationRisk) &&
+      managed.evaluationRisk !== "legacy-full-mode"
+    ) {
+      throw new ControllerError(
+        "invalid_managed_evaluation",
+        "La evaluación dual persistida no declara un riesgo válido.",
+      );
+    }
+    if (managed.evaluationStrategy === "combined" && managed.evaluationRisk !== undefined) {
+      throw new ControllerError(
+        "invalid_managed_evaluation",
+        "La evaluación combinada persistida no admite un riesgo dual.",
+      );
+    }
+  }
 }
 
 function renderGlobalTemplate(template, { mode, objective, session, workflow }) {
@@ -486,12 +516,68 @@ function readOnlyAgentCapacity(managed) {
   );
 }
 
+function evaluationConfig(payload, existing = {}) {
+  const legacyStrategy =
+    existing.workUnits && !Object.hasOwn(existing, "evaluationStrategy")
+      ? existing.mode === "light"
+        ? "combined"
+        : "dual"
+      : undefined;
+  const evaluationStrategy =
+    payload.evaluationStrategy ?? existing.evaluationStrategy ?? legacyStrategy ?? "combined";
+  if (!["combined", "dual"].includes(evaluationStrategy)) {
+    throw new ControllerError(
+      "invalid_evaluation_strategy",
+      "evaluationStrategy debe ser combined o dual.",
+      2,
+    );
+  }
+
+  let evaluationRisk = payload.evaluationRisk ?? existing.evaluationRisk;
+  const inferredLegacyRisk =
+    evaluationStrategy === "dual" &&
+    evaluationRisk === undefined &&
+    legacyStrategy === "dual" &&
+    payload.evaluationStrategy === undefined;
+  if (inferredLegacyRisk) evaluationRisk = "legacy-full-mode";
+
+  if (evaluationStrategy === "combined") {
+    if (evaluationRisk !== undefined) {
+      throw new ControllerError(
+        "unexpected_evaluation_risk",
+        "La evaluación combinada no admite evaluationRisk.",
+        2,
+      );
+    }
+    return { evaluationStrategy };
+  }
+  if (evaluationRisk === undefined) {
+    throw new ControllerError(
+      "evaluation_risk_required",
+      "La evaluación dual exige evaluationRisk antes del fan-in.",
+      2,
+    );
+  }
+  const preservedLegacyRisk =
+    evaluationRisk === "legacy-full-mode" &&
+    (inferredLegacyRisk || existing.evaluationRisk === "legacy-full-mode");
+  if (!DUAL_EVALUATION_RISKS.has(evaluationRisk) && !preservedLegacyRisk) {
+    throw new ControllerError(
+      "invalid_evaluation_risk",
+      "evaluationRisk no justifica una evaluación dual.",
+      2,
+    );
+  }
+  return { evaluationRisk, evaluationStrategy };
+}
+
 function parseWorkUnits(payload, existing = {}) {
   if (payload.workUnits === undefined) return {};
   if (!Array.isArray(payload.workUnits) || !payload.workUnits.length || payload.workUnits.length > 3) {
     throw new ControllerError("invalid_work_units", "workUnits debe contener entre una y tres unidades.", 2);
   }
   const capacity = capacityConfig(payload, existing);
+  const evaluation = evaluationConfig(payload, existing);
 
   const workUnits = {};
   for (const candidate of payload.workUnits) {
@@ -587,6 +673,7 @@ function parseWorkUnits(payload, existing = {}) {
         Math.min(capacity.writerIsolationCapacity, readyWriters),
     ),
     ...capacity,
+    ...evaluation,
     evaluationGeneration: existing.evaluationGeneration ?? 1,
     evaluations: existing.evaluations ?? {},
     workUnits,
@@ -604,6 +691,8 @@ function comparableOwnedPaths(ownedPaths) {
 
 function workUnitPlanDefinition(managed, missingFrom) {
   const definition = {
+    evaluationRisk: managed.evaluationRisk,
+    evaluationStrategy: managed.evaluationStrategy,
     isolationCapacity: managed.isolationCapacity,
     mode: managed.mode,
     platformCapacity: managed.platformCapacity,
@@ -624,7 +713,12 @@ function workUnitPlanDefinition(managed, missingFrom) {
     ),
   };
   if (!missingFrom) return definition;
-  for (const field of ["readOnlyCapacity", "writerIsolationCapacity"]) {
+  for (const field of [
+    "evaluationRisk",
+    "evaluationStrategy",
+    "readOnlyCapacity",
+    "writerIsolationCapacity",
+  ]) {
     if (!Object.hasOwn(managed, field)) definition[field] = missingFrom[field];
   }
   for (const [workUnitId, unit] of Object.entries(managed.workUnits)) {
@@ -638,7 +732,13 @@ function workUnitPlanDefinition(managed, missingFrom) {
 
 function completeWorkUnitPlan(managed, configured) {
   let completed = false;
-  for (const field of ["readOnlyCapacity", "writerIsolationCapacity"]) {
+  for (const field of [
+    "evaluationRisk",
+    "evaluationStrategy",
+    "readOnlyCapacity",
+    "writerIsolationCapacity",
+  ]) {
+    if (!Object.hasOwn(configured, field)) continue;
     if (Object.hasOwn(managed, field)) continue;
     managed[field] = configured[field];
     completed = true;
@@ -831,7 +931,9 @@ function assertWorkUnitCanOpen(session, identity, payload, workUnit, permission)
 }
 
 function requiredEvaluationAxes(managed) {
-  return managed.mode === "light" ? ["combined"] : ["standards", "specification"];
+  const strategy =
+    managed.evaluationStrategy ?? (managed.mode === "light" ? "combined" : "dual");
+  return strategy === "dual" ? ["standards", "specification"] : ["combined"];
 }
 
 function currentEvaluationGeneration(managed) {
@@ -1034,6 +1136,12 @@ function workUnitStatus(managed) {
 function finalEvaluationStatus(managed) {
   if (!managed.workUnits) return {};
   const requiredAxes = requiredEvaluationAxes(managed);
+  const strategy = requiredAxes.length === 1 ? "combined" : "dual";
+  const risk =
+    strategy === "dual"
+      ? (managed.evaluationRisk ??
+        (!Object.hasOwn(managed, "evaluationStrategy") ? "legacy-full-mode" : undefined))
+      : undefined;
   const axes = Object.fromEntries(
     requiredAxes.map((axis) => [axis, currentEvaluation(managed, axis)?.state ?? "pending"]),
   );
@@ -1042,7 +1150,9 @@ function finalEvaluationStatus(managed) {
       approved: requiredAxes.every((axis) => axes[axis] === "approved"),
       axes,
       generation: currentEvaluationGeneration(managed),
+      ...(risk !== undefined ? { risk } : {}),
       requiredAxes,
+      strategy,
     },
   };
 }

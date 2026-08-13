@@ -261,7 +261,8 @@ flowchart TD
     consolidated --> all{"¿todas las unidades?"}
     all -->|no| ready
     all -->|sí| fanin["fan-in de la<br/>generación vigente"]
-    fanin --> axes["full: Estándares + Especificación<br/>light: eje combinado"]
+    fanin --> fulltest["full: validación completa única<br/>light: evidencia proporcional"]
+    fulltest --> axes["combinada por defecto<br/>dual sólo por riesgo registrado"]
     axes --> approved{"¿todos los ejes<br/>aprobados?"}
     approved -->|no| rework
     approved -->|sí| close["documentar · consolidar Engram<br/>cleanup + close"]
@@ -273,6 +274,12 @@ rechazo persiste, la tarea se detiene y se presenta el diagnóstico.
 Cada fase corre aislada y devuelve sólo su contrato de salida. El orquestador es
 el único que habla con el usuario: los roles no se coordinan entre sí ni amplían
 el alcance.
+
+`architecture` tiene un cierre distinto: explora, compara, obtiene aprobación
+explícita y registra la decisión. Si no hay implementación, termina allí. Si la
+hay, transfiere la decisión una sola vez a `feature` o `refactor`; ese workflow
+posterior asume en exclusiva implementación, testing, evaluación y documentación
+final.
 
 ### Presupuesto, capacidad y aislamiento
 
@@ -316,6 +323,10 @@ Los gates son mecánicos:
 3. una validación verde la deja además `consolidated` y puede satisfacer
    `dependsOn`.
 
+La evidencia de cada unidad usa un caso, patrón o procedimiento focalizado
+concreto. La suite completa no se repite por unidad: en `full` se ejecuta una
+sola vez después del fan-in y antes de abrir la evaluación final.
+
 Las oleadas se derivan del DAG y contienen únicamente unidades listas. La
 propiedad de rutas writer es exclusiva y portable: se normalizan rutas
 relativas, se rechazan escapes y se detectan colisiones exactas o de
@@ -344,20 +355,27 @@ edad. `cleanup` continúa limitado a sobres acusados y `safe_to_delete`.
 ### Fan-in, generaciones y sesiones heredadas
 
 El fan-in sólo queda listo cuando todas las unidades están validadas y
-consolidadas. En `full`, Estándares y Especificación son ejes independientes de
-solo lectura; en `light`, un eje combinado cubre ambos. Cada fan-in lleva una
-generación. Reabrir una unidad incrementa esa generación, limpia sus resultados
-y vuelve obsoleto cualquier Evaluador anterior; sólo los ejes aprobados de la
-generación actual permiten `close`.
+consolidadas. La estrategia `combined` usa un Evaluador de solo lectura para
+Estándares y Especificación y es la predeterminada en `full` y `light`. La
+estrategia `dual` usa dos Evaluadores independientes y sólo es válida si el plan
+registró antes del fan-in una categoría `evaluationRisk` de arquitectura,
+seguridad o integridad, compatibilidad o migración pública, o fan-in
+considerable. Cada fan-in lleva una generación. Reabrir una unidad incrementa
+esa generación, limpia sus resultados y vuelve obsoleto cualquier Evaluador
+anterior; sólo los ejes requeridos y aprobados de la generación actual permiten
+`close`.
 
 Las DevSessions v1 sin unidades conservan su comportamiento. Una sesión por
-unidades creada antes de que existieran criterios, capacidades separadas o
-generación falla cerradamente antes de `open`. Repetir `init` con el plan
-aprobado completa únicamente esos campos ausentes, preserva intentos, estados,
-ownership y evidencia, y es byte-idempotente al volver a ejecutarse. La
-decisión completa está en
-[ADR 0009](adr/0009-paralelismo-controlado-por-unidades.md); extiende el
-controlador portable de [ADR 0008](adr/0008-controlador-portable-de-subdevsessions.md).
+unidades creada antes de que existieran criterios, capacidades separadas,
+estrategia o generación falla cerradamente antes de `open` cuando le falta la
+trazabilidad exigida. Repetir `init` con el plan aprobado completa únicamente
+esos campos ausentes, preserva intentos, estados, ownership y evidencia, y es
+byte-idempotente al volver a ejecutarse. Una sesión `full` heredada sin estrategia
+conserva dual implícito. El modelo base está en
+[ADR 0009](adr/0009-paralelismo-controlado-por-unidades.md) y la simplificación
+vigente en [ADR 0010](adr/0010-cierre-y-evaluacion-proporcionales-al-riesgo.md);
+ambas extienden el controlador portable de
+[ADR 0008](adr/0008-controlador-portable-de-subdevsessions.md).
 
 ## Frontera de distribución
 

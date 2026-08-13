@@ -29,9 +29,11 @@ demostrar el arreglo.
 
 Un bugfix conserva normalmente una sola unidad de implementación. Si el plan
 demuestra unidades independientes, respetar sus dependencias, ownership y
-validación inmediata sin superar tres. Ejecutar fan-in tras consolidarlas; en
-`full` evaluar Estándares y Especificación con dos Evaluadores de solo lectura y
-en `light` con un Evaluador.
+validación focalizada inmediata sin superar tres. Ejecutar fan-in tras
+consolidarlas; en `full`, ejecutar la validación completa una sola vez después
+del fan-in. Evaluar Estándares y Especificación con un Evaluador combinado por
+defecto, o con dos Evaluadores independientes solo cuando el plan haya
+registrado antes del fan-in una estrategia dual y un `evaluationRisk` admitido.
 
 Un Tester rojo o fallido reabre retrabajo sin validar. Cada nuevo fan-in
 invalida la generación anterior y exige reevaluar sus ejes.

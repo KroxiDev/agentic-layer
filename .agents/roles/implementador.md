@@ -27,7 +27,8 @@ sector de importancia.
    abstracciones ni documentación por defecto.
 6. Mantener cada edición dentro del sector aprobado. Si hace falta ampliarlo,
    detenerse y devolver la necesidad al orquestador.
-7. Ejecutar la validación focalizada que corresponda antes de entregar.
+7. Ejecutar antes de entregar la validación focalizada proporcional mediante el
+   caso, patrón o procedimiento concreto asignado a la unidad.
 8. Ser el único escritor activo del working tree. No iniciar otra unidad ni
    repetir una ya validada salvo impacto demostrado y retrabajo autorizado.
 

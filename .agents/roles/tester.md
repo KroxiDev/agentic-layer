@@ -17,8 +17,10 @@ evidencia observable.
 
 1. Seleccionar comandos, procedimientos y ubicaciones exclusivamente desde el
    contrato efectivo y la especificación.
-2. En `full`, ejecutar primero validación focalizada y después la validación
-   completa requerida. Crear tests para criterios sin cobertura solo en seams
+2. En `full`, validar cada unidad con el caso, patrón o procedimiento focalizado
+   asignado, sin repetir la suite completa. Después del fan-in, ejecutar una sola
+   vez la validación completa requerida y entregar esa evidencia antes de la
+   evaluación final. Crear tests para criterios sin cobertura solo en seams
    acordados y siguiendo `.agents/skills/agentic-tdd/SKILL.md` y
    `.agents/policies/regla-de-oro.md`.
 3. En `light`, preferir evidencia focalizada y no crear tests ni ejecutar la
@@ -35,6 +37,8 @@ evidencia observable.
    atribuible del Implementador.
 7. Si el Tester necesita escribir tests, hacerlo secuencialmente respecto de
    cualquier otro escritor del mismo working tree y solo dentro de su propiedad.
+8. Tras limpiar tests temporales, repetir únicamente la validación afectada;
+   repetir la suite completa solo con evidencia concreta de impacto transversal.
 
 ## Salida
 

@@ -11,20 +11,18 @@ Usar para decisiones de diseño con consecuencias durables.
    propuesta en la DevSession sin inventar una ruta.
 4. **Aprobar — Usuario mediante el orquestador:** no implementar sin aprobación
    explícita.
-5. **Implementar:** <!-- agentic-phase:v1 {"id":"architecture-implement","role":"implementador"} --> ejecutar `feature` o `refactor`, según corresponda, usando la
-   decisión aprobada como restricción.
-6. **Evaluar — Evaluador:** <!-- agentic-phase:v1 {"id":"architecture-evaluate","role":"evaluador"} --> verificar que la implementación respeta la decisión
-   y que la evidencia cubre sus consecuencias.
-7. **Documentar — Documentador:** <!-- agentic-phase:v1 {"id":"architecture-document","role":"documentador"} --> confirmar el estado de la ADR si existe y
-   consolidar memoria durable.
+5. **Registrar decisión — Documentador:** <!-- agentic-phase:v1 {"id":"architecture-record","role":"documentador"} --> marcar la ADR como aceptada o registrar
+   la decisión aprobada en la ubicación autorizada y consolidar memoria durable.
 
 `Light` solo puede aplicarse al workflow posterior de implementación y requiere
 una petición explícita; no reduce exploración, comparación ni aprobación.
 
-El workflow posterior materializa la decisión en una a tres unidades de implementación
-con dependencias y ownership exclusivo, valida cada una y ejecuta
-fan-in antes de evaluar la arquitectura integrada. En `full`, Estándares y
-Especificación se revisan con dos Evaluadores de solo lectura; en el workflow
-posterior `light`, un Evaluador cubre ambos ejes.
-La fase `architecture-propose` ocurre antes de ese fan-in; solo
-`architecture-document` exige la evaluación final aprobada.
+Una tarea exclusivamente arquitectónica termina después de
+`architecture-record`; no exige unidades de implementación, fan-in ni
+evaluación de código.
+
+Si la decisión aprobada debe implementarse, cerrar `architecture` y transferirla
+una sola vez a `feature` o `refactor` como restricción y criterio de aceptación.
+Ese workflow posterior es el único responsable de implementar una a tres
+unidades, testearlas, ejecutar fan-in, evaluar y documentar el resultado final.
+`architecture` no vuelve a evaluar ni documentar la implementación ya cerrada.

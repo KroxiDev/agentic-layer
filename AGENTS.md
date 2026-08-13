@@ -74,7 +74,9 @@ validaciones compatibles y consultar cualquier conflicto real.
 <!-- agentic-contract-field:v1 focusedValidation -->
 - Focalizada: ejecutar `node --check scripts/agentic-init.mjs`,
   `node --check bin/agentic.mjs` y el caso relacionado de
-  `node --test tests/agentic-init.test.mjs`.
+  `node --test --test-name-pattern="<patrón concreto del caso relacionado>"
+  tests/agentic-init.test.mjs`; sustituir el placeholder por el nombre o patrón
+  exacto antes de ejecutar el comando.
 <!-- agentic-contract-field:v1 completeValidation -->
 - Completa: ejecutar `node --test tests/agentic-init.test.mjs`,
   `node scripts/agentic-init.mjs --dry-run --yes` y `npm pack --dry-run`; la

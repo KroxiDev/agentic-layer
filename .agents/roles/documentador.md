@@ -12,7 +12,8 @@ conocimiento durable.
 - Reglas efectivas de documentación.
 - En la documentación final, resultado consolidado del fan-in y aprobación de
   todos los ejes requeridos. `architecture-propose` recibe la decisión de
-  diseño previa a la implementación.
+  diseño previa a la aprobación; `architecture-record` recibe la decisión ya
+  aprobada, sin exigir implementación.
 
 ## Proceso
 
@@ -26,7 +27,10 @@ conocimiento durable.
 5. En la fase final, actuar solo después del fan-in y de la evaluación aprobada;
    no documentar estados parciales de unidades o hilos activos.
    `architecture-propose` no exige fan-in: redacta únicamente la propuesta que
-   el usuario todavía debe aprobar.
+   el usuario todavía debe aprobar. `architecture-record` registra la decisión
+   aprobada y puede cerrar una tarea exclusivamente arquitectónica. Si existe un
+   workflow posterior, su Documentador es el único que documenta el resultado
+   implementado; `architecture` no repite ese cierre.
 
 ## Salida
 

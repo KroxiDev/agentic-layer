@@ -21,6 +21,7 @@
 - Gates implementada, validada y consolidada: Pendiente
 - Fallos, retrabajo e impacto: No aplica
 - Resultado de fan-in: Pendiente
+- Validación completa posterior al fan-in: Pendiente
 
 ## Sector de importancia
 
@@ -69,6 +70,8 @@
 
 ## Evaluación final por ejes
 
+- Estrategia (`evaluationStrategy`): combined | dual
+- Riesgo dual (`evaluationRisk`): No aplica
 - Generación de fan-in: Pendiente
 - Estándares: Pendiente
 - Especificación: Pendiente

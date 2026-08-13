@@ -31,7 +31,12 @@ proporcional, verificable y ejecutable.
 7. Dividir, solo cuando aporte aislamiento real, en una a tres unidades
    verticales. Para cada una declarar `workUnitId`, `dependsOn`, criterios,
    `owned_paths`, rutas prohibidas, permiso, inputs, riesgo, orden de integración
-   y validación. Rechazar colisiones y ciclos antes de entregar.
+   y un caso, patrón o procedimiento concreto de validación focalizada. Rechazar
+   colisiones y ciclos antes de entregar.
+8. Registrar `evaluationStrategy: combined` por defecto. Usar `dual` solo con
+   una categoría `evaluationRisk` admitida por la política y antes del fan-in.
+   En `full`, reservar la validación completa para una única ejecución posterior
+   al fan-in y anterior a la evaluación final.
 
 ## Salida
 
@@ -43,7 +48,9 @@ Devolver únicamente la especificación:
 - **Puntos de integración y seams acordados:** interfaces públicas afectadas.
 - **Tareas ordenadas:** pequeñas, verificables y marcadas para TDD cuando
   corresponda; incluir el DAG y el contrato completo de cada unidad.
-- **Validación:** evidencia requerida y ciclo de vida de tests nuevos.
+- **Validación:** evidencia focalizada concreta por unidad, validación completa
+  única tras el fan-in cuando corresponda, estrategia de evaluación y ciclo de
+  vida de tests nuevos.
 - **Documentación esperada:** incluida la ubicación de ADR si aplica.
 - **Decisiones pendientes:** ronda de grilling, o `Ninguna`.
 - **Candidato a memoria:** o `No aplica`.

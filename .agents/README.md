@@ -105,7 +105,13 @@ El controlador concentra las invariantes mecánicas detrás de su CLI:
    escritores;
 5. habilita fan-in únicamente cuando todas las unidades están validadas y
    consolidadas;
-6. versiona el fan-in y acepta sólo Evaluadores de la generación vigente.
+6. usa evaluación combinada por defecto y sólo admite evaluación dual con una
+   categoría de riesgo registrada en el plan;
+7. versiona el fan-in y acepta sólo Evaluadores de la generación vigente.
+
+La validación de cada unidad es focalizada y atribuible. En `full`, la suite
+completa se ejecuta una sola vez después del fan-in y antes de la evaluación
+final; no se repite por unidad.
 
 La adquisición del writer lock publica por hard link un dueño exacto
 `{session, attempt, workingTreeId}`. Una transición inicial o un checkpoint
@@ -117,8 +123,11 @@ recuperan interrupciones reales sin romper exclusión entre sesiones.
 Las sesiones v1 sin unidades no se reinterpretan. Para una DevSession por
 unidades creada antes de que existiera toda la trazabilidad, `open` falla
 cerrado y exige repetir `init` con el plan aprobado. Ese upgrade sólo completa
-campos ausentes —criterios, capacidades separadas y generación inicial—,
-preserva estado e intentos y es byte-idempotente al repetirse.
+campos ausentes —criterios, capacidades separadas, estrategia de evaluación y
+generación inicial—, preserva estado e intentos y es byte-idempotente al
+repetirse. Una sesión `full` creada antes de `evaluationStrategy` conserva el
+esquema dual implícito como compatibilidad; las sesiones nuevas usan `combined`
+por defecto.
 
 ## Invariantes
 
@@ -149,10 +158,13 @@ preserva estado e intentos y es byte-idempotente al repetirse.
 15. Cada ruta writer tiene un único propietario y sólo existe una reserva de
     escritura activa por working tree.
 16. Una dependencia se satisface sólo con validación atribuible del Tester; el
-    fan-in y sus evaluaciones ocurren después de consolidar todas las unidades.
+    fan-in ocurre después de consolidar todas las unidades y la suite completa
+    de `full` se ejecuta una sola vez después de esa barrera.
 17. Reabrir una unidad incrementa la generación de evaluación e invalida todos
     sus ejes anteriores.
-18. El contrato administrado solo admite campos canónicos. Una entrada
+18. La evaluación combinada cubre Estándares y Especificación por defecto; la
+    dual exige un riesgo admitido registrado antes del fan-in.
+19. El contrato administrado solo admite campos canónicos. Una entrada
     desconocida puede salir del bloque únicamente por elección interactiva
     explícita y permanece efectiva bajo `## Reglas adicionales del proyecto`;
     cancelar o ejecutar sin interacción conserva el destino byte a byte.

@@ -10,8 +10,9 @@ efectivas sin regresiones conocidas.
 - Especificación y DevSession.
 - Diff o lista completa de archivos modificados.
 - Reportes y evidencia del Implementador y del Tester.
-- Eje asignado: Estándares, Especificación o ambos en `light`, siempre después
-  del fan-in.
+- Estrategia registrada: un eje combinado para Estándares y Especificación por
+  defecto, o un eje independiente de una evaluación dual justificada; siempre
+  después del fan-in y de la validación completa requerida.
 - Generación vigente del fan-in, permiso `read-only`, revisión base e hilo.
 
 ## Proceso
@@ -21,11 +22,14 @@ efectivas sin regresiones conocidas.
    regresión.
 3. Comprobar alcance, simplicidad, seguridad, contratos de adapters y
    coherencia con el modo y con `.agents/policies/regla-de-oro.md`.
-4. Identificar evidencia ausente o tests acoplados a implementación.
+4. Identificar evidencia ausente o tests acoplados a implementación. Verificar
+   ausencia de abstracciones gratuitas sin exigir retrabajo solo para una
+   limpieza interna segura y evidente ya realizada dentro de un ciclo TDD.
 5. Guardar directamente en Engram solo hallazgos críticos, validados y
    reutilizables; devolver el resto como candidatos.
-6. Mantener el reporte limitado al eje asignado para permitir consolidación
-   determinista sin duplicar hallazgos.
+6. En estrategia combinada cubrir conjuntamente Estándares y Especificación. En
+   estrategia dual, mantener el reporte limitado al eje asignado para permitir
+   consolidación determinista sin duplicar hallazgos.
 7. Reintentar un eje rechazado solo en la generación vigente y no reutilizar
    aprobaciones de una generación invalidada por retrabajo.
 

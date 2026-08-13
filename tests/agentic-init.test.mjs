@@ -317,6 +317,8 @@ async function createPreTraceWorkUnitSession(session) {
   delete managed.readOnlyCapacity;
   delete managed.writerIsolationCapacity;
   delete managed.evaluationGeneration;
+  delete managed.evaluationRisk;
+  delete managed.evaluationStrategy;
   delete managed.workUnits["unidad-legacy"].acceptanceCriteria;
   await writeFile(globalPath, replaceManagedState(source, managed), "utf8");
   return { approvedPlan, globalPath, repository, session };
@@ -2671,6 +2673,8 @@ test("session controller enriquece el plan pre-trazabilidad sin reescribir estad
   const upgradedSource = await readFile(fixture.globalPath, "utf8");
   const expected = structuredClone(before);
   expected.evaluationGeneration = 1;
+  expected.evaluationRisk = "legacy-full-mode";
+  expected.evaluationStrategy = "dual";
   expected.readOnlyCapacity = 5;
   expected.revision = 31;
   expected.writerIsolationCapacity = 1;
@@ -3707,7 +3711,7 @@ test("session controller limita el fan-out por modo, plataforma, ready y aislami
   assert.deepEqual(
     controllerResponse(runSessionController(full.repository, "status", { session: full.session }))
       .finalEvaluation.requiredAxes,
-    ["standards", "specification"],
+    ["combined"],
   );
   assert.deepEqual(
     controllerResponse(runSessionController(light.repository, "status", { session: light.session }))
@@ -3944,7 +3948,189 @@ test("session controller separa los cupos read-only y writer bajo el límite té
   );
 });
 
-test("session controller exige fan-in y consolida los ejes finales por modo", async () => {
+test("session controller usa evaluación combinada por defecto y exige riesgo explícito para dual", async () => {
+  const workUnits = [
+    {
+      acceptanceCriteria: ["C01"],
+      dependsOn: [],
+      ownedPaths: ["src/unidad.mjs"],
+      permission: "writer",
+      workUnitId: "unidad",
+    },
+  ];
+  const invalidConfigurations = [
+    {
+      error: "evaluation_risk_required",
+      evaluationStrategy: "dual",
+      session: "dual-sin-riesgo",
+    },
+    {
+      error: "invalid_evaluation_risk",
+      evaluationRisk: "riesgo-inventado",
+      evaluationStrategy: "dual",
+      session: "dual-riesgo-invalido",
+    },
+    {
+      error: "unexpected_evaluation_risk",
+      evaluationRisk: "security-or-integrity",
+      evaluationStrategy: "combined",
+      session: "combinada-con-riesgo",
+    },
+  ];
+
+  for (const fixture of invalidConfigurations) {
+    const repository = await createRepository();
+    await seedSessionContracts(repository);
+    const result = runSessionController(
+      repository,
+      "init",
+      { session: fixture.session, expectedRevision: 0 },
+      {
+        evaluationRisk: fixture.evaluationRisk,
+        evaluationStrategy: fixture.evaluationStrategy,
+        mode: "full",
+        workUnits,
+        workflow: "feature",
+      },
+    );
+    assert.deepEqual(controllerOutcome(result), { code: 2, error: fixture.error });
+  }
+
+  const repository = await createRepository();
+  await seedSessionContracts(repository);
+  const session = "evaluacion-combinada-predeterminada";
+  const initialized = runSessionController(
+    repository,
+    "init",
+    { session, expectedRevision: 0 },
+    { mode: "full", workUnits, workflow: "feature" },
+  );
+  assert.equal(initialized.status, 0, initialized.stderr);
+  assert.deepEqual(
+    controllerResponse(runSessionController(repository, "status", { session })).finalEvaluation,
+    {
+      approved: false,
+      axes: { combined: "pending" },
+      generation: 1,
+      requiredAxes: ["combined"],
+      strategy: "combined",
+    },
+  );
+
+  const tracedPayload = (phaseId, role, extra = {}) => ({
+    baseRevision: "base",
+    criteria: ["C01"],
+    permission: role === "implementador" ? "writer" : "read-only",
+    phaseId,
+    role,
+    threadId: `${role}-${extra.evaluationAxis ?? extra.workUnitId}`,
+    ...extra,
+  });
+  const reports = {
+    evaluador: [
+      "- **Veredicto:** aprobado.",
+      "- **Criterios verificados:** todos.",
+      "- **Hallazgos:** Ninguno.",
+      "- **Riesgo residual y evidencia faltante:** No aplica.",
+      "- **Memoria guardada o candidata:** No aplica.",
+    ].join("\n"),
+    implementador: [
+      "- **Archivos modificados:** cambio.",
+      "- **Tareas completadas y pendientes:** completada.",
+      "- **Tests creados:** permanentes.",
+      "- **Validación ejecutada:** focalizada verde.",
+      "- **Desvíos o dudas:** No aplica.",
+      "- **Candidato a memoria:** No aplica.",
+    ].join("\n"),
+    tester: [
+      "- **Evidencia:** focalizada verde.",
+      "- **Tests creados:** permanentes.",
+      "- **Fallos:** Ninguno.",
+      "- **Omisiones:** Ninguna.",
+      "- **Candidato a memoria:** No aplica.",
+    ].join("\n"),
+  };
+  const implementation = "feature-implement--implementador--a01";
+  const testing = "feature-test--tester--a01";
+  const evaluation = "feature-evaluate--evaluador--a01";
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session, attempt: implementation, expectedRevision: 1 },
+      tracedPayload("feature-implement", "implementador", { workUnitId: "unidad" }),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: implementation, expectedRevision: 2 },
+      { report: reports.implementador },
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session, attempt: testing, expectedRevision: 3 },
+      tracedPayload("feature-test", "tester", { workUnitId: "unidad" }),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: testing, expectedRevision: 4 },
+      { report: reports.tester },
+    ).status,
+    0,
+  );
+  assert.deepEqual(
+    controllerOutcome(
+      runSessionController(
+        repository,
+        "open",
+        { session, attempt: evaluation, expectedRevision: 5 },
+        tracedPayload("feature-evaluate", "evaluador", { evaluationAxis: "standards" }),
+      ),
+    ),
+    { code: 2, error: "invalid_evaluation_axis" },
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session, attempt: evaluation, expectedRevision: 5 },
+      tracedPayload("feature-evaluate", "evaluador", { evaluationAxis: "combined" }),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: evaluation, expectedRevision: 6 },
+      { report: reports.evaluador },
+    ).status,
+    0,
+  );
+  assert.deepEqual(
+    controllerResponse(runSessionController(repository, "status", { session })).finalEvaluation,
+    {
+      approved: true,
+      axes: { combined: "approved" },
+      generation: 1,
+      requiredAxes: ["combined"],
+      strategy: "combined",
+    },
+  );
+});
+
+test("session controller exige fan-in y consolida la evaluación dual justificada", async () => {
   const repository = await createRepository();
   await seedSessionContracts(repository);
   const session = "evaluacion-por-ejes";
@@ -3992,6 +4178,8 @@ test("session controller exige fan-in y consolida los ejes finales por modo", as
     "init",
     { session, expectedRevision: 0 },
     {
+      evaluationRisk: "security-or-integrity",
+      evaluationStrategy: "dual",
       isolationCapacity: 1,
       mode: "full",
       platformCapacity: 12,
@@ -4133,7 +4321,9 @@ test("session controller exige fan-in y consolida los ejes finales por modo", as
       approved: true,
       axes: { specification: "approved", standards: "approved" },
       generation: 1,
+      risk: "security-or-integrity",
       requiredAxes: ["standards", "specification"],
+      strategy: "dual",
     },
   );
   const reopened = runSessionController(
@@ -4158,7 +4348,9 @@ test("session controller exige fan-in y consolida los ejes finales por modo", as
       approved: false,
       axes: { specification: "pending", standards: "pending" },
       generation: 2,
+      risk: "security-or-integrity",
       requiredAxes: ["standards", "specification"],
+      strategy: "dual",
     },
   );
 });
@@ -4211,6 +4403,8 @@ test("session controller neutraliza una evaluación consolidada tras reabrir el 
       "init",
       { session, expectedRevision: 0 },
       {
+        evaluationRisk: "security-or-integrity",
+        evaluationStrategy: "dual",
         isolationCapacity: 1,
         mode: "full",
         platformCapacity: 3,
@@ -4364,7 +4558,9 @@ test("session controller neutraliza una evaluación consolidada tras reabrir el 
         approved: false,
         axes: { specification: "approved", standards: "pending" },
         generation: 2,
+        risk: "security-or-integrity",
         requiredAxes: ["standards", "specification"],
+        strategy: "dual",
       },
       obsoleteOutcome: "obsolete",
       storedStandards: undefined,
@@ -5401,13 +5597,18 @@ test("session controller conserva residuos de sobres interrumpidos y bloquea el 
   );
 });
 
-test("los contratos canónicos definen paralelismo controlado sin duplicarlo en adapters", async () => {
+test("los contratos canónicos definen cierre, validación y evaluación proporcionales", async () => {
+  const agentsContract = await readFile(join(ROOT, "AGENTS.md"), "utf8");
   const orchestration = await readFile(
     join(ROOT, ".agents", "policies", "orquestacion.md"),
     "utf8",
   );
   const skill = await readFile(
     join(ROOT, ".agents", "skills", "orquestar", "SKILL.md"),
+    "utf8",
+  );
+  const tdd = await readFile(
+    join(ROOT, ".agents", "skills", "agentic-tdd", "SKILL.md"),
     "utf8",
   );
   const roles = Object.fromEntries(
@@ -5450,24 +5651,43 @@ test("los contratos canónicos definen paralelismo controlado sin duplicarlo en 
   assert.match(orchestration, /m[ií]nimo entre[\s\S]*modo[\s\S]*plataforma[\s\S]*listas[\s\S]*aislamiento/i);
   assert.match(orchestration, /agentes reales[\s\S]*no (?:simular|sustituirlos por procesos auxiliares)/i);
   assert.match(orchestration, /un solo escritor activo por working tree/i);
-  assert.match(orchestration, /Estándares[\s\S]*Especificación/);
+  assert.match(orchestration, /validación completa una sola vez[\s\S]*antes de la evaluación final/i);
+  assert.match(orchestration, /un solo Evaluador[\s\S]*Estándares[\s\S]*Especificación[\s\S]*evaluationStrategy: dual/i);
+  assert.match(orchestration, /evaluationRisk[\s\S]*architectural-decision[\s\S]*security-or-integrity/);
   assert.match(skill, /fan-out[\s\S]*oleadas[\s\S]*fan-in/i);
   assert.match(skill, /cerrar cada hilo/i);
+  assert.match(skill, /un Evaluador[\s\S]*conjuntamente[\s\S]*dos Evaluadores independientes/i);
   assert.match(roles.explorador, /carril asignado/i);
   assert.match(roles.planificador, /workUnitId[\s\S]*dependsOn[\s\S]*owned_paths/);
   assert.match(roles.implementador, /una sola unidad/i);
   assert.match(roles.tester, /implementada[\s\S]*validada[\s\S]*consolidada/i);
-  assert.match(roles.evaluador, /eje[\s\S]*(?:Estándares|Especificación)/i);
+  assert.match(roles.tester, /sin repetir la suite completa[\s\S]*después del fan-in/i);
+  assert.match(roles.evaluador, /eje combinado[\s\S]*evaluación dual justificada/i);
   assert.match(roles.documentador, /fan-in/i);
   assert.match(roles.documentador, /architecture-propose[^\n]*no exige fan-in/i);
-  for (const source of Object.values(workflows)) {
+  assert.match(roles.documentador, /architecture-record[\s\S]*cerrar una tarea exclusivamente arquitectónica/i);
+  for (const source of [workflows.bugfix, workflows.feature, workflows.refactor]) {
     assert.match(source, /unidad(?:es)? de (?:implementación|trabajo)/i);
     assert.match(source, /fan-in/i);
   }
-  assert.match(workflows.feature, /`light`[\s\S]*un Evaluador[\s\S]*`full`[\s\S]*dos Evaluadores/i);
+  assert.match(workflows.feature, /Un Evaluador[\s\S]*combinada[\s\S]*Dos Evaluadores independientes/i);
+  assert.match(workflows.architecture, /termina[\s\S]*architecture-record[\s\S]*no exige unidades/i);
+  assert.match(workflows.architecture, /transferirla[\s\S]*una sola vez[\s\S]*feature[\s\S]*refactor/i);
+  assert.doesNotMatch(
+    workflows.architecture,
+    /agentic-phase:v1 \{"id":"architecture-(?:implement|evaluate|document)"/,
+  );
+  assert.match(tdd, /un comportamiento observable por test[\s\S]*todas las aserciones[\s\S]*necesarias/i);
+  assert.match(tdd, /refactor acotado[\s\S]*volver a ejecutar la validación focalizada/i);
+  assert.doesNotMatch(tdd, /una aserción lógica por test/i);
+  assert.match(
+    agentsContract,
+    /node --test --test-name-pattern="<patrón concreto del caso relacionado>"[\s\S]*tests\/agentic-init\.test\.mjs/,
+  );
   assert.match(devSession, /## Presupuesto y capacidad/);
   assert.match(devSession, /## Unidades de implementación/);
   assert.match(devSession, /## Evaluación final por ejes/);
+  assert.match(devSession, /evaluationStrategy[\s\S]*evaluationRisk/);
   assert.match(subdevSession, /- Unidad: `<work-unit-id>`/);
   assert.match(subdevSession, /- Permiso: `<permission>`/);
   assert.match(codexAdapter, /\.agents\/roles\/implementador\.md/);

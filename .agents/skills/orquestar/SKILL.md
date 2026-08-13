@@ -16,23 +16,33 @@ description: Orquesta tareas de desarrollo mediante roles aislados, DevSession y
 6. Pedir al Planificador un DAG de una a tres unidades con dependencias,
    propiedad exclusiva y permiso. Registrar el plan con `init` y calcular el
    fan-out `read-only` como el mínimo entre modo, plataforma y trabajo listo;
-   calcular aparte el aislamiento de escritores.
+   calcular aparte el aislamiento de escritores. Registrar
+   `evaluationStrategy: combined` por defecto; usar `dual` únicamente con una
+   categoría `evaluationRisk` admitida y explícita antes del fan-in.
 7. Despachar las oleadas con agentes reales en contextos aislados. Priorizar
    carriles de solo lectura y mantener un writer lock compartido por la identidad
    canónica del working tree. Cada intento declara permiso, `baseRevision`,
    `threadId` y criterios. Cerrar cada hilo después de consolidar su resultado.
 8. Registrar el reporte contractual mediante `commit`; usar `await-input` y
    `resume` para relevar preguntas o aprobaciones.
-9. Testear cada unidad al terminarla. Solo una validación atribuible satisface
+9. Testear cada unidad con evidencia focalizada concreta al terminarla, sin
+   repetir la suite completa. Solo una validación atribuible satisface
    dependencias; un reporte rojo o `fail` habilita retrabajo sin validar. Después
-   de consolidar todas las unidades, ejecutar el fan-in.
-10. En `full`, abrir dos Evaluadores de solo lectura para Estándares y
-    Especificación; en `light`, abrir uno que cubra ambos ejes. Aplicar el límite
-    de dos ciclos Evaluador → Implementador. Versionar cada fan-in, invalidar sus
+   de consolidar todas las unidades, ejecutar el fan-in y, en `full`, una sola
+   validación completa antes de evaluar.
+10. Abrir por defecto un Evaluador `read-only` que cubra conjuntamente
+    Estándares y Especificación, incluso en `full`. Solo con estrategia dual y
+    riesgo registrado abrir dos Evaluadores independientes. Aplicar el límite de
+    dos ciclos Evaluador → Implementador. Versionar cada fan-in, invalidar sus
     ejes al reabrir una unidad y permitir reintentos trazables por eje.
 11. Cerrar según la política: limpiar únicamente tests temporales autorizados,
-   repetir la validación pertinente, documentar, consolidar Engram y ejecutar
-   `cleanup` y `close`.
+    repetir únicamente la validación afectada por esa limpieza, documentar,
+    consolidar Engram y ejecutar `cleanup` y `close`.
+
+En `architecture`, terminar después de registrar la decisión aprobada cuando no
+haya implementación. Si debe implementarse, cerrar ese workflow y transferir la
+decisión una sola vez a `feature` o `refactor`; no volver a evaluar ni documentar
+en `architecture` lo que el workflow posterior ya cerró.
 
 No ejecutar roles secuencialmente en el hilo del orquestador ni sustituir
 subagentes con procesos de CLI.

@@ -19,9 +19,14 @@ reducidos según la política de orquestación.
 El Planificador puede definir entre una y tres unidades de implementación con
 dependencias y ownership exclusivo. El orquestador ejecuta Implementador y
 Tester por unidad, habilita dependencias solo después de validación atribuible y
-realiza fan-in cuando todas quedan consolidadas. En `light`, un Evaluador cubre
-Estándares y Especificación; en `full`, dos Evaluadores de solo lectura cubren
-esos ejes independientemente.
+realiza fan-in cuando todas quedan consolidadas. Cada unidad usa validación
+focalizada concreta, sin suite completa repetida. En `full`, un Tester ejecuta
+la validación completa una sola vez después del fan-in y antes de evaluar.
+
+Un Evaluador `read-only` cubre Estándares y Especificación de forma combinada
+por defecto, incluso en `full`. Solo un `evaluationRisk` admitido y registrado
+antes del fan-in habilita dos Evaluadores independientes mediante estrategia
+dual.
 
 Un Tester rojo o fallido reabre retrabajo sin validar. Cada nuevo fan-in
 invalida la generación anterior y exige reevaluar sus ejes.

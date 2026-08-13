@@ -140,6 +140,13 @@ cada una con `workUnitId`, `dependsOn`, `owned_paths`, permiso y orden. Las
 dependencias solo quedan satisfechas por validación atribuible del Tester. No
 repetir una unidad validada salvo impacto demostrado.
 
+Cada unidad recibe validación focalizada atribuible mediante un caso, patrón o
+procedimiento concreto. El Implementador conserva una comprobación proporcional
+y el Tester no repite la suite completa por unidad. En `full`, después de
+consolidar todas las unidades y ejecutar el fan-in, un Tester ejecuta la
+validación completa una sola vez antes de la evaluación final. En `light`, la
+suite completa continúa sin ejecutarse por defecto.
+
 Cada intento declara su propio permiso `read-only` o `writer`; un Tester
 `read-only` puede validar una unidad `writer` sin consumir aislamiento de
 escritor. `baseRevision`, `threadId`, criterios, oleada y fase son obligatorios
@@ -155,10 +162,20 @@ ancestro/descendiente antes de despachar. La comparación es portable a Windows:
 ignora mayúsculas y aliases por puntos o espacios terminales en cada segmento.
 
 Después de que todas las unidades estén implementadas, validadas y consolidadas,
-ejecutar el fan-in. En `full`, la evaluación final usa dos Evaluadores de solo
-lectura y ejes independientes: Estándares y Especificación. En `light`, usa un
-solo Evaluador con ambos ejes. La aprobación exige conformidad de todos los ejes
-requeridos.
+ejecutar el fan-in. La evaluación final usa por defecto un solo Evaluador
+`read-only` y un eje combinado que cubre Estándares y Especificación, también en
+`full`. El Planificador solo puede registrar `evaluationStrategy: dual` antes
+del fan-in cuando `evaluationRisk` sea una de estas categorías deterministas:
+
+- `architectural-decision`;
+- `security-or-integrity`;
+- `public-compatibility-or-migration`;
+- `considerable-fan-in`, para varias unidades independientes cuyo fan-in tenga
+  riesgo considerable.
+
+La estrategia dual usa dos Evaluadores `read-only` independientes, uno por eje.
+Sin una categoría válida, usar `evaluationStrategy: combined`. La aprobación
+exige conformidad de todos los ejes requeridos por la estrategia registrada.
 
 Cada fan-in tiene una generación. Reabrir una unidad invalida todos los ejes e
 incrementa la generación; cada eje puede reintentarse de forma monotónica y
@@ -176,6 +193,13 @@ habilita retrabajo del Implementador.
 
 Si ninguna categoría encaja con claridad, consultar al usuario. No elegir una
 por descarte silencioso.
+
+Una tarea exclusivamente arquitectónica termina después de explorar, comparar,
+obtener aprobación explícita y registrar la decisión. Si la decisión aprobada
+debe implementarse, cerrar `architecture` y transferirla una sola vez a
+`feature` o `refactor` como restricción y criterio de aceptación. Ese workflow
+posterior es el único responsable de implementar, testear, evaluar y documentar
+el resultado final; `architecture` no repite ese cierre.
 
 ## Delegación aislada
 
@@ -231,7 +255,10 @@ subagentes y debe registrar:
 - unidades, dependencias, ownership, permiso por intento, hilos y revisión base;
 - estados implementada, validada y consolidada, con evidencia atribuible;
 - hilos abiertos/cerrados, fallos, retrabajo y resultado del fan-in;
-- generación y ejes de evaluación final con sus veredictos;
+- validación focalizada por unidad y validación completa única posterior al
+  fan-in cuando corresponda;
+- estrategia, riesgo registrado, generación y ejes de evaluación final con sus
+  veredictos;
 - sector de importancia y reglas efectivas por sector;
 - especificación, tareas y decisiones;
 - archivos modificados;
@@ -285,7 +312,8 @@ y presentar el diagnóstico al usuario.
 2. Eliminar únicamente tests creados en esta DevSession, marcados como
    temporales y cuya eliminación permita el contrato efectivo. Nunca eliminar
    tests preexistentes.
-3. Repetir la validación pertinente después de la limpieza.
+3. Repetir únicamente la validación afectada por la limpieza. Repetir la suite
+   completa solo ante evidencia concreta de impacto transversal.
 4. Ejecutar la fase de Documentador, aunque concluya sin cambios.
 5. Consolidar en Engram los candidatos durables.
 6. Eliminar la DevSession.
