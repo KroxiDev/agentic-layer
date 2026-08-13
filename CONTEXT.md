@@ -178,6 +178,13 @@ El bloque delimitado por `AGENTIC_PROJECT_CONTRACT_START` y `..._END` dentro de
 `AGENTS.md`: los hechos y restricciones que la capa necesita de este proyecto.
 _Evitar_: configuración, manifiesto, settings.
 
+**Regla adicional del proyecto**:
+Instrucción efectiva de `AGENTS.md` situada fuera del contrato administrado,
+bajo `## Reglas adicionales del proyecto`. `agentic update` solo coloca allí
+una entrada contractual desconocida después de una elección interactiva
+explícita; no amplía con ella el esquema canónico.
+_Evitar_: campo contractual libre, extensión del contrato.
+
 **Contrato de salida**:
 El formato exacto que un rol devuelve al orquestador y nada más. Homónimo del
 anterior sólo por convención; nunca usar «el contrato» sin calificar cuando

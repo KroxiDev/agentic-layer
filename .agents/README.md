@@ -8,20 +8,30 @@ editar roles, workflows, políticas, skills ni adapters.
 `scripts/agentic-init.mjs` es la única superficie automatizada y la única
 implementación de adopción y actualización. No forma parte del núcleo de
 orquestación: detecta hechos y versiones, planifica el inventario canónico,
-migra exclusivamente el bloque contractual de `AGENTS.md` y aplica cambios de
-forma recuperable. `bin/agentic.mjs` es el ejecutable distribuible y solo
+migra el bloque contractual de `AGENTS.md` y aplica cambios de forma
+recuperable. Una elección interactiva explícita durante `update` también puede
+mover una entrada desconocida fuera del contrato, a la sección efectiva
+`## Reglas adicionales del proyecto`. `bin/agentic.mjs` es el ejecutable distribuible y solo
 despacha `init` y `update` hacia esa implementación. Su comportamiento público
 se verifica en `tests/agentic-init.test.mjs` con `node:test`, directorios
 temporales y `CODEX_HOME` aislado.
 
-El inicializador no interroga por hechos del contrato. Escribe lo que infiere
-—incluidos los valores recomendados del perfil de ecosistema detectado— y deja
+`init` no interroga por hechos del contrato. Escribe lo que infiere —incluidos
+los valores recomendados del perfil de ecosistema detectado— y deja
 como `<pendiente: …>` lo que no puede inferir, listándolo al terminar en el
 bloque `CONTRATO POR COMPLETAR`. Ese marcador es el que cobra la regla
 `STRICT_PROJECT_CONTRACT_RULE` de `policies/orquestacion.md`: la primera sesión
 del agente completa los huecos con la skill `agentic-grilling`, donde hay
 contexto y conversación para decidirlos. `--purpose` y `--git-strategy` son un
 atajo para declararlos en la propia adopción, nunca un requisito.
+
+`update` sí pregunta cuando un contrato heredado contiene campos o bullets no
+mapeables. Primero reúne todas las entradas y, solo con TTY y sin banderas no
+interactivas ni `--dry-run`, permite mapear a un campo canónico libre, conservar
+fuera del contrato, eliminar con confirmación adicional o cancelar. Las
+decisiones viven en memoria hasta la transacción. En cualquier ejecución no
+interactiva se listan todas las entradas y alternativas, se devuelve salida `2`
+y no se escribe ningún archivo.
 
 La capa se obtiene desde GitHub como paquete ejecutable y se adopta con
 `npx --yes github:KroxiDev/agentic-layer init .`. La adopción es una
@@ -142,3 +152,7 @@ preserva estado e intentos y es byte-idempotente al repetirse.
     fan-in y sus evaluaciones ocurren después de consolidar todas las unidades.
 17. Reabrir una unidad incrementa la generación de evaluación e invalida todos
     sus ejes anteriores.
+18. El contrato administrado solo admite campos canónicos. Una entrada
+    desconocida puede salir del bloque únicamente por elección interactiva
+    explícita y permanece efectiva bajo `## Reglas adicionales del proyecto`;
+    cancelar o ejecutar sin interacción conserva el destino byte a byte.

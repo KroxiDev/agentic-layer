@@ -253,8 +253,8 @@ Opciones:
   --git-strategy <txt>  Atajo para declarar la estrategia Git en vez de dejarla
                         pendiente en el contrato.
   --dry-run             Muestra las acciones sin escribir.
-  -y, --yes             Omite la confirmación previa a escribir. El comando
-                        nunca pregunta hechos del contrato.
+  -y, --yes             Omite la confirmación general previa a escribir. No
+                        resuelve entradas contractuales no mapeables.
   --non-interactive     Alias de compatibilidad de --yes.
   --force               Reemplaza una capa instalada sin preguntar: sobrescribe
                         archivos canónicos divergentes y elimina residuos de
@@ -268,9 +268,10 @@ ${operation === "update" ? `  --allow-downgrade     Autoriza instalar una versi�
   -h, --help            Muestra esta ayuda.
 
 Los hechos que no puedan inferirse quedan marcados como <pendiente: …> en el
-contrato de AGENTS.md y se listan al terminar.
+contrato de AGENTS.md y se listan al terminar. Durante update, una entrada
+contractual no mapeable exige una decisión interactiva explícita.
 
-Códigos de salida: 0 correcto, 1 error de uso, 2 colisión sin escrituras,
+Códigos de salida: 0 correcto, 1 error de uso, 2 bloqueo seguro sin escrituras,
 3 cancelado por el usuario, 4 capa instalada con CodeGraph o Engram ausentes.`);
 }
 
@@ -864,9 +865,28 @@ const REQUIRED_CONTRACT_FIELDS = [
   "documentation",
   "adrs",
 ];
+const CONTRACT_FIELD_LABELS = new Map([
+  ["purpose", "Propósito"],
+  ["architecture", "Arquitectura"],
+  ["entrypoints", "Entrypoints"],
+  ["focusedValidation", "Focalizada"],
+  ["completeValidation", "Completa"],
+  ["testFramework", "Framework"],
+  ["testLocation", "Ubicación"],
+  ["testLifecycle", "Ciclo de vida"],
+  ["gitStrategy", "Rama o estrategia permitida"],
+  ["secrets", "Secretos"],
+  ["protectedPaths", "Rutas protegidas"],
+  ["immutableData", "Datos inmutables"],
+  ["restrictedActions", "Acciones restringidas"],
+  ["originContamination", "Contaminación de origen"],
+  ["documentation", "README y documentación técnica"],
+  ["adrs", "ADRs"],
+]);
 const CONTRACT_FIELD_IDS = new Set(REQUIRED_CONTRACT_FIELDS);
 const CONTRACT_FIELD_MARKER_PATTERN = /^<!-- agentic-contract-field:v1 ([A-Za-z][A-Za-z0-9]*) -->$/;
 const CONTRACT_FIELD_MARKER_LIKE = /<!--\s*agentic-contract-field\b/i;
+const ADDITIONAL_RULES_HEADING = "## Reglas adicionales del proyecto";
 
 function isMissingContractValue(value) {
   const normalized = value.trim();
@@ -886,17 +906,37 @@ function isSafeContractFact(value) {
   );
 }
 
-function parseContractFields(source) {
+function unmappableContractError(entries) {
+  const details = entries.flatMap((entry, index) => [
+    `${index + 1}. ${entry.lines[0].trim()}`,
+    ...entry.lines.slice(1).map((line) => `   ${line}`),
+  ]);
+  const error = new Error(
+    [
+      `AGENTS.md contiene ${entries.length} ${entries.length === 1 ? "entrada contractual no mapeable" : "entradas contractuales no mapeables"}:`,
+      ...details,
+      "Alternativas: ejecutar `agentic update` en una terminal interactiva para mapear cada entrada a un campo canónico, conservarla como regla adicional fuera del contrato, eliminarla con confirmación explícita o cancelar.",
+      "La ejecución no interactiva no decide automáticamente y no escribió ningún archivo.",
+    ].join("\n"),
+  );
+  error.exitCode = 2;
+  return error;
+}
+
+function parseContract(source) {
   const start = source.indexOf(CONTRACT_START);
   const end = source.indexOf(CONTRACT_END);
-  if (start < 0 || end < start) return new Map();
+  if (start < 0 || end < start) return { fields: new Map(), unmappable: [] };
   const block = source.slice(start + CONTRACT_START.length, end);
+  const lines = block.split(/\r?\n/);
   const fields = new Map();
+  const unmappable = [];
   const seenKeys = new Set();
   let activeKey = null;
   let pendingId = null;
 
-  for (const line of block.split(/\r?\n/)) {
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
     const heading = line.match(/^##\s+(.+?)\s*$/);
     if (heading) {
       activeKey = null;
@@ -927,11 +967,20 @@ function parseContractFields(source) {
       const aliasKey = FIELD_ALIASES.get(normalizeLabel(bullet[1])) ?? null;
       activeKey = pendingId ?? aliasKey;
       if (!activeKey) {
-        const error = new Error(
-          `AGENTS.md contiene un campo contractual no mapeable: ${bullet[1].trim()}.`,
-        );
-        error.exitCode = 2;
-        throw error;
+        const entryLines = [line];
+        while (index + 1 < lines.length && /^\s{2,}\S/.test(lines[index + 1])) {
+          entryLines.push(lines[index + 1]);
+          index += 1;
+        }
+        unmappable.push({
+          label: bullet[1].trim(),
+          lines: entryLines,
+          value: [bullet[2].trim(), ...entryLines.slice(1).map((item) => item.trim())]
+            .filter(Boolean)
+            .join(" "),
+        });
+        activeKey = null;
+        continue;
       }
       if (pendingId && aliasKey && aliasKey !== pendingId) {
         const error = new Error(
@@ -957,11 +1006,21 @@ function parseContractFields(source) {
       continue;
     }
     if (/^[-*+]\s+/.test(line)) {
-      const error = new Error(
-        `AGENTS.md contiene un campo contractual no mapeable: ${line.trim()}.`,
-      );
-      error.exitCode = 2;
-      throw error;
+      const entryLines = [line];
+      while (index + 1 < lines.length && /^\s{2,}\S/.test(lines[index + 1])) {
+        entryLines.push(lines[index + 1]);
+        index += 1;
+      }
+      const value = [
+        line.replace(/^[-*+]\s+/, "").trim(),
+        ...entryLines.slice(1).map((item) => item.trim()),
+      ]
+        .filter(Boolean)
+        .join(" ");
+      unmappable.push({ label: value, lines: entryLines, value });
+      activeKey = null;
+      pendingId = null;
+      continue;
     }
     if (activeKey && /^\s{2,}\S/.test(line)) {
       const previous = fields.get(activeKey);
@@ -977,7 +1036,13 @@ function parseContractFields(source) {
     throw error;
   }
 
-  return fields;
+  return { fields, unmappable };
+}
+
+function parseContractFields(source) {
+  const parsed = parseContract(source);
+  if (parsed.unmappable.length) throw unmappableContractError(parsed.unmappable);
+  return parsed.fields;
 }
 
 function contractValue(existingFields, key, fallback) {
@@ -1153,6 +1218,52 @@ function replaceContract(source, contract) {
   }
   const eol = source.includes("\r\n") ? "\r\n" : "\n";
   return `${source.slice(0, start)}${contract.replaceAll("\n", eol)}${source.slice(end + CONTRACT_END.length)}`;
+}
+
+function appendAdditionalProjectRules(source, entries) {
+  if (!entries.length) return source;
+  const eol = source.includes("\r\n") ? "\r\n" : "\n";
+  const blocks = entries.map((entry) => entry.lines.join(eol));
+  const contractStart = source.indexOf(CONTRACT_START);
+  const contractEnd = source.indexOf(CONTRACT_END);
+  const headings = [...source.matchAll(/^## Reglas adicionales del proyecto[ \t]*\r?$/gm)];
+  const heading = headings.find(
+    (match) => match.index < contractStart || match.index > contractEnd,
+  );
+
+  if (!heading) {
+    const separator = source.length === 0
+      ? ""
+      : source.endsWith(`${eol}${eol}`)
+        ? ""
+        : source.endsWith(eol)
+          ? eol
+          : `${eol}${eol}`;
+    return `${source}${separator}${ADDITIONAL_RULES_HEADING}${eol}${eol}${blocks.join(`${eol}${eol}`)}${eol}`;
+  }
+
+  const contentStart = heading.index + heading[0].length;
+  const nextHeading = /^##\s+/gm;
+  nextHeading.lastIndex = contentStart;
+  const followingHeading = nextHeading.exec(source);
+  const boundaries = [followingHeading?.index, contractStart > contentStart ? contractStart : null]
+    .filter((value) => Number.isInteger(value));
+  const contentEnd = boundaries.length ? Math.min(...boundaries) : source.length;
+  const section = source.slice(contentStart, contentEnd).replace(/\r\n/g, "\n");
+  const additions = blocks.filter(
+    (block) => !section.includes(block.replace(/\r\n/g, "\n")),
+  );
+  if (!additions.length) return source;
+
+  const prefix = source.slice(0, contentEnd);
+  const suffix = source.slice(contentEnd);
+  const before = prefix.endsWith(`${eol}${eol}`)
+    ? ""
+    : prefix.endsWith(eol)
+      ? eol
+      : `${eol}${eol}`;
+  const after = suffix ? `${eol}${eol}` : eol;
+  return `${prefix}${before}${additions.join(`${eol}${eol}`)}${after}${suffix}`;
 }
 
 async function planTemplateFiles(destination, force) {
@@ -1352,6 +1463,12 @@ function describeInstalledLayer(layer, distributionVersion) {
   return "capa agéntica instalada sin marca de versión";
 }
 
+function isInteractiveTerminal() {
+  return Boolean(
+    (input.isTTY && output.isTTY) || process.env.AGENTIC_INIT_TEST_FORCE_TTY === "1",
+  );
+}
+
 async function confirmLayerReplacement(layer, collisions, distributionVersion) {
   const readline = createInterface({ input, output });
   try {
@@ -1395,6 +1512,81 @@ async function confirmApplication(actions, agentsAction, orphans, versionAction)
   } finally {
     readline.close();
   }
+}
+
+async function resolveUnmappableContractEntries(entries, existingFields) {
+  const additionalRules = [];
+  const readline = createInterface({ input, output });
+  try {
+    output.write(
+      `\nSe encontraron ${entries.length} ${entries.length === 1 ? "entrada contractual no mapeable" : "entradas contractuales no mapeables"}.\n`,
+    );
+    for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
+      const entry = entries[entryIndex];
+      let resolved = false;
+      while (!resolved) {
+        output.write(`\nEntrada ${entryIndex + 1} de ${entries.length}:\n${entry.lines.join("\n")}\n`);
+        output.write("1. Mapear a un campo contractual existente.\n");
+        output.write("2. Conservar como regla adicional fuera del contrato.\n");
+        output.write("3. Eliminar.\n");
+        output.write("4. Cancelar la actualización.\n");
+        const decision = (await readline.question("Decisión [1-4]: ")).trim();
+
+        if (decision === "1") {
+          output.write("\nCampos contractuales canónicos:\n");
+          REQUIRED_CONTRACT_FIELDS.forEach((field, index) => {
+            output.write(
+              `${index + 1}. ${CONTRACT_FIELD_LABELS.get(field)} [${field}] — ${
+                existingFields.has(field) ? "ocupado" : "disponible"
+              }\n`,
+            );
+          });
+          const selected = Number(await readline.question(`Campo [1-${REQUIRED_CONTRACT_FIELDS.length}]: `));
+          const field = REQUIRED_CONTRACT_FIELDS[selected - 1];
+          if (!field) {
+            output.write("Selección inválida; vuelva a decidir qué hacer con la entrada.\n");
+            continue;
+          }
+          if (existingFields.has(field)) {
+            output.write(
+              `Conflicto: ${CONTRACT_FIELD_LABELS.get(field)} [${field}] ya tiene valor; no se sobrescribió ni fusionó.\n`,
+            );
+            continue;
+          }
+          existingFields.set(field, entry.value);
+          resolved = true;
+          continue;
+        }
+        if (decision === "2") {
+          additionalRules.push(entry);
+          resolved = true;
+          continue;
+        }
+        if (decision === "3") {
+          const confirmation = (
+            await readline.question(
+              "Esta acción elimina información. Escriba ELIMINAR para confirmarla: ",
+            )
+          ).trim();
+          if (confirmation === "ELIMINAR") {
+            resolved = true;
+          } else {
+            output.write("Eliminación no confirmada; la entrada sigue intacta en el plan.\n");
+          }
+          continue;
+        }
+        if (decision === "4") {
+          const error = new Error("Cancelado por el usuario; no se escribió ningún archivo.");
+          error.exitCode = 3;
+          throw error;
+        }
+        output.write("Selección inválida; elija una opción entre 1 y 4.\n");
+      }
+    }
+  } finally {
+    readline.close();
+  }
+  return additionalRules;
 }
 
 async function revalidateLayerPlan({
@@ -2228,7 +2420,7 @@ async function applyCodexConfiguration(options, inspection, { ready, warnings, p
   }
 
   let choice = options.codexConfig;
-  if (!choice && !options.dryRun && !options.yes && input.isTTY && output.isTTY) {
+  if (!choice && !options.dryRun && !options.yes && isInteractiveTerminal()) {
     choice = await askCodexConfiguration(inspection);
   }
   if (!choice) {
@@ -2721,7 +2913,7 @@ async function run(options) {
   // Una divergencia sobre una capa ya instalada es un reemplazo de versión, no
   // una colisión con archivos ajenos: se ofrece decidir en vez de abortar.
   if (templatePlan.collisions.length && installedLayer.present && !replaceLayer) {
-    const interactive = !options.yes && !options.dryRun && input.isTTY && output.isTTY;
+    const interactive = !options.yes && !options.dryRun && isInteractiveTerminal();
     if (interactive) {
       const decision = await confirmLayerReplacement(
         installedLayer,
@@ -2794,10 +2986,26 @@ async function run(options) {
       destinationContract.text === sourceContract.text &&
       !destinationContract.text?.includes(GENERATED_CONTRACT_MARKER),
   );
-  const existingFields =
+  const parsedContract =
     destinationAgentsState && !baselineContract
-      ? parseContractFields(currentAgents)
-      : new Map();
+      ? parseContract(currentAgents)
+      : { fields: new Map(), unmappable: [] };
+  const existingFields = parsedContract.fields;
+  if (options.purpose) existingFields.set("purpose", options.purpose);
+  if (options.gitStrategy) existingFields.set("gitStrategy", options.gitStrategy);
+  let additionalRules = [];
+  if (parsedContract.unmappable.length) {
+    const interactive =
+      options.operation === "update" &&
+      !options.yes &&
+      !options.dryRun &&
+      isInteractiveTerminal();
+    if (!interactive) throw unmappableContractError(parsedContract.unmappable);
+    additionalRules = await resolveUnmappableContractEntries(
+      parsedContract.unmappable,
+      existingFields,
+    );
+  }
   resolveContractFacts({
     options,
     project,
@@ -2820,7 +3028,10 @@ async function run(options) {
     ? destinationContract.text
     : renderContract(project, existingFields);
   const gaps = contractGaps(contract);
-  const nextAgents = replaceContract(currentAgents, contract);
+  const nextAgents = appendAdditionalProjectRules(
+    replaceContract(currentAgents, contract),
+    additionalRules,
+  );
   const agentsAction = currentAgents === nextAgents ? "validate" : destinationAgentsState ? "update" : "create";
 
   const orphans =
@@ -2900,7 +3111,7 @@ async function run(options) {
 
   if (!options.dryRun) {
     // Confirmar el reemplazo ya autorizó estas escrituras: no se vuelve a pedir.
-    const interactive = !options.yes && !replacementConfirmed && input.isTTY && output.isTTY;
+    const interactive = !options.yes && !replacementConfirmed && isInteractiveTerminal();
     if (
       interactive &&
       !(await confirmApplication(templatePlan.actions, agentsAction, orphans, versionAction))

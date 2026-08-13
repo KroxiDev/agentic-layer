@@ -184,7 +184,12 @@ flowchart TD
     exists -->|no| init["salida 2 · usar agentic init"]
     exists -->|sí| version{"legacy, anterior,<br/>igual o posterior"}
     version -->|posterior sin permiso| block["salida 2 · cero escrituras"]
-    version --> plan["plan completo:<br/>copias · reemplazos · residuos · contrato"]
+    version --> unknown{"¿entradas contractuales<br/>no mapeables?"}
+    unknown -->|"sí, sin terminal o dry-run"| unmapped["salida 2 · listar todas<br/>· cero escrituras"]
+    unknown -->|"sí, con terminal"| decide["por entrada: mapear · conservar<br/>· eliminar · cancelar"]
+    decide -->|cancelar| cancel
+    decide -->|resueltas en memoria| plan
+    unknown -->|no| plan["plan completo:<br/>copias · reemplazos · residuos · contrato"]
     plan --> confirm{"confirmación general"}
     confirm -->|cancelar| cancel["salida 3"]
     confirm -->|aplicar| revalidate["revalidar contenido, identidad<br/>y ancestros no-follow"]
@@ -202,6 +207,23 @@ nuevos por IDs estables. Solo `<pendiente: …>`, el placeholder histórico
 admitido y los estados textuales `TODO`, `pendiente`, `por definir` o `TBD`
 cuentan como valores ausentes; autolinks Markdown y otros hechos legítimos con
 ángulos se preservan.
+
+Los campos y bullets que no puedan mapearse se reúnen por completo antes de
+construir cualquier escritura. En modo interactivo cada entrada puede dirigirse
+a un campo canónico libre, conservarse, eliminarse con confirmación adicional o
+cancelar toda la actualización. Las elecciones solo mutan el plan en memoria;
+`AGENTS.md` se escribe junto con la transacción y participa en el mismo rollback.
+En `--yes`, `--non-interactive`, sin TTY o `--dry-run`, el comando informa todas
+las entradas y alternativas, termina con salida `2` y deja el destino byte a
+byte intacto.
+
+El bloque delimitado es el **contrato administrado** y solo admite el esquema
+canónico con sus IDs estables. Conservar una entrada es una elección explícita
+que la retira de ese bloque y mantiene el bullet y sus continuaciones bajo
+`## Reglas adicionales del proyecto`, fuera de los marcadores. La sección se
+reutiliza si existe y la transformación es idempotente; esas reglas siguen
+siendo instrucciones efectivas de `AGENTS.md`, aunque ya no sean parte del
+contrato administrado.
 
 El editor de `config.toml` entiende únicamente la forma inequívoca de `[agents]`
 y las claves `max_concurrent_threads_per_session` o `max_threads`. Conserva BOM,

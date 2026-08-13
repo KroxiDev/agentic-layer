@@ -39,6 +39,22 @@ Los adapters y archivos canónicos se reparan aunque la versión ya coincida;
 las DevSessions y los archivos ajenos se conservan. Una versión instalada más
 nueva se bloquea salvo autorización expresa con `--allow-downgrade`.
 
+Si el contrato histórico contiene campos o bullets que no corresponden al
+esquema canónico, una terminal interactiva pide resolver **cada** entrada antes
+de escribir: mapear su valor a un campo canónico libre, conservar el bullet y
+sus continuaciones como regla adicional, eliminarlo con una confirmación extra
+o cancelar. Un destino canónico ocupado nunca se sobrescribe ni se fusiona; se
+informa el conflicto y se vuelve a pedir una decisión.
+
+El contrato administrado es únicamente el contenido delimitado por
+`AGENTIC_PROJECT_CONTRACT_START` y `AGENTIC_PROJECT_CONTRACT_END`. La elección
+explícita de conservar mueve la entrada fuera de esos marcadores, bajo
+`## Reglas adicionales del proyecto`; esa sección sigue siendo parte efectiva
+de `AGENTS.md`, se reutiliza si ya existe y no se duplica al repetir `update`.
+Con `--yes`, `--non-interactive`, sin TTY o con `--dry-run`, estas entradas no se
+deciden automáticamente: se informan todas, el destino queda idéntico y el
+comando termina con salida `2`.
+
 La configuración de Codex es una operación opcional posterior. Para habilitar
 capacidad técnica de hasta 12 subagentes se puede elegir `--codex-config global`,
 `local` o `none`; `--yes` por sí solo nunca autoriza esa escritura. Los workflows
@@ -55,8 +71,8 @@ final.
 | Opción | Efecto |
 | --- | --- |
 | `--target <ruta>` | Destino distinto del directorio actual |
-| `--dry-run` | Calcula el plan completo y no escribe nada |
-| `-y`, `--yes` | Omite la confirmación previa a escribir |
+| `--dry-run` | Calcula el plan sin escribir; si hay entradas no mapeables, las informa y termina con salida `2` |
+| `-y`, `--yes`, `--non-interactive` | Omite la confirmación general; no decide entradas contractuales no mapeables |
 | `--force` | Reemplaza una capa instalada y borra sus residuos |
 | `--allow-downgrade` | Solo en `update`: autoriza instalar una versión anterior a la declarada |
 | `--codex-config global\|local\|none` | Solo en `update`: decide explícitamente si habilitar capacidad técnica para 12 subagentes en Codex |
@@ -68,8 +84,9 @@ final.
 
 `--force` está acotado a los archivos canónicos divergentes y a los residuos de
 versiones anteriores. No reemplaza enlaces simbólicos ni directorios, no
-reescribe `AGENTS.md` —ni dentro ni fuera del contrato— y no toca las
-DevSessions.
+autoriza por sí mismo escrituras adicionales en `AGENTS.md` y no toca las
+DevSessions. Solo una elección interactiva explícita puede añadir contenido
+fuera del contrato administrado.
 
 ### Requisitos
 
@@ -226,6 +243,7 @@ distribución están en [docs/arquitectura.md](docs/arquitectura.md).
 | `REQUISITOS FALTANTES: CodeGraph`, salida `4` | Falta el ejecutable o el índice del repositorio | Instalar `codegraph` y ejecutar `codegraph init`, o repetir con `--init-codegraph` |
 | `REQUISITOS FALTANTES: Engram`, salida `4` | Falta el ejecutable o no identifica el proyecto | Instalar `engram` y registrarlo en el host de agentes |
 | `marcadores contractuales incompletos o duplicados`, salida `2` | `AGENTS.md` tiene los marcadores del contrato duplicados o a medias | Dejar un solo par `..._START` / `..._END`; el archivo no se modifica |
+| `entradas contractuales no mapeables`, salida `2` | `update` se ejecutó con `--yes`, `--non-interactive`, sin TTY o con `--dry-run` y el contrato contiene campos ajenos al esquema | Repetir en una terminal interactiva y mapear, conservar fuera del contrato, eliminar o cancelar cada entrada |
 | `No se detectó una capa agéntica existente`, salida `2` | Se ejecutó `update` sobre un proyecto sin capa | Usar `agentic init [destino]` |
 | Versión posterior o `.agents/VERSION` inválido, salida `2` | El downgrade no fue autorizado o la marca no es SemVer válida | Revisar la versión; usar `--allow-downgrade` solo si se desea bajar explícitamente |
 | `edición manual` para Codex | El TOML, su codificación o su ruta no pueden editarse de forma conservadora | Editar la ruta informada; la actualización de la capa ya quedó aplicada |
@@ -236,7 +254,7 @@ distribución están en [docs/arquitectura.md](docs/arquitectura.md).
 | El Evaluador parece poder editar | La sesión padre corre en `acceptEdits`, `auto` o `bypassPermissions` y prevalece sobre el subagente | Usar el modo por defecto cuando se necesite aislamiento estricto |
 | Una segunda adopción no reconoce la capa previa | `.agents/VERSION` no está versionado | Versionarlo: es la única marca de la versión instalada |
 
-Códigos de salida: `0` correcto · `1` error de uso · `2` colisión sin escrituras
+Códigos de salida: `0` correcto · `1` error de uso · `2` bloqueo seguro sin escrituras
 · `3` cancelado por el usuario · `4` capa instalada con requisitos ausentes. Un
 contrato con campos pendientes **no** cambia el código de salida: la adopción se
 completó y quien bloquea después es el preflight de la orquestación.
