@@ -1895,6 +1895,7 @@ async function applyLayerTransaction({
 
 const CODEX_THREADS_KEY = "max_concurrent_threads_per_session";
 const CODEX_THREADS_LEGACY_KEY = "max_threads";
+const CODEX_SUBAGENT_CAPACITY = 12;
 
 function hasTomlMultilineString(text) {
   let quote = null;
@@ -2111,20 +2112,20 @@ async function inspectCodexConfiguration(destination) {
 }
 
 function renderCodexTomlUpdate(inspection) {
-  if (!inspection.exists) return `[agents]\n${CODEX_THREADS_KEY} = 9\n`;
+  if (!inspection.exists) return `[agents]\n${CODEX_THREADS_KEY} = ${CODEX_SUBAGENT_CAPACITY}\n`;
   const { source, text, target, sectionHeaderEnd } = inspection;
   const bom = source.startsWith("\uFEFF") ? "\uFEFF" : "";
   if (target) {
-    const line = `${target.indent}${CODEX_THREADS_KEY}${target.assignment}9${target.suffix}${target.carriageReturn}`;
+    const line = `${target.indent}${CODEX_THREADS_KEY}${target.assignment}${CODEX_SUBAGENT_CAPACITY}${target.suffix}${target.carriageReturn}`;
     return `${bom}${text.slice(0, target.index)}${line}${text.slice(target.index + target.length)}`;
   }
   const eol = text.includes("\r\n") ? "\r\n" : "\n";
   if (sectionHeaderEnd !== null) {
     const separator = sectionHeaderEnd === text.length && !text.endsWith("\n") ? eol : "";
-    return `${bom}${text.slice(0, sectionHeaderEnd)}${separator}${CODEX_THREADS_KEY} = 9${eol}${text.slice(sectionHeaderEnd)}`;
+    return `${bom}${text.slice(0, sectionHeaderEnd)}${separator}${CODEX_THREADS_KEY} = ${CODEX_SUBAGENT_CAPACITY}${eol}${text.slice(sectionHeaderEnd)}`;
   }
   const separator = text.length === 0 ? "" : text.endsWith(eol) ? eol : `${eol}${eol}`;
-  return `${bom}${text}${separator}[agents]${eol}${CODEX_THREADS_KEY} = 9${eol}`;
+  return `${bom}${text}${separator}[agents]${eol}${CODEX_THREADS_KEY} = ${CODEX_SUBAGENT_CAPACITY}${eol}`;
 }
 
 async function assertSafeCodexParent(path, allowParentCreation) {
@@ -2190,10 +2191,15 @@ async function atomicWriteCodex(path, content, inspection) {
 
 async function askCodexConfiguration(inspection) {
   const readline = createInterface({ input, output });
-  const recommendLocal = inspection.local.value !== null && inspection.local.value < 9;
+  const recommendLocal =
+    inspection.local.value !== null && inspection.local.value < CODEX_SUBAGENT_CAPACITY;
   try {
-    output.write("\nCodex no tiene un límite efectivo de al menos 9 subagentes para este proyecto.\n");
-    output.write("La capa recomienda configurar 9 subagentes concurrentes.\n\n");
+    output.write(
+      `\nCodex no tiene capacidad efectiva para ${CODEX_SUBAGENT_CAPACITY} subagentes en este proyecto.\n`,
+    );
+    output.write(
+      `La capa recomienda habilitar capacidad técnica para ${CODEX_SUBAGENT_CAPACITY}; los workflows conservan sus propios topes.\n\n`,
+    );
     output.write("¿Dónde desea configurarlo?\n");
     output.write(`[g] Global: todos los proyectos${recommendLocal ? "" : " (recomendado)"}\n`);
     output.write(`[l] Local: solamente este proyecto${recommendLocal ? " (recomendado)" : ""}\n`);
@@ -2214,7 +2220,7 @@ async function applyCodexConfiguration(options, inspection, { ready, warnings, p
     pending.push("Realizar manualmente la edición de concurrencia de Codex.");
     return;
   }
-  if (inspection.effective !== null && inspection.effective >= 9) {
+  if (inspection.effective !== null && inspection.effective >= CODEX_SUBAGENT_CAPACITY) {
     ready.push(
       `Codex ya tiene un límite efectivo de ${inspection.effective} (${inspection.effectiveSource}); no se modifica.`,
     );
@@ -2235,13 +2241,17 @@ async function applyCodexConfiguration(options, inspection, { ready, warnings, p
   }
 
   const selected = inspection[choice];
-  if (choice === "global" && inspection.local.value !== null && inspection.local.value < 9) {
+  if (
+    choice === "global" &&
+    inspection.local.value !== null &&
+    inspection.local.value < CODEX_SUBAGENT_CAPACITY
+  ) {
     warnings.push(
       `La configuración local tiene precedencia: este proyecto seguirá usando ${inspection.local.value} aunque se elija global.`,
     );
     pending.push("Actualizar localmente la concurrencia de Codex para corregir el valor efectivo.");
   }
-  if (selected.value !== null && selected.value >= 9) {
+  if (selected.value !== null && selected.value >= CODEX_SUBAGENT_CAPACITY) {
     ready.push(`La configuración ${choice} ya declara ${selected.value}; no se reduce ni modifica.`);
     return;
   }
@@ -2273,7 +2283,9 @@ async function applyCodexConfiguration(options, inspection, { ready, warnings, p
       throw new Error("config.toml apareció después de la inspección");
     }
     await atomicWriteCodex(selected.path, renderCodexTomlUpdate(selected), selected);
-    ready.push(`Configuración ${choice} de Codex actualizada a 9 de forma atómica.`);
+    ready.push(
+      `Configuración ${choice} de Codex actualizada a ${CODEX_SUBAGENT_CAPACITY} de forma atómica.`,
+    );
   } catch (error) {
     warnings.push(`La capa quedó actualizada, pero no se pudo escribir Codex: ${error.message}`);
     pending.push(`Editar manualmente ${selected.path}.`);
@@ -2868,7 +2880,10 @@ async function run(options) {
     );
     if (codexInspection.local.ambiguous || codexInspection.global.ambiguous) {
       console.log("- configuración de Codex ambigua; dejar una edición manual pendiente");
-    } else if (codexInspection.effective !== null && codexInspection.effective >= 9) {
+    } else if (
+      codexInspection.effective !== null &&
+      codexInspection.effective >= CODEX_SUBAGENT_CAPACITY
+    ) {
       console.log("- Codex ya cumple el mínimo efectivo; no preguntar ni escribir configuración");
     } else if (options.codexConfig === "global") {
       console.log("- revisar y, si corresponde, actualizar la configuración global de Codex");

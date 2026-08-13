@@ -189,6 +189,82 @@ function parseManagedState(source) {
   return JSON.parse(match[1]);
 }
 
+function replaceManagedState(source, managed) {
+  return source.replace(
+    /<!-- agentic-session:v1:start -->\n```json\n[\s\S]+?\n```\n<!-- agentic-session:v1:end -->/,
+    `<!-- agentic-session:v1:start -->\n\`\`\`json\n${JSON.stringify(managed, null, 2)}\n\`\`\`\n<!-- agentic-session:v1:end -->`,
+  );
+}
+
+async function createPreTraceWorkUnitSession(session) {
+  const repository = await createRepository();
+  await seedSessionContracts(repository);
+  const approvedPlan = {
+    isolationCapacity: 1,
+    mode: "full",
+    platformCapacity: 6,
+    readOnlyCapacity: 5,
+    workUnits: [
+      {
+        acceptanceCriteria: ["C01"],
+        dependsOn: [],
+        ownedPaths: ["src/legacy.mjs"],
+        permission: "writer",
+        workUnitId: "unidad-legacy",
+      },
+    ],
+    workflow: "feature",
+    writerIsolationCapacity: 1,
+  };
+  const initialized = runSessionController(
+    repository,
+    "init",
+    { session, expectedRevision: 0 },
+    approvedPlan,
+  );
+  assert.equal(initialized.status, 0, initialized.stderr);
+
+  const globalPath = join(repository, ".agents", "sessions", `${session}.md`);
+  const source = await readFile(globalPath, "utf8");
+  const managed = parseManagedState(source);
+  const preservedAttempt = "feature-implement--implementador--a01";
+  managed.attempts = {
+    [preservedAttempt]: {
+      attempt: 1,
+      evidence: { reportHash: "hash-evidencia" },
+      failureCause: "fallo heredado",
+      openPayloadHash: "hash-apertura",
+      permission: "writer",
+      phaseId: "feature-implement",
+      reportHash: "hash-reporte",
+      role: "implementador",
+      state: "completed",
+      workUnitId: "unidad-legacy",
+    },
+  };
+  managed.currentPhase = "feature-implement";
+  managed.evaluations = {
+    standards: { attempt: "feature-evaluate--evaluador--a01", state: "changes_required" },
+  };
+  managed.revision = 30;
+  Object.assign(managed.workUnits["unidad-legacy"], {
+    consolidated: false,
+    failureCause: "regresion heredada",
+    impact: "impacto preservado",
+    implementationAttempt: preservedAttempt,
+    implementationEvidence: { reportHash: "hash-implementacion" },
+    ownedPaths: ["SRC/Legacy.mjs. "],
+    state: "implemented",
+    validated: false,
+  });
+  delete managed.readOnlyCapacity;
+  delete managed.writerIsolationCapacity;
+  delete managed.evaluationGeneration;
+  delete managed.workUnits["unidad-legacy"].acceptanceCriteria;
+  await writeFile(globalPath, replaceManagedState(source, managed), "utf8");
+  return { approvedPlan, globalPath, repository, session };
+}
+
 function controllerOutcome(result) {
   return result.status === 0
     ? { code: 0, error: "unexpected_success" }
@@ -1549,7 +1625,7 @@ test("rollback bloquea un padre sustituido por enlace y conserva respaldos sin e
   await rename(join(repository, movedAgents), join(repository, ".agents"));
 });
 
-test("Codex efectivo igual o superior a 9 no se pregunta, modifica ni reduce", async () => {
+test("Codex efectivo igual o superior a 12 no se pregunta, modifica ni reduce", async () => {
   const repository = await createRepository({
     "package.json": JSON.stringify({ name: "codex-listo", description: "Config suficiente." }),
     ".codex/config.toml": "[agents]\nmax_concurrent_threads_per_session = 12\n",
@@ -1637,7 +1713,7 @@ test("Codex global conserva BOM, EOL, comentarios y claves al actualizar solo la
   assert.equal(result.status, SIN_HERRAMIENTAS, result.stderr || result.stdout);
   assert.equal(
     await readFile(join(codexHome, "config.toml"), "utf8"),
-    original.replace("= 4 # anterior", "= 9 # anterior"),
+    original.replace("= 4 # anterior", "= 12 # anterior"),
   );
   assert.equal(existsSync(join(repository, ".codex", "config.toml")), false);
 });
@@ -1673,7 +1749,7 @@ test("Codex local crea o migra max_threads solo con autorización explícita", a
   assert.equal(local.status, SIN_HERRAMIENTAS, local.stderr || local.stdout);
   assert.equal(
     await readFile(join(repository, ".codex", "config.toml"), "utf8"),
-    "[agents]\nmax_concurrent_threads_per_session = 9\n",
+    "[agents]\nmax_concurrent_threads_per_session = 12\n",
   );
 
   await rm(join(repository, ".codex", "config.toml"));
@@ -1688,7 +1764,7 @@ test("Codex local crea o migra max_threads solo con autorización explícita", a
   assert.equal(global.status, SIN_HERRAMIENTAS, global.stderr || global.stdout);
   assert.equal(
     await readFile(join(codexHome, "config.toml"), "utf8"),
-    "[agents]\nmax_concurrent_threads_per_session = 9 # legacy\nmodel_reasoning_effort = \"high\"\n",
+    "[agents]\nmax_concurrent_threads_per_session = 12 # legacy\nmodel_reasoning_effort = \"high\"\n",
   );
 });
 
@@ -1882,7 +1958,7 @@ test("Codex delimita agents ante tablas-array y conserva sus claves objetivo byt
   assert.equal(result.status, SIN_HERRAMIENTAS, result.stderr || result.stdout);
   assert.equal(
     await readFile(join(repository, ".codex", "config.toml"), "utf8"),
-    source.replace("foo = true\r\n", "max_concurrent_threads_per_session = 9\r\nfoo = true\r\n"),
+    source.replace("foo = true\r\n", "max_concurrent_threads_per_session = 12\r\nfoo = true\r\n"),
   );
 });
 
@@ -2104,6 +2180,1935 @@ test("session controller crea y adopta sesiones con identidad y contratos interp
         session: "nueva",
         state: "active",
       },
+    },
+  );
+});
+
+test("session controller interpreta el contrato de rol hasta EOF aunque contenga z", async () => {
+  const repository = await createRepository();
+  await seedSessionContracts(repository);
+  await writeFile(
+    join(repository, ".agents", "roles", "explorador.md"),
+    "# Rol: Explorador\n\n## Salida\n\n- **Hallazgo z:** resultado.\n",
+    "utf8",
+  );
+  const session = "contrato-hasta-eof";
+  const attempt = "feature-explore--explorador--a01";
+
+  const initialized = runSessionController(
+    repository,
+    "init",
+    { session, expectedRevision: 0 },
+    { workflow: "feature" },
+  );
+  const opened = runSessionController(
+    repository,
+    "open",
+    { session, attempt, expectedRevision: 1 },
+    { phaseId: "feature-explore", role: "explorador" },
+  );
+
+  assert.equal(initialized.status, 0, initialized.stderr);
+  assert.equal(opened.status, 0, opened.stderr);
+  const envelope = parseManagedState(
+    await readFile(
+      join(repository, ".agents", "sessions", session, `${attempt}.md`),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(envelope.contract, ["Hallazgo z"]);
+});
+
+test("session controller separa la unidad del intento y conserva sesiones v1", async () => {
+  const repository = await createRepository();
+  await seedSessionContracts(repository);
+  const session = "identidad-unidad";
+  const attempt = "feature-implement--implementador--a01";
+  const workUnit = {
+    acceptanceCriteria: ["C01"],
+    dependsOn: [],
+    ownedPaths: ["scripts/tarea.mjs"],
+    permission: "writer",
+    workUnitId: "unidad-principal",
+  };
+
+  const initialized = runSessionController(
+    repository,
+    "init",
+    { session, expectedRevision: 0 },
+    {
+      isolationCapacity: 1,
+      mode: "full",
+      platformCapacity: 6,
+      workUnits: [workUnit],
+      workflow: "feature",
+    },
+  );
+  const opened = runSessionController(
+    repository,
+    "open",
+    { session, attempt, expectedRevision: 1 },
+    {
+      baseRevision: "31bfee4",
+      criteria: ["C01"],
+      phaseId: "feature-implement",
+      permission: "writer",
+      role: "implementador",
+      threadId: "thread-implementador-1",
+      workUnitId: workUnit.workUnitId,
+    },
+  );
+
+  assert.equal(initialized.status, 0, initialized.stderr);
+  assert.equal(opened.status, 0, opened.stderr);
+  const global = parseManagedState(
+    await readFile(join(repository, ".agents", "sessions", `${session}.md`), "utf8"),
+  );
+  const envelope = parseManagedState(
+    await readFile(
+      join(repository, ".agents", "sessions", session, `${attempt}.md`),
+      "utf8",
+    ),
+  );
+  assert.equal(global.attempts[attempt].workUnitId, workUnit.workUnitId);
+  assert.equal(global.currentPhase, "feature-implement");
+  assert.deepEqual(
+    {
+      baseRevision: global.attempts[attempt].baseRevision,
+      criteria: global.attempts[attempt].criteria,
+      permission: global.attempts[attempt].permission,
+      threadId: global.attempts[attempt].threadId,
+      wave: global.attempts[attempt].wave,
+    },
+    {
+      baseRevision: "31bfee4",
+      criteria: ["C01"],
+      permission: "writer",
+      threadId: "thread-implementador-1",
+      wave: 1,
+    },
+  );
+  assert.equal(envelope.workUnitId, workUnit.workUnitId);
+  assert.equal(envelope.baseRevision, "31bfee4");
+  assert.equal(envelope.threadId, "thread-implementador-1");
+  assert.deepEqual(global.workUnits[workUnit.workUnitId], {
+    ...workUnit,
+    implementationAttempt: attempt,
+    state: "active",
+    wave: 1,
+  });
+
+  for (const [name, omitted, error] of [
+    ["sin-revision", "baseRevision", "base_revision_required"],
+    ["sin-hilo", "threadId", "thread_id_required"],
+  ]) {
+    const missing = await createRepository();
+    await seedSessionContracts(missing);
+    assert.equal(
+      runSessionController(
+        missing,
+        "init",
+        { session: name, expectedRevision: 0 },
+        {
+          isolationCapacity: 1,
+          mode: "full",
+          platformCapacity: 1,
+          workUnits: [workUnit],
+          workflow: "feature",
+        },
+      ).status,
+      0,
+    );
+    const trace = {
+      baseRevision: "31bfee4",
+      criteria: ["C01"],
+      permission: "writer",
+      phaseId: "feature-implement",
+      role: "implementador",
+      threadId: "thread-1",
+      workUnitId: workUnit.workUnitId,
+    };
+    delete trace[omitted];
+    assert.deepEqual(
+      controllerOutcome(
+        runSessionController(
+          missing,
+          "open",
+          { session: name, attempt, expectedRevision: 1 },
+          trace,
+        ),
+      ),
+      { code: 2, error },
+    );
+  }
+
+  const legacy = await createManagedAttempt(
+    "compatibilidad-v1",
+    "feature-implement--implementador--a01",
+  );
+  const before = await readFile(legacy.globalPath, "utf8");
+  const status = runSessionController(legacy.repository, "status", {
+    session: "compatibilidad-v1",
+  });
+  const recovered = runSessionController(legacy.repository, "recover", {
+    session: "compatibilidad-v1",
+  });
+  assert.equal(status.status, 0, status.stderr);
+  assert.equal(recovered.status, 0, recovered.stderr);
+  assert.equal(await readFile(legacy.globalPath, "utf8"), before);
+  assert.equal(parseManagedState(before).workUnits, undefined);
+});
+
+test("session controller exige upgrade antes de abrir un plan pre-trazabilidad", async () => {
+  const fixture = await createPreTraceWorkUnitSession("plan-pre-trazabilidad-abierto");
+  const attempt = "feature-test--tester--a01";
+  const before = await readFile(fixture.globalPath, "utf8");
+
+  const opened = runSessionController(
+    fixture.repository,
+    "open",
+    { session: fixture.session, attempt, expectedRevision: 30 },
+    {
+      baseRevision: "revision-base",
+      criteria: ["C01"],
+      permission: "read-only",
+      phaseId: "feature-test",
+      role: "tester",
+      threadId: "tester-upgrade",
+      workUnitId: "unidad-legacy",
+    },
+  );
+
+  assert.deepEqual(controllerOutcome(opened), {
+    code: 1,
+    error: "work_unit_plan_upgrade_required",
+  });
+  assert.equal(await readFile(fixture.globalPath, "utf8"), before);
+  assert.equal(
+    existsSync(join(fixture.repository, ".agents", "sessions", fixture.session, `${attempt}.md`)),
+    false,
+  );
+});
+
+test("session controller enriquece el plan pre-trazabilidad sin reescribir estado heredado", async () => {
+  const fixture = await createPreTraceWorkUnitSession("upgrade-plan-pre-trazabilidad");
+  const before = parseManagedState(await readFile(fixture.globalPath, "utf8"));
+
+  const upgraded = runSessionController(
+    fixture.repository,
+    "init",
+    { session: fixture.session, expectedRevision: 30 },
+    fixture.approvedPlan,
+  );
+
+  assert.deepEqual(controllerResponse(upgraded), {
+    command: "init",
+    configured: true,
+    legacy: false,
+    revision: 31,
+    session: fixture.session,
+    state: "active",
+  });
+  const upgradedSource = await readFile(fixture.globalPath, "utf8");
+  const expected = structuredClone(before);
+  expected.evaluationGeneration = 1;
+  expected.readOnlyCapacity = 5;
+  expected.revision = 31;
+  expected.writerIsolationCapacity = 1;
+  const expectedUnit = { acceptanceCriteria: ["C01"] };
+  for (const [field, value] of Object.entries(expected.workUnits["unidad-legacy"])) {
+    expectedUnit[field] = value;
+  }
+  expected.workUnits["unidad-legacy"] = expectedUnit;
+  assert.deepEqual(parseManagedState(upgradedSource), expected);
+  assert.deepEqual(expected.workUnits["unidad-legacy"].ownedPaths, ["SRC/Legacy.mjs. "]);
+
+  const repeated = runSessionController(
+    fixture.repository,
+    "init",
+    { session: fixture.session, expectedRevision: 31 },
+    fixture.approvedPlan,
+  );
+  assert.deepEqual(controllerResponse(repeated), {
+    command: "init",
+    legacy: false,
+    revision: 31,
+    session: fixture.session,
+    state: "active",
+  });
+  assert.equal(await readFile(fixture.globalPath, "utf8"), upgradedSource);
+});
+
+test("session controller mantiene divergent_work_units para un campo heredado contradictorio", async () => {
+  const fixture = await createPreTraceWorkUnitSession("upgrade-plan-divergente");
+  const upgraded = runSessionController(
+    fixture.repository,
+    "init",
+    { session: fixture.session, expectedRevision: 30 },
+    fixture.approvedPlan,
+  );
+  assert.equal(upgraded.status, 0, upgraded.stderr);
+  const before = await readFile(fixture.globalPath, "utf8");
+  const contradictoryPlan = structuredClone(fixture.approvedPlan);
+  contradictoryPlan.workUnits[0].permission = "read-only";
+
+  const contradictory = runSessionController(
+    fixture.repository,
+    "init",
+    { session: fixture.session, expectedRevision: 31 },
+    contradictoryPlan,
+  );
+
+  assert.deepEqual(controllerOutcome(contradictory), {
+    code: 1,
+    error: "divergent_work_units",
+  });
+  assert.equal(await readFile(fixture.globalPath, "utf8"), before);
+});
+
+test("session controller no completa un campo ausente si otro campo presente contradice el plan", async () => {
+  const fixture = await createPreTraceWorkUnitSession("upgrade-plan-divergente-atomico");
+  const source = await readFile(fixture.globalPath, "utf8");
+  const managed = parseManagedState(source);
+  managed.workUnits["unidad-legacy"].permission = "read-only";
+  await writeFile(fixture.globalPath, replaceManagedState(source, managed), "utf8");
+  const before = await readFile(fixture.globalPath, "utf8");
+
+  const contradictory = runSessionController(
+    fixture.repository,
+    "init",
+    { session: fixture.session, expectedRevision: 30 },
+    fixture.approvedPlan,
+  );
+
+  assert.deepEqual(controllerOutcome(contradictory), {
+    code: 1,
+    error: "divergent_work_units",
+  });
+  assert.equal(await readFile(fixture.globalPath, "utf8"), before);
+});
+
+test("session controller abre un Tester trazable despues del upgrade", async () => {
+  const fixture = await createPreTraceWorkUnitSession("upgrade-plan-tester");
+  const upgraded = runSessionController(
+    fixture.repository,
+    "init",
+    { session: fixture.session, expectedRevision: 30 },
+    fixture.approvedPlan,
+  );
+  assert.equal(upgraded.status, 0, upgraded.stderr);
+  const attempt = "feature-test--tester--a01";
+
+  const opened = runSessionController(
+    fixture.repository,
+    "open",
+    { session: fixture.session, attempt, expectedRevision: 31 },
+    {
+      baseRevision: "revision-base",
+      criteria: ["C01"],
+      permission: "read-only",
+      phaseId: "feature-test",
+      role: "tester",
+      threadId: "tester-upgrade",
+      workUnitId: "unidad-legacy",
+    },
+  );
+
+  assert.deepEqual(controllerResponse(opened), {
+    attempt,
+    command: "open",
+    revision: 32,
+    session: fixture.session,
+    state: "active",
+  });
+  const managed = parseManagedState(await readFile(fixture.globalPath, "utf8"));
+  assert.deepEqual(
+    {
+      baseRevision: managed.attempts[attempt].baseRevision,
+      criteria: managed.attempts[attempt].criteria,
+      permission: managed.attempts[attempt].permission,
+      threadId: managed.attempts[attempt].threadId,
+    },
+    {
+      baseRevision: "revision-base",
+      criteria: ["C01"],
+      permission: "read-only",
+      threadId: "tester-upgrade",
+    },
+  );
+  assert.equal(managed.workUnits["unidad-legacy"].state, "validating");
+});
+
+test("session controller rechaza DAG y ownership ambiguos antes de crear la sesión", async () => {
+  const fixtures = [
+    {
+      error: "invalid_work_units",
+      name: "demasiadas-unidades",
+      workUnits: Array.from({ length: 4 }, (_, index) => ({
+        acceptanceCriteria: ["C01"],
+        dependsOn: [],
+        ownedPaths: [`src/${index}`],
+        permission: "writer",
+        workUnitId: `unidad-${index}`,
+      })),
+    },
+    {
+      error: "invalid_work_unit_contract",
+      name: "contrato-incompleto",
+      workUnits: [{ dependsOn: [], ownedPaths: ["src/a"], workUnitId: "unidad-a" }],
+    },
+    {
+      error: "invalid_work_unit_id",
+      name: "unidad-duplicada",
+      workUnits: [
+        { acceptanceCriteria: ["C01"], dependsOn: [], ownedPaths: ["src/a"], permission: "writer", workUnitId: "unidad-a" },
+        { acceptanceCriteria: ["C01"], dependsOn: [], ownedPaths: ["src/b"], permission: "writer", workUnitId: "unidad-a" },
+      ],
+    },
+    {
+      error: "invalid_dependencies",
+      name: "dependencia-ausente",
+      workUnits: [
+        {
+          acceptanceCriteria: ["C01"],
+          dependsOn: ["unidad-inexistente"],
+          ownedPaths: ["src/a"],
+          permission: "writer",
+          workUnitId: "unidad-a",
+        },
+      ],
+    },
+    {
+      error: "dependency_cycle",
+      name: "ciclo",
+      workUnits: [
+        { acceptanceCriteria: ["C01"], dependsOn: ["unidad-b"], ownedPaths: ["src/a"], permission: "writer", workUnitId: "unidad-a" },
+        { acceptanceCriteria: ["C01"], dependsOn: ["unidad-a"], ownedPaths: ["src/b"], permission: "writer", workUnitId: "unidad-b" },
+      ],
+    },
+    {
+      error: "invalid_owned_path",
+      name: "escape",
+      workUnits: [
+        { acceptanceCriteria: ["C01"], dependsOn: [], ownedPaths: ["../fuera"], permission: "writer", workUnitId: "unidad-a" },
+      ],
+    },
+    {
+      error: "ownership_collision",
+      name: "colision-exacta",
+      workUnits: [
+        { acceptanceCriteria: ["C01"], dependsOn: [], ownedPaths: ["src/a"], permission: "writer", workUnitId: "unidad-a" },
+        { acceptanceCriteria: ["C01"], dependsOn: [], ownedPaths: ["src/a"], permission: "writer", workUnitId: "unidad-b" },
+      ],
+    },
+    {
+      error: "ownership_collision",
+      name: "colision-ancestral",
+      workUnits: [
+        { acceptanceCriteria: ["C01"], dependsOn: [], ownedPaths: ["src"], permission: "writer", workUnitId: "unidad-a" },
+        { acceptanceCriteria: ["C01"], dependsOn: [], ownedPaths: ["src/a.mjs"], permission: "writer", workUnitId: "unidad-b" },
+      ],
+    },
+    {
+      error: "ownership_collision",
+      name: "colision-windows-mayusculas",
+      workUnits: [
+        { acceptanceCriteria: ["C01"], dependsOn: [], ownedPaths: ["src/Foo.mjs"], permission: "writer", workUnitId: "unidad-a" },
+        { acceptanceCriteria: ["C01"], dependsOn: [], ownedPaths: ["SRC/foo.mjs"], permission: "writer", workUnitId: "unidad-b" },
+      ],
+    },
+    {
+      error: "ownership_collision",
+      name: "colision-windows-terminal",
+      workUnits: [
+        { acceptanceCriteria: ["C01"], dependsOn: [], ownedPaths: ["src/foo.mjs"], permission: "writer", workUnitId: "unidad-a" },
+        { acceptanceCriteria: ["C01"], dependsOn: [], ownedPaths: ["src/foo.mjs. "], permission: "writer", workUnitId: "unidad-b" },
+      ],
+    },
+    {
+      error: "ownership_collision",
+      name: "colision-windows-ancestro",
+      workUnits: [
+        { acceptanceCriteria: ["C01"], dependsOn: [], ownedPaths: ["SRC. "], permission: "writer", workUnitId: "unidad-a" },
+        { acceptanceCriteria: ["C01"], dependsOn: [], ownedPaths: ["src/foo.mjs"], permission: "writer", workUnitId: "unidad-b" },
+      ],
+    },
+  ];
+
+  for (const fixture of fixtures) {
+    const repository = await createRepository();
+    await seedSessionContracts(repository);
+    const result = runSessionController(
+      repository,
+      "init",
+      { session: fixture.name, expectedRevision: 0 },
+      {
+        isolationCapacity: 9,
+        mode: "full",
+        platformCapacity: 12,
+        workUnits: fixture.workUnits,
+        workflow: "feature",
+      },
+    );
+    assert.deepEqual(controllerOutcome(result), { code: 2, error: fixture.error });
+    assert.equal(
+      existsSync(join(repository, ".agents", "sessions", `${fixture.name}.md`)),
+      false,
+    );
+  }
+});
+
+test("session controller exige validación, serializa escritores y abre fan-in", async () => {
+  const repository = await createRepository();
+  await seedSessionContracts(repository);
+  const session = "gates-de-unidad";
+  const firstImplementation = "feature-implement--implementador--a01";
+  const secondImplementation = "feature-implement--implementador--a02";
+  const firstTest = "feature-test--tester--a01";
+  const secondTest = "feature-test--tester--a02";
+  const implementerReport = [
+    "- **Archivos modificados:** cambio mínimo.",
+    "- **Tareas completadas y pendientes:** completada.",
+    "- **Tests creados:** permanentes.",
+    "- **Validación ejecutada:** focalizada verde.",
+    "- **Desvíos o dudas:** No aplica.",
+    "- **Candidato a memoria:** No aplica.",
+  ].join("\n");
+  const testerReport = [
+    "- **Evidencia:** validación completa verde.",
+    "- **Tests creados:** permanentes.",
+    "- **Fallos:** Ninguno.",
+    "- **Omisiones:** Ninguna.",
+    "- **Candidato a memoria:** No aplica.",
+  ].join("\n");
+  const payload = (workUnitId, phaseId, role) => ({
+    baseRevision: "base",
+    criteria: ["C01"],
+    permission: role === "implementador" ? "writer" : "read-only",
+    phaseId,
+    role,
+    threadId: `${role}-${workUnitId}`,
+    workUnitId,
+  });
+
+  const initialized = runSessionController(
+    repository,
+    "init",
+    { session, expectedRevision: 0 },
+    {
+      isolationCapacity: 9,
+      mode: "full",
+      platformCapacity: 12,
+      workUnits: [
+        {
+          acceptanceCriteria: ["C01"],
+          dependsOn: [],
+          ownedPaths: ["src/primera.mjs"],
+          permission: "writer",
+          workUnitId: "unidad-primera",
+        },
+        {
+          acceptanceCriteria: ["C01"],
+          dependsOn: ["unidad-primera"],
+          ownedPaths: ["src/segunda.mjs"],
+          permission: "writer",
+          workUnitId: "unidad-segunda",
+        },
+      ],
+      workflow: "feature",
+    },
+  );
+  assert.equal(initialized.status, 0, initialized.stderr);
+  const dependentBefore = runSessionController(
+    repository,
+    "open",
+    { session, attempt: firstImplementation, expectedRevision: 1 },
+    payload("unidad-segunda", "feature-implement", "implementador"),
+  );
+  assert.deepEqual(controllerOutcome(dependentBefore), {
+    code: 1,
+    error: "dependencies_not_validated",
+  });
+
+  const firstOpened = runSessionController(
+    repository,
+    "open",
+    { session, attempt: firstImplementation, expectedRevision: 1 },
+    payload("unidad-primera", "feature-implement", "implementador"),
+  );
+  assert.equal(firstOpened.status, 0, firstOpened.stderr);
+  const concurrentWriter = runSessionController(
+    repository,
+    "open",
+    { session, attempt: secondImplementation, expectedRevision: 2 },
+    payload("unidad-segunda", "feature-implement", "implementador"),
+  );
+  assert.deepEqual(controllerOutcome(concurrentWriter), { code: 1, error: "writer_conflict" });
+  const firstCommitted = runSessionController(
+    repository,
+    "commit",
+    { session, attempt: firstImplementation, expectedRevision: 2 },
+    { report: implementerReport },
+  );
+  assert.equal(firstCommitted.status, 0, firstCommitted.stderr);
+  const dependentBeforeValidation = runSessionController(
+    repository,
+    "open",
+    { session, attempt: secondImplementation, expectedRevision: 3 },
+    payload("unidad-segunda", "feature-implement", "implementador"),
+  );
+  assert.deepEqual(controllerOutcome(dependentBeforeValidation), {
+    code: 1,
+    error: "dependencies_not_validated",
+  });
+
+  const firstTestOpened = runSessionController(
+    repository,
+    "open",
+    { session, attempt: firstTest, expectedRevision: 3 },
+    payload("unidad-primera", "feature-test", "tester"),
+  );
+  assert.equal(firstTestOpened.status, 0, firstTestOpened.stderr);
+  const firstValidated = runSessionController(
+    repository,
+    "commit",
+    { session, attempt: firstTest, expectedRevision: 4 },
+    { report: testerReport },
+  );
+  assert.equal(firstValidated.status, 0, firstValidated.stderr);
+  const repeatedValidated = runSessionController(
+    repository,
+    "open",
+    {
+      session,
+      attempt: secondImplementation,
+      expectedRevision: 5,
+    },
+    payload("unidad-primera", "feature-implement", "implementador"),
+  );
+  assert.deepEqual(controllerOutcome(repeatedValidated), {
+    code: 1,
+    error: "work_unit_already_validated",
+  });
+  const secondOpened = runSessionController(
+    repository,
+    "open",
+    { session, attempt: secondImplementation, expectedRevision: 5 },
+    payload("unidad-segunda", "feature-implement", "implementador"),
+  );
+  assert.equal(secondOpened.status, 0, secondOpened.stderr);
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: secondImplementation, expectedRevision: 6 },
+      { report: implementerReport },
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session, attempt: secondTest, expectedRevision: 7 },
+      payload("unidad-segunda", "feature-test", "tester"),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: secondTest, expectedRevision: 8 },
+      { report: testerReport },
+    ).status,
+    0,
+  );
+
+  const status = controllerResponse(runSessionController(repository, "status", { session }));
+  assert.equal(status.fanInReady, true);
+  assert.deepEqual(
+    status.workUnits.map(({ state, validated, workUnitId }) => ({ state, validated, workUnitId })),
+    [
+      { state: "consolidated", validated: true, workUnitId: "unidad-primera" },
+      { state: "consolidated", validated: true, workUnitId: "unidad-segunda" },
+    ],
+  );
+});
+
+test("session controller convierte un Tester rojo o fallido en retrabajo sin validar", async () => {
+  const repository = await createRepository();
+  await seedSessionContracts(repository);
+  const session = "tester-rojo";
+  const implementationReport = [
+    "- **Archivos modificados:** cambio.",
+    "- **Tareas completadas y pendientes:** completada.",
+    "- **Tests creados:** permanentes.",
+    "- **Validación ejecutada:** focalizada verde.",
+    "- **Desvíos o dudas:** No aplica.",
+    "- **Candidato a memoria:** No aplica.",
+  ].join("\n");
+  const redReport = [
+    "- **Evidencia:** test focalizado rojo.",
+    "- **Tests creados:** permanentes.",
+    "- **Fallos:** regresión reproducible.",
+    "- **Omisiones:** Ninguna.",
+    "- **Candidato a memoria:** No aplica.",
+  ].join("\n");
+  const unitPayload = (phaseId, role, extra = {}) => ({
+    baseRevision: "base",
+    criteria: ["C01"],
+    permission: role === "implementador" ? "writer" : "read-only",
+    phaseId,
+    role,
+    threadId: `${role}-unidad`,
+    workUnitId: "unidad",
+    ...extra,
+  });
+
+  assert.equal(
+    runSessionController(
+      repository,
+      "init",
+      { session, expectedRevision: 0 },
+      {
+        isolationCapacity: 1,
+        mode: "full",
+        platformCapacity: 9,
+        workUnits: [
+          {
+            acceptanceCriteria: ["C01"],
+            dependsOn: [],
+            ownedPaths: ["src/unidad.mjs"],
+            permission: "writer",
+            workUnitId: "unidad",
+          },
+        ],
+        workflow: "feature",
+      },
+    ).status,
+    0,
+  );
+  const implementation = "feature-implement--implementador--a01";
+  const testing = "feature-test--tester--a01";
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session, attempt: implementation, expectedRevision: 1 },
+      unitPayload("feature-implement", "implementador"),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: implementation, expectedRevision: 2 },
+      { report: implementationReport },
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session, attempt: testing, expectedRevision: 3 },
+      unitPayload("feature-test", "tester"),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: testing, expectedRevision: 4 },
+      { report: redReport },
+    ).status,
+    0,
+  );
+  let status = controllerResponse(runSessionController(repository, "status", { session }));
+  assert.equal(status.fanInReady, false);
+  assert.deepEqual(
+    status.workUnits.map(({ state, validated, workUnitId }) => ({ state, validated, workUnitId })),
+    [{ state: "failed", validated: false, workUnitId: "unidad" }],
+  );
+  let managed = parseManagedState(
+    await readFile(join(repository, ".agents", "sessions", `${session}.md`), "utf8"),
+  );
+  assert.equal(managed.currentPhase, "feature-test");
+  assert.equal(managed.attempts[testing].evidence.outcome, "failed");
+  assert.match(managed.attempts[testing].evidence.reportHash, /^[a-f0-9]{64}$/);
+  assert.equal(managed.workUnits.unidad.failureCause, "regresión reproducible.");
+
+  const rework = "feature-implement--implementador--a02";
+  const reopened = runSessionController(
+    repository,
+    "open",
+    { session, attempt: rework, expectedRevision: 5 },
+    unitPayload("feature-implement", "implementador", {
+      cause: "El Tester encontró una regresión.",
+      previousAttempt: implementation,
+    }),
+  );
+  assert.equal(reopened.status, 0, reopened.stderr);
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: rework, expectedRevision: 6 },
+      { report: implementationReport },
+    ).status,
+    0,
+  );
+  const testingRetry = "feature-test--tester--a02";
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session, attempt: testingRetry, expectedRevision: 7 },
+      unitPayload("feature-test", "tester", {
+        cause: "Se verificó el retrabajo.",
+        previousAttempt: testing,
+      }),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "fail",
+      { session, attempt: testingRetry, expectedRevision: 8 },
+      { cause: "La suite completa sigue roja." },
+    ).status,
+    0,
+  );
+  status = controllerResponse(runSessionController(repository, "status", { session }));
+  assert.equal(status.fanInReady, false);
+  assert.equal(status.workUnits[0].state, "failed");
+  assert.equal(status.workUnits[0].validated, false);
+  managed = parseManagedState(
+    await readFile(join(repository, ".agents", "sessions", `${session}.md`), "utf8"),
+  );
+  assert.equal(managed.workUnits.unidad.failureCause, "La suite completa sigue roja.");
+});
+
+test("session controller comparte el writer lock entre DevSessions del mismo working tree", async () => {
+  const repository = await createRepository();
+  await seedSessionContracts(repository);
+  const attempt = "feature-implement--implementador--a01";
+  const report = [
+    "- **Archivos modificados:** cambio.",
+    "- **Tareas completadas y pendientes:** completada.",
+    "- **Tests creados:** permanentes.",
+    "- **Validación ejecutada:** verde.",
+    "- **Desvíos o dudas:** No aplica.",
+    "- **Candidato a memoria:** No aplica.",
+  ].join("\n");
+  for (const session of ["writer-uno", "writer-dos"]) {
+    const initialized = runSessionController(
+      repository,
+      "init",
+      { session, expectedRevision: 0 },
+      {
+        isolationCapacity: 1,
+        mode: "full",
+        platformCapacity: 9,
+        workUnits: [
+          {
+            acceptanceCriteria: ["C01"],
+            dependsOn: [],
+            ownedPaths: ["src/shared.mjs"],
+            permission: "writer",
+            workUnitId: "unidad",
+          },
+        ],
+        workflow: "feature",
+      },
+    );
+    assert.equal(initialized.status, 0, initialized.stderr);
+  }
+  const payload = {
+    baseRevision: "base",
+    criteria: ["C01"],
+    phaseId: "feature-implement",
+    permission: "writer",
+    role: "implementador",
+    threadId: "implementador-writer",
+    workUnitId: "unidad",
+  };
+  const missingPermission = runSessionController(
+    repository,
+    "open",
+    { session: "writer-uno", attempt, expectedRevision: 1 },
+    {
+      baseRevision: "base",
+      criteria: ["C01"],
+      phaseId: "feature-implement",
+      role: "implementador",
+      threadId: "implementador-sin-permiso",
+      workUnitId: "unidad",
+    },
+  );
+  assert.deepEqual(controllerOutcome(missingPermission), {
+    code: 2,
+    error: "invalid_attempt_permission",
+  });
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session: "writer-uno", attempt, expectedRevision: 1 },
+      payload,
+    ).status,
+    0,
+  );
+  const conflicting = runSessionController(
+    repository,
+    "open",
+    { session: "writer-dos", attempt, expectedRevision: 1 },
+    payload,
+  );
+  assert.deepEqual(controllerOutcome(conflicting), { code: 1, error: "writer_conflict" });
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session: "writer-uno", attempt, expectedRevision: 2 },
+      { report },
+    ).status,
+    0,
+  );
+  const tester = "feature-test--tester--a01";
+  const readOnlyTester = runSessionController(
+    repository,
+    "open",
+    { session: "writer-uno", attempt: tester, expectedRevision: 3 },
+    {
+      baseRevision: "base",
+      criteria: ["C01"],
+      permission: "read-only",
+      phaseId: "feature-test",
+      role: "tester",
+      threadId: "tester-read-only",
+      workUnitId: "unidad",
+    },
+  );
+  assert.equal(readOnlyTester.status, 0, readOnlyTester.stderr);
+  const openedAfterRelease = runSessionController(
+    repository,
+    "open",
+    { session: "writer-dos", attempt, expectedRevision: 1 },
+    payload,
+  );
+  assert.equal(openedAfterRelease.status, 0, openedAfterRelease.stderr);
+  const firstSession = parseManagedState(
+    await readFile(join(repository, ".agents", "sessions", "writer-uno.md"), "utf8"),
+  );
+  assert.equal(firstSession.attempts[tester].permission, "read-only");
+});
+
+async function createWriterSuccessionFixture(suffix) {
+  const repository = await createRepository();
+  await seedSessionContracts(repository);
+  const session = `sucesion-${suffix}`;
+  const contenderSession = `tercero-${suffix}`;
+  const firstAttempt = "feature-implement--implementador--a01";
+  const successorAttempt = "feature-implement--implementador--a02";
+  const report = [
+    "- **Archivos modificados:** cambio.",
+    "- **Tareas completadas y pendientes:** completada.",
+    "- **Tests creados:** permanentes.",
+    "- **Validación ejecutada:** verde.",
+    "- **Desvíos o dudas:** No aplica.",
+    "- **Candidato a memoria:** No aplica.",
+  ].join("\n");
+  const unit = (workUnitId) => ({
+    acceptanceCriteria: ["C02", "C13"],
+    dependsOn: [],
+    ownedPaths: [`src/${workUnitId}.mjs`],
+    permission: "writer",
+    workUnitId,
+  });
+  const units = [unit("unidad-primera"), unit("unidad-sucesora")];
+  for (const [sessionSlug, workUnits] of [
+    [session, units],
+    [contenderSession, [unit("unidad-tercera")]],
+  ]) {
+    const initialized = runSessionController(
+      repository,
+      "init",
+      { session: sessionSlug, expectedRevision: 0 },
+      {
+        mode: "full",
+        platformCapacity: 9,
+        readOnlyCapacity: 9,
+        workUnits,
+        workflow: "feature",
+        writerIsolationCapacity: 1,
+      },
+    );
+    assert.equal(initialized.status, 0, initialized.stderr);
+  }
+  const payload = (workUnitId) => ({
+    baseRevision: "base",
+    criteria: ["C02", "C13"],
+    permission: "writer",
+    phaseId: "feature-implement",
+    role: "implementador",
+    threadId: `writer-${workUnitId}`,
+    workUnitId,
+  });
+  return {
+    contenderSession,
+    firstAttempt,
+    payload,
+    report,
+    repository,
+    session,
+    successorAttempt,
+  };
+}
+
+test("session controller conserva la reserva del writer sucesor tras repetir commit terminal", async () => {
+  const fixture = await createWriterSuccessionFixture("commit");
+  assert.equal(
+    runSessionController(
+      fixture.repository,
+      "open",
+      { session: fixture.session, attempt: fixture.firstAttempt, expectedRevision: 1 },
+      fixture.payload("unidad-primera"),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      fixture.repository,
+      "commit",
+      { session: fixture.session, attempt: fixture.firstAttempt, expectedRevision: 2 },
+      { report: fixture.report },
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      fixture.repository,
+      "open",
+      { session: fixture.session, attempt: fixture.successorAttempt, expectedRevision: 3 },
+      fixture.payload("unidad-sucesora"),
+    ).status,
+    0,
+  );
+
+  const repeated = runSessionController(
+    fixture.repository,
+    "commit",
+    { session: fixture.session, attempt: fixture.firstAttempt, expectedRevision: 4 },
+    { report: fixture.report },
+  );
+  const contenderAttempt = "feature-implement--implementador--a01";
+  const blocked = runSessionController(
+    fixture.repository,
+    "open",
+    { session: fixture.contenderSession, attempt: contenderAttempt, expectedRevision: 1 },
+    fixture.payload("unidad-tercera"),
+  );
+  const successorCommitted = runSessionController(
+    fixture.repository,
+    "commit",
+    { session: fixture.session, attempt: fixture.successorAttempt, expectedRevision: 4 },
+    { report: fixture.report },
+  );
+  const openedAfterSuccessor = runSessionController(
+    fixture.repository,
+    "open",
+    { session: fixture.contenderSession, attempt: contenderAttempt, expectedRevision: 1 },
+    fixture.payload("unidad-tercera"),
+  );
+
+  assert.deepEqual(
+    {
+      blocked: controllerOutcome(blocked),
+      openedAfterSuccessor: openedAfterSuccessor.status,
+      repeated: repeated.stdout
+        ? {
+            idempotent: JSON.parse(repeated.stdout).idempotent,
+            revision: JSON.parse(repeated.stdout).revision,
+            status: repeated.status,
+          }
+        : { failure: repeated.stderr },
+      successorCommitted: successorCommitted.status,
+    },
+    {
+      blocked: { code: 1, error: "writer_conflict" },
+      openedAfterSuccessor: 0,
+      repeated: { idempotent: true, revision: 4, status: 0 },
+      successorCommitted: 0,
+    },
+  );
+});
+
+test("session controller conserva la reserva del writer sucesor tras repetir fail terminal", async () => {
+  const fixture = await createWriterSuccessionFixture("fail");
+  const firstCause = "El primer writer terminó con un fallo reproducible.";
+  assert.equal(
+    runSessionController(
+      fixture.repository,
+      "open",
+      { session: fixture.session, attempt: fixture.firstAttempt, expectedRevision: 1 },
+      fixture.payload("unidad-primera"),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      fixture.repository,
+      "fail",
+      { session: fixture.session, attempt: fixture.firstAttempt, expectedRevision: 2 },
+      { cause: firstCause },
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      fixture.repository,
+      "open",
+      { session: fixture.session, attempt: fixture.successorAttempt, expectedRevision: 3 },
+      fixture.payload("unidad-sucesora"),
+    ).status,
+    0,
+  );
+
+  const repeated = runSessionController(
+    fixture.repository,
+    "fail",
+    { session: fixture.session, attempt: fixture.firstAttempt, expectedRevision: 4 },
+    { cause: firstCause },
+  );
+  const contenderAttempt = "feature-implement--implementador--a01";
+  const blocked = runSessionController(
+    fixture.repository,
+    "open",
+    { session: fixture.contenderSession, attempt: contenderAttempt, expectedRevision: 1 },
+    fixture.payload("unidad-tercera"),
+  );
+  const successorFailed = runSessionController(
+    fixture.repository,
+    "fail",
+    { session: fixture.session, attempt: fixture.successorAttempt, expectedRevision: 4 },
+    { cause: "El writer sucesor terminó de forma controlada." },
+  );
+  const openedAfterSuccessor = runSessionController(
+    fixture.repository,
+    "open",
+    { session: fixture.contenderSession, attempt: contenderAttempt, expectedRevision: 1 },
+    fixture.payload("unidad-tercera"),
+  );
+
+  assert.deepEqual(
+    {
+      blocked: controllerOutcome(blocked),
+      openedAfterSuccessor: openedAfterSuccessor.status,
+      repeated: repeated.stdout
+        ? { response: JSON.parse(repeated.stdout), status: repeated.status }
+        : { failure: repeated.stderr },
+      successorFailed: successorFailed.status,
+    },
+    {
+      blocked: { code: 1, error: "writer_conflict" },
+      openedAfterSuccessor: 0,
+      repeated: {
+        response: {
+          attempt: fixture.firstAttempt,
+          command: "fail",
+          revision: 4,
+          session: fixture.session,
+          state: "failed",
+        },
+        status: 0,
+      },
+      successorFailed: 0,
+    },
+  );
+});
+
+test("session controller libera la reserva original al recuperar un commit interrumpido", async () => {
+  const fixture = await createWriterSuccessionFixture("recuperacion");
+  assert.equal(
+    runSessionController(
+      fixture.repository,
+      "open",
+      { session: fixture.session, attempt: fixture.firstAttempt, expectedRevision: 1 },
+      fixture.payload("unidad-primera"),
+    ).status,
+    0,
+  );
+  const sessionsPath = join(fixture.repository, ".agents", "sessions");
+  const writerLockName = (await readdir(sessionsPath)).find((name) =>
+    /^\.writer-[a-f0-9]+\.lock$/.test(name),
+  );
+  assert.ok(writerLockName, "El intento writer debe mantener una reserva global.");
+  const writerLockPath = join(sessionsPath, writerLockName);
+  const writerLockSource = await readFile(writerLockPath, "utf8");
+  const envelopePath = join(
+    sessionsPath,
+    fixture.session,
+    `${fixture.firstAttempt}.md`,
+  );
+  const envelopeBeforeCommit = await readFile(envelopePath, "utf8");
+  assert.equal(
+    runSessionController(
+      fixture.repository,
+      "commit",
+      { session: fixture.session, attempt: fixture.firstAttempt, expectedRevision: 2 },
+      { report: fixture.report },
+    ).status,
+    0,
+  );
+  await writeFile(envelopePath, envelopeBeforeCommit, "utf8");
+  await writeFile(writerLockPath, writerLockSource, { encoding: "utf8", flag: "wx" });
+
+  const recovered = runSessionController(fixture.repository, "recover", {
+    session: fixture.session,
+  });
+  const repeated = runSessionController(
+    fixture.repository,
+    "commit",
+    { session: fixture.session, attempt: fixture.firstAttempt, expectedRevision: 3 },
+    { report: fixture.report },
+  );
+  const contenderAttempt = "feature-implement--implementador--a01";
+  const openedAfterRecovery = runSessionController(
+    fixture.repository,
+    "open",
+    { session: fixture.contenderSession, attempt: contenderAttempt, expectedRevision: 1 },
+    fixture.payload("unidad-tercera"),
+  );
+
+  assert.deepEqual(
+    {
+      openedAfterRecovery: openedAfterRecovery.status,
+      recovered: controllerResponse(recovered).attempts,
+      repeated: repeated.stdout
+        ? {
+            idempotent: JSON.parse(repeated.stdout).idempotent,
+            revision: JSON.parse(repeated.stdout).revision,
+            status: repeated.status,
+          }
+        : { failure: repeated.stderr },
+    },
+    {
+      openedAfterRecovery: 0,
+      recovered: [
+        {
+          attempt: fixture.firstAttempt,
+          classification: "recoverable",
+          state: "completed",
+        },
+      ],
+      repeated: { idempotent: true, revision: 3, status: 0 },
+    },
+  );
+});
+
+test("session controller limita el fan-out por modo, plataforma, ready y aislamiento", async () => {
+  async function createCapacityFixture(mode, platformCapacity, isolationCapacity) {
+    const repository = await createRepository();
+    await seedSessionContracts(repository);
+    const workUnits = Array.from({ length: 3 }, (_, index) => ({
+      acceptanceCriteria: ["C01"],
+      dependsOn: [],
+      ownedPaths: [],
+      permission: "read-only",
+      workUnitId: `unidad-${index + 1}`,
+    }));
+    const session = `capacidad-${mode}-${platformCapacity}-${isolationCapacity}`;
+    const initialized = runSessionController(
+      repository,
+      "init",
+      { session, expectedRevision: 0 },
+      { isolationCapacity, mode, platformCapacity, workUnits, workflow: "feature" },
+    );
+    assert.equal(initialized.status, 0, initialized.stderr);
+    return { repository, session };
+  }
+
+  const full = await createCapacityFixture("full", 3, 4);
+  const light = await createCapacityFixture("light", 12, 12);
+  assert.equal(
+    controllerResponse(runSessionController(full.repository, "status", { session: full.session }))
+      .effectiveCapacity,
+    3,
+  );
+  assert.equal(
+    controllerResponse(runSessionController(light.repository, "status", { session: light.session }))
+      .agentCapacity,
+    4,
+  );
+  assert.deepEqual(
+    controllerResponse(runSessionController(full.repository, "status", { session: full.session }))
+      .finalEvaluation.requiredAxes,
+    ["standards", "specification"],
+  );
+  assert.deepEqual(
+    controllerResponse(runSessionController(light.repository, "status", { session: light.session }))
+      .finalEvaluation.requiredAxes,
+    ["combined"],
+  );
+  assert.equal(
+    controllerResponse(runSessionController(light.repository, "status", { session: light.session }))
+      .effectiveCapacity,
+    3,
+  );
+
+  function openLane(fixture, index, expectedRevision) {
+    return runSessionController(
+      fixture.repository,
+      "open",
+      {
+        session: fixture.session,
+        attempt: `feature-explore--explorador--a${String(index).padStart(2, "0")}`,
+        expectedRevision,
+      },
+      {
+        baseRevision: "base",
+        criteria: ["C01"],
+        laneId: `carril-${index}`,
+        permission: "read-only",
+        phaseId: "feature-explore",
+        role: "explorador",
+        threadId: `explorador-${index}`,
+      },
+    );
+  }
+  assert.equal(openLane(full, 1, 1).status, 0);
+  assert.equal(openLane(full, 2, 2).status, 0);
+  assert.equal(openLane(full, 3, 3).status, 0);
+  assert.deepEqual(controllerOutcome(openLane(full, 4, 4)), {
+    code: 1,
+    error: "role_capacity_reached",
+  });
+  assert.equal(openLane(light, 1, 1).status, 0);
+  assert.equal(openLane(light, 2, 2).status, 0);
+  assert.deepEqual(controllerOutcome(openLane(light, 3, 3)), {
+    code: 1,
+    error: "role_capacity_reached",
+  });
+  const constrained = await createCapacityFixture("full", 1, 9);
+  assert.equal(openLane(constrained, 1, 1).status, 0);
+  assert.deepEqual(controllerOutcome(openLane(constrained, 2, 2)), {
+    code: 1,
+    error: "agent_capacity_reached",
+  });
+  const singleWriterIsolation = await createCapacityFixture("full", 9, 1);
+  assert.equal(openLane(singleWriterIsolation, 1, 1).status, 0);
+  assert.equal(openLane(singleWriterIsolation, 2, 2).status, 0);
+  assert.equal(openLane(singleWriterIsolation, 3, 3).status, 0);
+
+  const beforeDag = await createManagedSession("capacidad-desde-init");
+  assert.equal(openLane({ repository: beforeDag.repository, session: "capacidad-desde-init" }, 1, 1).status, 0);
+  assert.equal(openLane({ repository: beforeDag.repository, session: "capacidad-desde-init" }, 2, 2).status, 0);
+  assert.equal(openLane({ repository: beforeDag.repository, session: "capacidad-desde-init" }, 3, 3).status, 0);
+  assert.deepEqual(
+    controllerOutcome(
+      openLane({ repository: beforeDag.repository, session: "capacidad-desde-init" }, 4, 4),
+    ),
+    { code: 1, error: "role_capacity_reached" },
+  );
+
+  const plannedLater = await createManagedSession("plan-configurado-despues");
+  const configured = runSessionController(
+    plannedLater.repository,
+    "init",
+    { session: "plan-configurado-despues", expectedRevision: 1 },
+    {
+      isolationCapacity: 2,
+      mode: "full",
+      platformCapacity: 2,
+      workUnits: [
+        {
+          acceptanceCriteria: ["C01"],
+          dependsOn: [],
+          ownedPaths: [],
+          permission: "read-only",
+          workUnitId: "unidad-lectura",
+        },
+      ],
+      workflow: "feature",
+    },
+  );
+  assert.deepEqual(controllerResponse(configured), {
+    command: "init",
+    configured: true,
+    legacy: false,
+    revision: 2,
+    session: "plan-configurado-despues",
+    state: "active",
+  });
+});
+
+test("session controller separa los cupos read-only y writer bajo el límite técnico", async () => {
+  const repository = await createRepository();
+  await seedSessionContracts(repository);
+  const session = "capacidad-lectura-escritura";
+  const writer = "feature-implement--implementador--a01";
+  const reader = "feature-explore--explorador--a01";
+  const secondReader = "feature-plan--planificador--a01";
+  const secondWriter = "feature-implement--implementador--a02";
+  const implementationReport = [
+    "- **Archivos modificados:** cambio.",
+    "- **Tareas completadas y pendientes:** completada.",
+    "- **Tests creados:** permanentes.",
+    "- **Validación ejecutada:** verde.",
+    "- **Desvíos o dudas:** No aplica.",
+    "- **Candidato a memoria:** No aplica.",
+  ].join("\n");
+  const lanePayload = (phaseId, role, laneId) => ({
+    baseRevision: "base",
+    criteria: ["C01"],
+    laneId,
+    permission: "read-only",
+    phaseId,
+    role,
+    threadId: `${role}-${laneId}`,
+  });
+
+  assert.equal(
+    runSessionController(
+      repository,
+      "init",
+      { session, expectedRevision: 0 },
+      {
+        mode: "full",
+        platformCapacity: 2,
+        readOnlyCapacity: 1,
+        writerIsolationCapacity: 1,
+        workUnits: [
+          {
+            acceptanceCriteria: ["C01"],
+            dependsOn: [],
+            ownedPaths: ["src/unidad.mjs"],
+            permission: "writer",
+            workUnitId: "unidad",
+          },
+          {
+            acceptanceCriteria: ["C01"],
+            dependsOn: [],
+            ownedPaths: ["src/otra-unidad.mjs"],
+            permission: "writer",
+            workUnitId: "otra-unidad",
+          },
+        ],
+        workflow: "feature",
+      },
+    ).status,
+    0,
+  );
+  assert.equal(
+    controllerResponse(runSessionController(repository, "status", { session })).agentCapacity,
+    2,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session, attempt: writer, expectedRevision: 1 },
+      {
+        baseRevision: "base",
+        criteria: ["C01"],
+        permission: "writer",
+        phaseId: "feature-implement",
+        role: "implementador",
+        threadId: "implementador-unidad",
+        workUnitId: "unidad",
+      },
+    ).status,
+    0,
+  );
+  assert.deepEqual(
+    controllerOutcome(
+      runSessionController(
+        repository,
+        "open",
+        { session, attempt: secondWriter, expectedRevision: 2 },
+        {
+          baseRevision: "base",
+          criteria: ["C01"],
+          permission: "writer",
+          phaseId: "feature-implement",
+          role: "implementador",
+          threadId: "implementador-otra-unidad",
+          workUnitId: "otra-unidad",
+        },
+      ),
+    ),
+    { code: 1, error: "writer_conflict" },
+  );
+  const readerOpened = runSessionController(
+    repository,
+    "open",
+    { session, attempt: reader, expectedRevision: 2 },
+    lanePayload("feature-explore", "explorador", "carril-exploracion"),
+  );
+  assert.equal(readerOpened.status, 0, readerOpened.stderr);
+
+  assert.deepEqual(
+    controllerOutcome(
+      runSessionController(
+        repository,
+        "open",
+        { session, attempt: secondReader, expectedRevision: 3 },
+        lanePayload("feature-plan", "planificador", "carril-plan"),
+      ),
+    ),
+    { code: 1, error: "agent_capacity_reached" },
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: writer, expectedRevision: 3 },
+      { report: implementationReport },
+    ).status,
+    0,
+  );
+  assert.deepEqual(
+    controllerOutcome(
+      runSessionController(
+        repository,
+        "open",
+        { session, attempt: secondReader, expectedRevision: 4 },
+        lanePayload("feature-plan", "planificador", "carril-plan"),
+      ),
+    ),
+    { code: 1, error: "agent_capacity_reached" },
+  );
+});
+
+test("session controller exige fan-in y consolida los ejes finales por modo", async () => {
+  const repository = await createRepository();
+  await seedSessionContracts(repository);
+  const session = "evaluacion-por-ejes";
+  const implementation = "feature-implement--implementador--a01";
+  const testing = "feature-test--tester--a01";
+  const standards = "feature-evaluate--evaluador--a01";
+  const specification = "feature-evaluate--evaluador--a02";
+  const implementationReport = [
+    "- **Archivos modificados:** cambio.",
+    "- **Tareas completadas y pendientes:** completada.",
+    "- **Tests creados:** permanentes.",
+    "- **Validación ejecutada:** verde.",
+    "- **Desvíos o dudas:** No aplica.",
+    "- **Candidato a memoria:** No aplica.",
+  ].join("\n");
+  const testingReport = [
+    "- **Evidencia:** verde.",
+    "- **Tests creados:** permanentes.",
+    "- **Fallos:** Ninguno.",
+    "- **Omisiones:** Ninguna.",
+    "- **Candidato a memoria:** No aplica.",
+  ].join("\n");
+  const evaluationReport = [
+    "- **Veredicto:** aprobado.",
+    "- **Criterios verificados:** todos.",
+    "- **Hallazgos:** Ninguno.",
+    "- **Riesgo residual y evidencia faltante:** No aplica.",
+    "- **Memoria guardada o candidata:** No aplica.",
+  ].join("\n");
+  const changesRequiredReport = evaluationReport.replace(
+    "- **Veredicto:** aprobado.",
+    "- **Veredicto:** cambios requeridos.",
+  );
+  const tracedPayload = (phaseId, role, extra = {}) => ({
+    baseRevision: "base",
+    criteria: ["C01"],
+    permission: role === "implementador" ? "writer" : "read-only",
+    phaseId,
+    role,
+    threadId: `${role}-${extra.evaluationAxis ?? extra.workUnitId ?? "final"}`,
+    ...extra,
+  });
+  runSessionController(
+    repository,
+    "init",
+    { session, expectedRevision: 0 },
+    {
+      isolationCapacity: 1,
+      mode: "full",
+      platformCapacity: 12,
+      workUnits: [
+          {
+            acceptanceCriteria: ["C01"],
+            dependsOn: [],
+          ownedPaths: ["src/unidad.mjs"],
+          permission: "writer",
+          workUnitId: "unidad",
+        },
+      ],
+      workflow: "feature",
+    },
+  );
+  const prematureEvaluation = runSessionController(
+    repository,
+    "open",
+    { session, attempt: standards, expectedRevision: 1 },
+    tracedPayload("feature-evaluate", "evaluador", { evaluationAxis: "standards" }),
+  );
+  assert.deepEqual(controllerOutcome(prematureEvaluation), { code: 1, error: "fan_in_pending" });
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session, attempt: implementation, expectedRevision: 1 },
+      tracedPayload("feature-implement", "implementador", { workUnitId: "unidad" }),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: implementation, expectedRevision: 2 },
+      { report: implementationReport },
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session, attempt: testing, expectedRevision: 3 },
+      tracedPayload("feature-test", "tester", { workUnitId: "unidad" }),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: testing, expectedRevision: 4 },
+      { report: testingReport },
+    ).status,
+    0,
+  );
+  const fanInStatus = controllerResponse(
+    runSessionController(repository, "status", { session }),
+  );
+  assert.equal(fanInStatus.evaluationCapacity, 2);
+  assert.equal(fanInStatus.effectiveCapacity, 2);
+  assert.equal(fanInStatus.writerIsolationCapacity, 1);
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session, attempt: standards, expectedRevision: 5 },
+      tracedPayload("feature-evaluate", "evaluador", { evaluationAxis: "standards" }),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session, attempt: specification, expectedRevision: 6 },
+      tracedPayload("feature-evaluate", "evaluador", { evaluationAxis: "specification" }),
+    ).status,
+    0,
+  );
+  const duplicatedAxis = runSessionController(
+    repository,
+    "open",
+    {
+      session,
+      attempt: "feature-evaluate--evaluador--a03",
+      expectedRevision: 7,
+    },
+    tracedPayload("feature-evaluate", "evaluador", { evaluationAxis: "standards" }),
+  );
+  assert.deepEqual(controllerOutcome(duplicatedAxis), {
+    code: 1,
+    error: "evaluation_axis_conflict",
+  });
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: standards, expectedRevision: 7 },
+      { report: changesRequiredReport },
+    ).status,
+    0,
+  );
+  const standardsRetry = "feature-evaluate--evaluador--a03";
+  const retriedAxis = runSessionController(
+    repository,
+    "open",
+    { session, attempt: standardsRetry, expectedRevision: 8 },
+    tracedPayload("feature-evaluate", "evaluador", {
+      cause: "El eje anterior pidió cambios.",
+      evaluationAxis: "standards",
+      previousAttempt: standards,
+    }),
+  );
+  assert.equal(retriedAxis.status, 0, retriedAxis.stderr);
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: standardsRetry, expectedRevision: 9 },
+      { report: evaluationReport },
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: specification, expectedRevision: 10 },
+      { report: evaluationReport },
+    ).status,
+    0,
+  );
+  assert.deepEqual(
+    controllerResponse(runSessionController(repository, "status", { session })).finalEvaluation,
+    {
+      approved: true,
+      axes: { specification: "approved", standards: "approved" },
+      generation: 1,
+      requiredAxes: ["standards", "specification"],
+    },
+  );
+  const reopened = runSessionController(
+    repository,
+    "open",
+    {
+      session,
+      attempt: "feature-implement--implementador--a02",
+      expectedRevision: 11,
+    },
+    tracedPayload("feature-implement", "implementador", {
+      cause: "La evaluación final detectó una regresión.",
+      impact: "El hallazgo afecta la unidad ya validada.",
+      previousAttempt: implementation,
+      workUnitId: "unidad",
+    }),
+  );
+  assert.equal(reopened.status, 0, reopened.stderr);
+  assert.deepEqual(
+    controllerResponse(runSessionController(repository, "status", { session })).finalEvaluation,
+    {
+      approved: false,
+      axes: { specification: "pending", standards: "pending" },
+      generation: 2,
+      requiredAxes: ["standards", "specification"],
+    },
+  );
+});
+
+test("session controller neutraliza una evaluación consolidada tras reabrir el fan-in", async () => {
+  const repository = await createRepository();
+  await seedSessionContracts(repository);
+  const session = "evaluacion-generacion-obsoleta";
+  const implementationReport = [
+    "- **Archivos modificados:** cambio.",
+    "- **Tareas completadas y pendientes:** completada.",
+    "- **Tests creados:** permanentes.",
+    "- **Validación ejecutada:** verde.",
+    "- **Desvíos o dudas:** No aplica.",
+    "- **Candidato a memoria:** No aplica.",
+  ].join("\n");
+  const testingReport = [
+    "- **Evidencia:** verde.",
+    "- **Tests creados:** permanentes.",
+    "- **Fallos:** Ninguno.",
+    "- **Omisiones:** Ninguna.",
+    "- **Candidato a memoria:** No aplica.",
+  ].join("\n");
+  const evaluationReport = [
+    "- **Veredicto:** aprobado.",
+    "- **Criterios verificados:** todos.",
+    "- **Hallazgos:** Ninguno.",
+    "- **Riesgo residual y evidencia faltante:** No aplica.",
+    "- **Memoria guardada o candidata:** No aplica.",
+  ].join("\n");
+  const tracedPayload = (phaseId, role, extra = {}) => ({
+    baseRevision: "base",
+    criteria: ["C01"],
+    permission: role === "implementador" ? "writer" : "read-only",
+    phaseId,
+    role,
+    threadId: `${role}-${extra.evaluationAxis ?? extra.workUnitId}`,
+    ...extra,
+  });
+  const implementation = "feature-implement--implementador--a01";
+  const rework = "feature-implement--implementador--a02";
+  const testing = "feature-test--tester--a01";
+  const testingRetry = "feature-test--tester--a02";
+  const obsoleteStandards = "feature-evaluate--evaluador--a01";
+  const currentSpecification = "feature-evaluate--evaluador--a02";
+
+  assert.equal(
+    runSessionController(
+      repository,
+      "init",
+      { session, expectedRevision: 0 },
+      {
+        isolationCapacity: 1,
+        mode: "full",
+        platformCapacity: 3,
+        readOnlyCapacity: 2,
+        workUnits: [
+          {
+            acceptanceCriteria: ["C01"],
+            dependsOn: [],
+            ownedPaths: ["src/unidad.mjs"],
+            permission: "writer",
+            workUnitId: "unidad",
+          },
+        ],
+        workflow: "feature",
+      },
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session, attempt: implementation, expectedRevision: 1 },
+      tracedPayload("feature-implement", "implementador", { workUnitId: "unidad" }),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: implementation, expectedRevision: 2 },
+      { report: implementationReport },
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session, attempt: testing, expectedRevision: 3 },
+      tracedPayload("feature-test", "tester", { workUnitId: "unidad" }),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: testing, expectedRevision: 4 },
+      { report: testingReport },
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session, attempt: obsoleteStandards, expectedRevision: 5 },
+      tracedPayload("feature-evaluate", "evaluador", { evaluationAxis: "standards" }),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session, attempt: rework, expectedRevision: 6 },
+      tracedPayload("feature-implement", "implementador", {
+        cause: "La evaluación detectó impacto.",
+        impact: "El hallazgo exige revalidar la unidad.",
+        previousAttempt: implementation,
+        workUnitId: "unidad",
+      }),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: obsoleteStandards, expectedRevision: 7 },
+      { report: evaluationReport },
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: rework, expectedRevision: 8 },
+      { report: implementationReport },
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session, attempt: testingRetry, expectedRevision: 9 },
+      tracedPayload("feature-test", "tester", {
+        cause: "Se revalida el retrabajo.",
+        previousAttempt: testing,
+        workUnitId: "unidad",
+      }),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: testingRetry, expectedRevision: 10 },
+      { report: testingReport },
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session, attempt: currentSpecification, expectedRevision: 11 },
+      tracedPayload("feature-evaluate", "evaluador", { evaluationAxis: "specification" }),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: currentSpecification, expectedRevision: 12 },
+      { report: evaluationReport },
+    ).status,
+    0,
+  );
+
+  const managed = parseManagedState(
+    await readFile(join(repository, ".agents", "sessions", `${session}.md`), "utf8"),
+  );
+  const finalEvaluation = controllerResponse(
+    runSessionController(repository, "status", { session }),
+  ).finalEvaluation;
+  assert.deepEqual(
+    {
+      finalEvaluation,
+      obsoleteOutcome: managed.attempts[obsoleteStandards].evidence.outcome,
+      storedStandards: managed.evaluations.standards,
+    },
+    {
+      finalEvaluation: {
+        approved: false,
+        axes: { specification: "approved", standards: "pending" },
+        generation: 2,
+        requiredAxes: ["standards", "specification"],
+      },
+      obsoleteOutcome: "obsolete",
+      storedStandards: undefined,
     },
   );
 });
@@ -3135,6 +5140,80 @@ test("session controller conserva residuos de sobres interrumpidos y bloquea el 
       status: "recoverable",
     },
   );
+});
+
+test("los contratos canónicos definen paralelismo controlado sin duplicarlo en adapters", async () => {
+  const orchestration = await readFile(
+    join(ROOT, ".agents", "policies", "orquestacion.md"),
+    "utf8",
+  );
+  const skill = await readFile(
+    join(ROOT, ".agents", "skills", "orquestar", "SKILL.md"),
+    "utf8",
+  );
+  const roles = Object.fromEntries(
+    await Promise.all(
+      ["documentador", "evaluador", "explorador", "implementador", "planificador", "tester"].map(
+        async (role) => [
+          role,
+          await readFile(join(ROOT, ".agents", "roles", `${role}.md`), "utf8"),
+        ],
+      ),
+    ),
+  );
+  const workflows = Object.fromEntries(
+    await Promise.all(
+      ["architecture", "bugfix", "feature", "refactor"].map(async (workflow) => [
+        workflow,
+        await readFile(join(ROOT, ".agents", "workflows", `${workflow}.md`), "utf8"),
+      ]),
+    ),
+  );
+  const devSession = await readFile(
+    join(ROOT, ".agents", "templates", "dev-session.md"),
+    "utf8",
+  );
+  const subdevSession = await readFile(
+    join(ROOT, ".agents", "templates", "subdev-session.md"),
+    "utf8",
+  );
+  const codexAdapter = await readFile(
+    join(ROOT, ".codex", "agents", "implementador.toml"),
+    "utf8",
+  );
+  const claudeAdapter = await readFile(
+    join(ROOT, ".claude", "agents", "implementador.md"),
+    "utf8",
+  );
+
+  assert.match(orchestration, /`light`[^\n]*4 subagentes/);
+  assert.match(orchestration, /`full`[^\n]*9 subagentes/);
+  assert.match(orchestration, /m[ií]nimo entre[\s\S]*modo[\s\S]*plataforma[\s\S]*listas[\s\S]*aislamiento/i);
+  assert.match(orchestration, /agentes reales[\s\S]*no (?:simular|sustituirlos por procesos auxiliares)/i);
+  assert.match(orchestration, /un solo escritor activo por working tree/i);
+  assert.match(orchestration, /Estándares[\s\S]*Especificación/);
+  assert.match(skill, /fan-out[\s\S]*oleadas[\s\S]*fan-in/i);
+  assert.match(skill, /cerrar cada hilo/i);
+  assert.match(roles.explorador, /carril asignado/i);
+  assert.match(roles.planificador, /workUnitId[\s\S]*dependsOn[\s\S]*owned_paths/);
+  assert.match(roles.implementador, /una sola unidad/i);
+  assert.match(roles.tester, /implementada[\s\S]*validada[\s\S]*consolidada/i);
+  assert.match(roles.evaluador, /eje[\s\S]*(?:Estándares|Especificación)/i);
+  assert.match(roles.documentador, /fan-in/i);
+  assert.match(roles.documentador, /architecture-propose[^\n]*no exige fan-in/i);
+  for (const source of Object.values(workflows)) {
+    assert.match(source, /unidad(?:es)? de (?:implementación|trabajo)/i);
+    assert.match(source, /fan-in/i);
+  }
+  assert.match(workflows.feature, /`light`[\s\S]*un Evaluador[\s\S]*`full`[\s\S]*dos Evaluadores/i);
+  assert.match(devSession, /## Presupuesto y capacidad/);
+  assert.match(devSession, /## Unidades de implementación/);
+  assert.match(devSession, /## Evaluación final por ejes/);
+  assert.match(subdevSession, /- Unidad: `<work-unit-id>`/);
+  assert.match(subdevSession, /- Permiso: `<permission>`/);
+  assert.match(codexAdapter, /\.agents\/roles\/implementador\.md/);
+  assert.match(claudeAdapter, /\.agents\/roles\/implementador\.md/);
+  assert.doesNotMatch(codexAdapter + claudeAdapter, /light\s*=\s*4|full\s*=\s*9/);
 });
 
 test("session controller se distribuye con contratos portables y excluye sesiones activas", async () => {

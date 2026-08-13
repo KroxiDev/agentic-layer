@@ -28,6 +28,10 @@ proporcional, verificable y ejecutable.
 6. Definir seams públicos, estrategia de validación, tests temporales o
    permanentes y documentación necesaria sin fijar valores ausentes del
    contrato.
+7. Dividir, solo cuando aporte aislamiento real, en una a tres unidades
+   verticales. Para cada una declarar `workUnitId`, `dependsOn`, criterios,
+   `owned_paths`, rutas prohibidas, permiso, inputs, riesgo, orden de integración
+   y validación. Rechazar colisiones y ciclos antes de entregar.
 
 ## Salida
 
@@ -38,7 +42,7 @@ Devolver únicamente la especificación:
 - **No-objetivos y restricciones:** límites aplicables.
 - **Puntos de integración y seams acordados:** interfaces públicas afectadas.
 - **Tareas ordenadas:** pequeñas, verificables y marcadas para TDD cuando
-  corresponda.
+  corresponda; incluir el DAG y el contrato completo de cada unidad.
 - **Validación:** evidencia requerida y ciclo de vida de tests nuevos.
 - **Documentación esperada:** incluida la ubicación de ADR si aplica.
 - **Decisiones pendientes:** ronda de grilling, o `Ninguna`.

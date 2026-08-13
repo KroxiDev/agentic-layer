@@ -4,6 +4,11 @@
 - Fase: `<phase-id>`
 - Rol: `<role>`
 - Intento: `<attempt-number>`
+- Unidad: `<work-unit-id>`
+- Oleada: `<wave>`
+- Permiso: `<permission>`
+- Revisión base: `<base-revision>`
+- Hilo: `<thread-id>`
 - Estado: `active`
 
 ## Objetivo específico

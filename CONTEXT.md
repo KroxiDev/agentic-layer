@@ -50,16 +50,110 @@ Un tramo del workflow ejecutado por un solo rol en un contexto aislado, que
 termina devolviendo su contrato de salida.
 _Evitar_: paso, etapa, iteración.
 
+**Unidad de implementación**:
+Una rebanada vertical durable del trabajo, identificada por `workUnitId`, con
+criterios, dependencias, oleada, permiso y rutas propias. Puede recibir varios
+intentos sin dejar de ser la misma unidad.
+_Evitar_: subagente, fase, tarea técnica, intento.
+
+**Intento**:
+Una ejecución monotónica de una fase y un rol, asociada a una unidad, carril o
+eje. Tiene revisión base, hilo, permiso, criterios y evidencia propios; un
+retrabajo siempre crea otro intento.
+_Evitar_: unidad, reintento sobreescrito, ejecución (a secas).
+
+**DAG de unidades**:
+El grafo acíclico dirigido que relaciona unidades mediante `dependsOn`. Una
+arista sólo queda satisfecha por validación atribuible del Tester.
+_Evitar_: lista de tareas, orden manual, pipeline.
+
+**Oleada**:
+El conjunto determinista de unidades listas en el mismo nivel del DAG. Una
+oleada describe disponibilidad, no obliga a ejecutar todos sus miembros a la
+vez.
+_Evitar_: batch, sprint, fase.
+
+**Propiedad exclusiva (ownership)**:
+La asignación de cada ruta editable a una sola unidad writer. Se compara de
+forma portable, incluidos ancestros, mayúsculas y aliases por puntos o espacios
+terminales de Windows.
+_Evitar_: sector de importancia, permiso general, scope.
+
+**Gate de unidad**:
+Una condición mecánica del ciclo `implemented` → `validated` → `consolidated`.
+Sólo `validated`, con evidencia del Tester, satisface dependencias.
+_Evitar_: estado (a secas), aprobación final, check.
+
 **Modo de orquestación**:
 La profundidad con la que se ejecuta un workflow: `full` o `light`. Es
 intensidad de implementación y verificación, nunca elección de modelo ni de
 nivel de razonamiento.
 _Evitar_: modo (a secas), nivel, perfil de ejecución.
 
+**Presupuesto del modo**:
+El máximo de subagentes activos que el workflow puede usar: 4 en `light` y 9 en
+`full`, sin contar al Orquestador. Es un techo, no una cuota.
+_Evitar_: capacidad técnica, cantidad objetivo, concurrencia obligatoria.
+
+**Capacidad técnica de plataforma**:
+El máximo que el host puede sostener. Codex se configura para hasta 12 hilos de
+subagentes, pero ese valor nunca eleva el presupuesto del modo.
+_Evitar_: presupuesto del modo, fan-out, tope full.
+
+**Capacidad `read-only`**:
+Los carriles simultáneos disponibles para intentos que no escriben. Se calcula
+separada del aislamiento de escritores para que un writer no consuma por sí
+mismo un carril de lectura.
+_Evitar_: capacidad total, aislamiento de escritores.
+
+**Aislamiento de escritores**:
+La capacidad de escritura segura del working tree. Sin worktrees aislados
+aprobados vale uno, aunque existan más carriles `read-only`.
+_Evitar_: capacidad `read-only`, ownership, lock.
+
+**Fan-out**:
+La apertura de carriles independientes con agentes reales, limitada por modo,
+plataforma, trabajo listo, rol y permiso. Nunca significa simular agentes ni
+usar procesos auxiliares como sustitutos.
+_Evitar_: paralelismo sin límites, llenar cupos, oleada.
+
+**Fan-in**:
+La barrera posterior a todas las unidades validadas y consolidadas, donde se
+evalúa el resultado integrado. En `full` separa Estándares y Especificación; en
+`light` un eje combinado cubre ambos.
+_Evitar_: merge de Git, consolidación de una unidad, testing.
+
 **DevSession**:
 El estado efímero de una tarea en `.agents/sessions/<slug>.md`, único traspaso
 entre fases. Se elimina al cerrar y no se versiona.
 _Evitar_: sesión, contexto compartido, scratchpad, memoria de trabajo.
+
+**DevSession heredada**:
+Una DevSession v1 anterior a algún campo del modelo por unidades. `status` la
+lee sin escribir y un `init` explícito puede completar sólo la trazabilidad
+ausente de forma monotónica e idempotente.
+_Evitar_: sesión inválida, migración masiva, legacy (a secas).
+
+**Reserva de escritor**:
+El lock durable y global del working tree cuyo dueño exacto es
+`{session, attempt, workingTreeId}`. Protege todas las DevSessions del mismo
+árbol y sólo su propietario puede liberarlo.
+_Evitar_: lock de mutación de una DevSession, ownership, mutex por archivo.
+
+**Generación de evaluación**:
+La versión del fan-in vigente. Reabrir una unidad la incrementa e invalida todos
+los ejes anteriores; un Evaluador obsoleto no puede aprobar la nueva generación.
+_Evitar_: intento del Evaluador, revisión de archivo, versión de la capa.
+
+**Recuperación**:
+La inspección explícita de checkpoints, sobres y residuos tras una interrupción.
+No decide por antigüedad ni convierte ambigüedad en éxito.
+_Evitar_: retry ciego, cleanup, rollback.
+
+**Idempotencia terminal**:
+La garantía de que repetir el mismo `commit` o `fail` terminal devuelve el mismo
+resultado sin duplicar consolidación ni tocar la reserva de un writer sucesor.
+_Evitar_: ignorar errores, reabrir el intento, repetir la unidad.
 
 **Sector de importancia**:
 El conjunto mínimo suficiente de archivos, símbolos y superficies que una tarea

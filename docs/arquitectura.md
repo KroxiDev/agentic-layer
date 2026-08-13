@@ -110,7 +110,7 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 | --- | --- | --- |
 | `.agents/policies/` | Orquestación, SDD/TDD y Regla de Oro para código y pruebas | Profundo: gobierna todo el proceso |
 | `.agents/roles/` | Seis contratos de salida con límites explícitos | Profundo: cada rol oculta su método |
-| `.agents/scripts/session-controller.mjs` | Transiciones, locks, recuperación, acuses y limpieza de sesiones | Profundo: una CLI portable y transaccional |
+| `.agents/scripts/session-controller.mjs` | Unidades/DAG, gates, capacidades, generaciones, transiciones, locks globales, recuperación, acuses y limpieza | Profundo: una CLI portable y transaccional |
 | `.agents/workflows/` | Orden de fases por intención | Delgado: sólo secuencia |
 | `.agents/skills/` | Procedimientos invocables (grilling, TDD, diagnóstico) | Profundo: disciplina completa por archivo |
 | `.agents/templates/` | Formato de la DevSession global y de los sobres efímeros | Delgado: estructura |
@@ -208,22 +208,41 @@ y las claves `max_concurrent_threads_per_session` o `max_threads`. Conserva BOM,
 finales de línea, comentarios y el resto del archivo. Tablas o claves ambiguas,
 UTF-8 inválido y strings TOML multilínea se derivan a edición manual sin escribir.
 La ruta global se obtiene de `CODEX_HOME` o del directorio personal; las pruebas
-siempre inyectan una raíz temporal.
+siempre inyectan una raíz temporal. El valor objetivo es 12 como capacidad
+técnica de Codex; los workflows aplican después sus topes independientes de 4
+(`light`) y 9 (`full`).
 
 ## Flujo de orquestación
 
 ```mermaid
-flowchart LR
+flowchart TD
     task["tarea"] --> triv{"trivial y<br/>evidente?"}
     triv -->|sí| direct["resolver sin pipeline"]
     triv -->|no| pre["preflight:<br/>CodeGraph · Engram ·<br/>subagentes · contrato"]
     pre -->|falla| stop["detenerse con<br/>diagnóstico breve"]
-    pre -->|pasa| sess["crear o adoptar DevSession<br/>con el controlador"]
-    sess --> wf["seleccionar workflow y modo"]
-    wf --> fases["abrir sobre y delegar cada fase<br/>a un rol en contexto aislado"]
-    fases --> eval{"veredicto"}
-    eval -->|cambios requeridos| fases
-    eval -->|aprobado| close["cerrar: documentar, consolidar Engram<br/>y ejecutar cleanup + close"]
+    pre -->|pasa| sess["init DevSession:<br/>modo + capacidades"]
+    sess --> plan["explorar y planificar<br/>DAG de 1–3 unidades"]
+    plan --> ready["seleccionar unidades listas<br/>y formar oleada"]
+    ready --> open["open intento trazable:<br/>unidad · permiso · revisión · hilo"]
+    open --> perm{"permiso"}
+    perm -->|read-only| lane["carril aislado<br/>dentro del fan-out"]
+    perm -->|writer| lock["reserva global única<br/>del working tree"]
+    lane --> work["ejecutar rol"]
+    lock --> work
+    work --> impl["Implementador:<br/>implemented"]
+    impl --> test["Tester y evidencia<br/>atribuible"]
+    test --> green{"validada?"}
+    green -->|no| rework["fallo + causa + impacto<br/>nuevo intento"]
+    rework --> invalidate["invalidar ejes<br/>y subir generación"]
+    invalidate --> ready
+    green -->|sí| consolidated["validated + consolidated<br/>cerrar hilo"]
+    consolidated --> all{"¿todas las unidades?"}
+    all -->|no| ready
+    all -->|sí| fanin["fan-in de la<br/>generación vigente"]
+    fanin --> axes["full: Estándares + Especificación<br/>light: eje combinado"]
+    axes --> approved{"¿todos los ejes<br/>aprobados?"}
+    approved -->|no| rework
+    approved -->|sí| close["documentar · consolidar Engram<br/>cleanup + close"]
 ```
 
 El ciclo Evaluador → Implementador admite **dos** retrabajos como máximo; si el
@@ -232,6 +251,91 @@ rechazo persiste, la tarea se detiene y se presenta el diagnóstico.
 Cada fase corre aislada y devuelve sólo su contrato de salida. El orquestador es
 el único que habla con el usuario: los roles no se coordinan entre sí ni amplían
 el alcance.
+
+### Presupuesto, capacidad y aislamiento
+
+La capacidad se compone y no se representa con un único número:
+
+| Dimensión | Semántica |
+| --- | --- |
+| Capacidad técnica de Codex | Hasta 12 hilos de subagentes; habilita, pero no cambia la política |
+| Presupuesto `light` | Máximo 4 subagentes activos |
+| Presupuesto `full` | Máximo 9 subagentes activos |
+| Capacidad de plataforma | Disponibilidad real detectada en el host |
+| Capacidad `read-only` | Carriles de lectura simultáneos, acotados por modo y plataforma |
+| Aislamiento de escritores | Uno por working tree sin worktrees aislados aprobados |
+
+El Orquestador no cuenta en 4/9. La capacidad total de agentes es el mínimo
+entre modo y plataforma; la capacidad efectiva de una fase añade el trabajo
+listo y los topes del rol. Los carriles `read-only` y writers consumen el total,
+pero se contabilizan por separado: un writer no ocupa el cupo de lectura y un
+lector no ocupa aislamiento de escritura. Con menos capacidad se reduce el
+fan-out usando agentes reales; no se simulan agentes ni se sustituyen por
+procesos auxiliares.
+
+### Unidades, intentos, DAG y gates
+
+El Planificador registra de una a tres unidades verticales. Cada unidad guarda
+`workUnitId`, `acceptanceCriteria`, `dependsOn`, `ownedPaths`, `permission` y
+`wave`. El controlador rechaza contratos incompletos, IDs duplicados,
+dependencias ausentes, ciclos y colisiones antes de crear la DevSession.
+
+La unidad y el intento son identidades distintas. La primera representa el
+trabajo a través de sus retrabajos; el segundo es una ejecución monotónica de
+fase y rol con `baseRevision`, `threadId`, criterios, permiso, causa e intento
+anterior. Un intento terminal es inmutable. Una unidad validada sólo se reabre
+con impacto demostrado.
+
+Los gates son mecánicos:
+
+1. el Implementador consolida evidencia y deja la unidad `implemented`;
+2. el Tester sólo puede abrir sobre ese estado y la deja `validated` o
+   `failed`;
+3. una validación verde la deja además `consolidated` y puede satisfacer
+   `dependsOn`.
+
+Las oleadas se derivan del DAG y contienen únicamente unidades listas. La
+propiedad de rutas writer es exclusiva y portable: se normalizan rutas
+relativas, se rechazan escapes y se detectan colisiones exactas o de
+ancestro/descendiente, incluidas mayúsculas y aliases terminales de Windows.
+
+### Writer lock, recuperación e idempotencia
+
+El aislamiento writer no es local a una DevSession. El controlador deriva la
+identidad canónica del working tree y publica por hard link un único archivo
+`.writer-<workingTreeId>.lock`. Su dueño exacto contiene `session`, `attempt` y
+`workingTreeId`, por lo que dos DevSessions del mismo árbol compiten por la
+misma reserva aunque declaren rutas diferentes.
+
+Una transición inicial y la reparación de un checkpoint liberan de forma
+estricta: un dueño distinto es conflicto. Cuando `commit` o `fail` ya están
+terminales y el mismo payload se repite, la operación sigue siendo idempotente
+pero libera sólo si la reserva todavía coincide exactamente. Si un writer
+sucesor ya la adquirió, el reintento devuelve éxito sin eliminar, modificar ni
+reclamar su lock. Si una interrupción dejó el lock en el intento original, el
+checkpoint recuperado sí lo libera.
+
+`status` y `recover` son de sólo lectura. Los temporales de publicación se
+eliminan en la propia adquisición y los residuos ambiguos nunca se borran por
+edad. `cleanup` continúa limitado a sobres acusados y `safe_to_delete`.
+
+### Fan-in, generaciones y sesiones heredadas
+
+El fan-in sólo queda listo cuando todas las unidades están validadas y
+consolidadas. En `full`, Estándares y Especificación son ejes independientes de
+solo lectura; en `light`, un eje combinado cubre ambos. Cada fan-in lleva una
+generación. Reabrir una unidad incrementa esa generación, limpia sus resultados
+y vuelve obsoleto cualquier Evaluador anterior; sólo los ejes aprobados de la
+generación actual permiten `close`.
+
+Las DevSessions v1 sin unidades conservan su comportamiento. Una sesión por
+unidades creada antes de que existieran criterios, capacidades separadas o
+generación falla cerradamente antes de `open`. Repetir `init` con el plan
+aprobado completa únicamente esos campos ausentes, preserva intentos, estados,
+ownership y evidencia, y es byte-idempotente al volver a ejecutarse. La
+decisión completa está en
+[ADR 0009](adr/0009-paralelismo-controlado-por-unidades.md); extiende el
+controlador portable de [ADR 0008](adr/0008-controlador-portable-de-subdevsessions.md).
 
 ## Frontera de distribución
 

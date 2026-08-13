@@ -17,3 +17,12 @@ observable.
 
 En `light` no introducir seams ni abstracciones nuevas salvo que sean el objeto
 explícito aprobado.
+
+Cada unidad de implementación debe preservar invariantes observables, declarar
+dependencias y ownership, y recibir testing inmediato antes de habilitar la
+siguiente. Tras el fan-in de todas las unidades consolidadas, `full` usa dos
+Evaluadores de solo lectura para Estándares y Especificación; `light` usa un
+Evaluador para ambos ejes.
+
+Un Tester rojo o fallido reabre retrabajo sin validar. Cada nuevo fan-in
+invalida la generación anterior y exige reevaluar sus ejes.

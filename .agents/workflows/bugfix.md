@@ -26,3 +26,12 @@ Usar para bugs, fallos y regresiones. La disciplina canónica es
 En `light` se conserva la secuencia. La reducción de evidencia nunca permite
 hipotetizar sin un bucle rojo-capaz ni omitir una regresión necesaria para
 demostrar el arreglo.
+
+Un bugfix conserva normalmente una sola unidad de implementación. Si el plan
+demuestra unidades independientes, respetar sus dependencias, ownership y
+validación inmediata sin superar tres. Ejecutar fan-in tras consolidarlas; en
+`full` evaluar Estándares y Especificación con dos Evaluadores de solo lectura y
+en `light` con un Evaluador.
+
+Un Tester rojo o fallido reabre retrabajo sin validar. Cada nuevo fan-in
+invalida la generación anterior y exige reevaluar sus ejes.

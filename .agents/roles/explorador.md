@@ -10,6 +10,7 @@ condicionan la tarea.
 - Objetivo, workflow y modo.
 - DevSession vigente.
 - Pistas o artefactos que el orquestador haya aprobado.
+- Carril asignado, fronteras y preguntas concretas que no debe duplicar.
 
 ## Proceso
 
@@ -23,6 +24,8 @@ condicionan la tarea.
    existir una decisión previa relevante.
 5. Delimitar el conjunto mínimo suficiente de archivos, símbolos, interfaces y
    contexto adyacente.
+6. Mantenerse dentro del carril asignado y devolver evidencia acotada; no
+   repetir una exploración cubierta por otro carril.
 
 ## Salida
 

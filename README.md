@@ -39,10 +39,12 @@ Los adapters y archivos canónicos se reparan aunque la versión ya coincida;
 las DevSessions y los archivos ajenos se conservan. Una versión instalada más
 nueva se bloquea salvo autorización expresa con `--allow-downgrade`.
 
-La configuración de Codex es una operación opcional posterior. Para recomendar
-9 subagentes concurrentes se puede elegir `--codex-config global`, `local` o
-`none`; `--yes` por sí solo nunca autoriza esa escritura. La configuración local
-prevalece sobre la global y un valor efectivo de 9 o más no se reduce ni se
+La configuración de Codex es una operación opcional posterior. Para habilitar
+capacidad técnica de hasta 12 subagentes se puede elegir `--codex-config global`,
+`local` o `none`; `--yes` por sí solo nunca autoriza esa escritura. Los workflows
+mantienen sus propios topes de 4 (`light`) y 9 (`full`): 12 es capacidad de la
+plataforma, no una cuota ni un nuevo límite del modo. La configuración local
+prevalece sobre la global y un valor efectivo de 12 o más no se reduce ni se
 reescribe. Si el TOML es ambiguo o contiene strings multilínea, queda pendiente
 de edición manual y se conserva byte a byte. Las escrituras autorizadas son
 atómicas y revalidan los ancestros no-follow antes del temporal y de la mutación
@@ -57,7 +59,7 @@ final.
 | `-y`, `--yes` | Omite la confirmación previa a escribir |
 | `--force` | Reemplaza una capa instalada y borra sus residuos |
 | `--allow-downgrade` | Solo en `update`: autoriza instalar una versión anterior a la declarada |
-| `--codex-config global\|local\|none` | Solo en `update`: decide explícitamente si configurar 9 subagentes en Codex |
+| `--codex-config global\|local\|none` | Solo en `update`: decide explícitamente si habilitar capacidad técnica para 12 subagentes en Codex |
 | `--purpose <texto>` | Declara el propósito en vez de dejarlo pendiente |
 | `--git-strategy <texto>` | Declara la estrategia Git en vez de dejarla pendiente |
 | `--init-codegraph` | Confirma explícitamente `codegraph init` en el destino |
@@ -91,9 +93,10 @@ intervienen, qué evidencia exige cada fase y qué hechos del proyecto necesita
 conocer.
 
 Ofrece seis roles con contratos de salida, cuatro workflows, orquestación en
-contextos aislados con modos `full` y `light`, DevSession como único traspaso de
-estado, SDD proporcional con TDD por comportamiento, diagnóstico falsable de
-bugs, historial durable en Engram, inteligencia de código en CodeGraph y adapters
+contextos aislados con modos `full` y `light`, unidades verticales con
+paralelismo controlado, DevSession como único traspaso de estado, SDD
+proporcional con TDD por comportamiento, diagnóstico falsable de bugs,
+historial durable en Engram, inteligencia de código en CodeGraph y adapters
 nativos delgados para Codex y Claude Code.
 
 No trae producto, rama ni layout de código. No instala herramientas, no ejecuta
@@ -102,10 +105,10 @@ adopción es una copia y el propietario la mantiene.
 
 ## Modos de orquestación
 
-| Modo | Activación | Profundidad |
-| --- | --- | --- |
-| `full` | Predeterminado; automático para tareas no triviales | Workflow completo, SDD proporcional, TDD cuando corresponda y validación declarada |
-| `light` | Sólo por petición explícita | Mismos roles, workflow y DevSession; cambio y evidencia focalizados |
+| Modo | Activación | Profundidad | Tope de subagentes activos |
+| --- | --- | --- | ---: |
+| `full` | Predeterminado; automático para tareas no triviales | Workflow completo, SDD proporcional, TDD cuando corresponda y validación declarada | 9 |
+| `light` | Sólo por petición explícita | Mismos roles, workflow y DevSession; cambio y evidencia focalizados | 4 |
 
 `light` no selecciona modelo ni nivel de razonamiento. Por defecto no crea tests,
 no ejecuta la suite completa, no refactoriza y no amplía documentación. Conserva
@@ -115,6 +118,49 @@ recomienda `full` y pide una decisión informada antes de continuar.
 
 Una tarea trivial, local y evidente se resuelve sin pipeline. Si la
 clasificación es dudosa, se consulta antes de actuar.
+
+### Paralelismo controlado
+
+El orquestador no cuenta dentro de los topes del modo. La capacidad efectiva es
+el mínimo entre el tope del modo, la capacidad disponible de la plataforma y el
+trabajo listo. Los carriles `read-only` y el aislamiento de escritores se
+calculan por separado: un writer no consume por sí mismo el cupo de lectura, y
+la capacidad técnica 12 de Codex nunca obliga a llenar 12 hilos.
+
+Una planificación puede declarar entre una y tres **unidades de
+implementación** verticales. La unidad es el trabajo durable (`workUnitId`,
+criterios, `dependsOn`, oleada y rutas propias); cada ejecución o retrabajo es
+un **intento** nuevo con permiso, revisión base e hilo trazables. El DAG sólo
+habilita unidades cuyas dependencias ya fueron validadas y forma oleadas
+deterministas con el trabajo listo.
+
+Cada unidad atraviesa tres gates:
+
+1. el Implementador la deja `implemented`;
+2. un Tester le atribuye evidencia y la deja `validated`;
+3. el resultado se consolida en la DevSession global.
+
+Una dependencia sólo se satisface en el segundo gate. Una unidad ya validada no
+se repite sin impacto demostrado. Cada ruta editable tiene propietario
+exclusivo y sólo existe un writer activo por working tree, reservado mediante un
+lock global compartido por todas sus DevSessions. Implementadores y Testers que
+escriben se serializan; la exploración y la evaluación de solo lectura pueden
+usar fan-out cuando sus carriles son independientes.
+
+El fan-in comienza cuando todas las unidades están validadas y consolidadas. En
+`full`, dos Evaluadores `read-only` revisan Estándares y Especificación; en
+`light`, uno cubre ambos ejes. Cada fan-in tiene una generación: reabrir una
+unidad invalida las aprobaciones anteriores e incrementa esa generación. Un
+reintento terminal idéntico de `commit` o `fail` es idempotente y sólo libera la
+reserva de writer si todavía pertenece exactamente a su sesión e intento; nunca
+toca la de un sucesor.
+
+Las DevSessions anteriores al modelo por unidades siguen siendo compatibles.
+`status` no escribe y `init` puede completar de forma explícita, monotónica e
+idempotente la trazabilidad que falte antes de abrir nuevos intentos. `recover`
+expone checkpoints y residuos sin decidir por antigüedad; cuando una
+interrupción dejó la reserva en el intento original, el reintento la libera al
+completar el checkpoint.
 
 ## Roles y workflows
 

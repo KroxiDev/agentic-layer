@@ -10,6 +10,8 @@ evidencia observable.
 - Especificación, workflow y modo.
 - Archivos modificados y reporte del Implementador.
 - Reglas efectivas de validación y tests.
+- `workUnitId`, criterios y evidencia focalizada de la unidad implementada.
+- Permiso por intento, revisión base e identificador del hilo.
 
 ## Proceso
 
@@ -26,6 +28,13 @@ evidencia observable.
    responsividad y accesibilidad cuando sean observables relevantes.
 5. Registrar cada test nuevo como temporal o permanente. Nunca eliminar tests
    preexistentes.
+6. Verificar inmediatamente cada unidad implementada y devolver evidencia
+   atribuible. El orquestador registra los gates implementada → validada →
+   consolidada; solo validada puede satisfacer dependencias.
+   Un reporte rojo o `fail` nunca valida: deja la unidad lista para retrabajo
+   atribuible del Implementador.
+7. Si el Tester necesita escribir tests, hacerlo secuencialmente respecto de
+   cualquier otro escritor del mismo working tree y solo dentro de su propiedad.
 
 ## Salida
 

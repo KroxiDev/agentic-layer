@@ -2,7 +2,17 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { link, mkdir, open as openFile, readFile, readdir, rename, rm, rmdir } from "node:fs/promises";
+import {
+  link,
+  mkdir,
+  open as openFile,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  rmdir,
+} from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { stdin, stderr, stdout } from "node:process";
 
@@ -32,6 +42,17 @@ const MUTATING_COMMANDS = new Set([
 ]);
 const ATTEMPT_PATTERN = /^([a-z][a-z0-9-]*)--([a-z][a-z0-9-]*)--a(\d{2,})$/;
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const WORK_UNIT_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const MODE_LIMITS = {
+  full: {
+    roles: { documentador: 1, evaluador: 2, explorador: 3, implementador: 1, planificador: 1, tester: 2 },
+    total: 9,
+  },
+  light: {
+    roles: { documentador: 1, evaluador: 1, explorador: 2, implementador: 1, planificador: 1, tester: 1 },
+    total: 4,
+  },
+};
 let activeMutationLockToken;
 
 class ControllerError extends Error {
@@ -312,6 +333,65 @@ function sessionPaths(options) {
   };
 }
 
+async function writerReservation(options) {
+  const canonicalRoot = (await realpath(options.root)).replaceAll("\\", "/");
+  const workingTree = process.platform === "win32" ? canonicalRoot.toLowerCase() : canonicalRoot;
+  const workingTreeId = createHash("sha256").update(workingTree, "utf8").digest("hex");
+  return {
+    lockPath: join(options.root, ".agents", "sessions", `.writer-${workingTreeId}.lock`),
+    owner: { attempt: options.attempt, session: options.session, workingTreeId },
+  };
+}
+
+async function acquireWriterReservation(options) {
+  const { lockPath, owner } = await writerReservation(options);
+  await mkdir(dirname(lockPath), { recursive: true });
+  const candidatePath = `${lockPath}.tmp-${process.pid}-${randomUUID()}`;
+  let candidate;
+  try {
+    candidate = await openFile(candidatePath, "wx");
+    await candidate.writeFile(stableJson(owner), "utf8");
+    await candidate.sync();
+    await candidate.close();
+    candidate = undefined;
+    try {
+      await link(candidatePath, lockPath);
+      return;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+    }
+    let observed;
+    try {
+      observed = JSON.parse(await readUtf8(lockPath));
+    } catch {
+      observed = null;
+    }
+    if (stableJson(observed) !== stableJson(owner)) {
+      throw new ControllerError("writer_conflict", "Ya existe un escritor activo en el working tree.");
+    }
+  } finally {
+    await candidate?.close().catch(() => {});
+    await rm(candidatePath, { force: true }).catch(() => {});
+  }
+}
+
+async function releaseWriterReservation(options, { preserveForeignOwner = false } = {}) {
+  const { lockPath, owner } = await writerReservation(options);
+  let observed;
+  try {
+    observed = JSON.parse(await readUtf8(lockPath));
+  } catch (error) {
+    if (error.code === "ENOENT") return;
+    throw new ControllerError("writer_lock_ambiguous", "El writer lock no es interpretable.");
+  }
+  if (stableJson(observed) !== stableJson(owner)) {
+    if (preserveForeignOwner) return false;
+    throw new ControllerError("writer_lock_conflict", "El writer lock pertenece a otro intento.");
+  }
+  await rm(lockPath);
+  return true;
+}
+
 async function readGlobal(options, required = true) {
   const paths = sessionPaths(options);
   if (!existsSync(paths.global)) {
@@ -338,12 +418,685 @@ function renderGlobalTemplate(template, { mode, objective, session, workflow }) 
     .replace("- Fase actual:", "- Fase actual: Pendiente");
 }
 
+function canonicalOwnedPath(value) {
+  if (
+    typeof value !== "string" ||
+    !value ||
+    value.includes("\\") ||
+    value.startsWith("/") ||
+    /^[A-Za-z]:/.test(value)
+  ) {
+    throw new ControllerError("invalid_owned_path", "ownedPaths exige rutas relativas canónicas.", 2);
+  }
+  const segments = value.split("/");
+  if (segments.some((segment) => !segment || segment === "." || segment === "..")) {
+    throw new ControllerError("invalid_owned_path", "ownedPaths exige rutas relativas canónicas.", 2);
+  }
+  const portableSegments = segments.map((segment) => segment.replace(/[ .]+$/u, "").toLowerCase());
+  if (portableSegments.some((segment) => !segment || segment === "." || segment === "..")) {
+    throw new ControllerError("invalid_owned_path", "ownedPaths contiene un alias no portable.", 2);
+  }
+  return portableSegments.join("/");
+}
+
+function pathsCollide(left, right) {
+  return left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
+}
+
+function capacityConfig(payload, existing = {}) {
+  const mode = payload.mode ?? existing.mode ?? "full";
+  if (!["full", "light"].includes(mode)) {
+    throw new ControllerError("invalid_mode", "mode debe ser full o light.", 2);
+  }
+  const platformCapacity = payload.platformCapacity ?? existing.platformCapacity ?? MODE_LIMITS[mode].total;
+  const readOnlyCapacity = payload.readOnlyCapacity ?? existing.readOnlyCapacity ?? platformCapacity;
+  const writerIsolationCapacity =
+    payload.writerIsolationCapacity ??
+    payload.isolationCapacity ??
+    existing.writerIsolationCapacity ??
+    existing.isolationCapacity ??
+    1;
+  for (const [field, value] of Object.entries({
+    platformCapacity,
+    readOnlyCapacity,
+    writerIsolationCapacity,
+  })) {
+    if (!Number.isSafeInteger(value) || value <= 0) {
+      throw new ControllerError("invalid_capacity", `${field} debe ser un entero positivo.`, 2);
+    }
+  }
+  return {
+    isolationCapacity: writerIsolationCapacity,
+    mode,
+    platformCapacity,
+    readOnlyCapacity,
+    writerIsolationCapacity,
+  };
+}
+
+function technicalAgentCapacity(managed) {
+  const modeLimit = MODE_LIMITS[managed.mode ?? "full"].total;
+  return Math.min(modeLimit, managed.platformCapacity ?? modeLimit);
+}
+
+function readOnlyAgentCapacity(managed) {
+  return Math.min(
+    technicalAgentCapacity(managed),
+    managed.readOnlyCapacity ?? managed.platformCapacity ?? technicalAgentCapacity(managed),
+  );
+}
+
+function parseWorkUnits(payload, existing = {}) {
+  if (payload.workUnits === undefined) return {};
+  if (!Array.isArray(payload.workUnits) || !payload.workUnits.length || payload.workUnits.length > 3) {
+    throw new ControllerError("invalid_work_units", "workUnits debe contener entre una y tres unidades.", 2);
+  }
+  const capacity = capacityConfig(payload, existing);
+
+  const workUnits = {};
+  for (const candidate of payload.workUnits) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+      throw new ControllerError("invalid_work_units", "Cada unidad debe ser un objeto.", 2);
+    }
+    const { acceptanceCriteria, workUnitId, dependsOn, ownedPaths, permission } = candidate;
+    if (!WORK_UNIT_PATTERN.test(workUnitId ?? "") || workUnits[workUnitId]) {
+      throw new ControllerError("invalid_work_unit_id", "workUnitId debe ser único y canónico.", 2);
+    }
+    if (!Array.isArray(dependsOn) || new Set(dependsOn).size !== dependsOn.length) {
+      throw new ControllerError("invalid_dependencies", "dependsOn debe ser una lista sin duplicados.", 2);
+    }
+    if (
+      !Array.isArray(acceptanceCriteria) ||
+      !acceptanceCriteria.length ||
+      acceptanceCriteria.some((criterion) => typeof criterion !== "string" || !criterion.trim()) ||
+      new Set(acceptanceCriteria).size !== acceptanceCriteria.length ||
+      !Array.isArray(ownedPaths) ||
+      !["read-only", "writer"].includes(permission)
+    ) {
+      throw new ControllerError(
+        "invalid_work_unit_contract",
+        "Cada unidad exige acceptanceCriteria, ownedPaths y permission read-only o writer.",
+        2,
+      );
+    }
+    const canonicalPaths = ownedPaths.map(canonicalOwnedPath);
+    if (new Set(canonicalPaths).size !== canonicalPaths.length) {
+      throw new ControllerError("ownership_collision", "Una unidad repite rutas de propiedad.", 2);
+    }
+    workUnits[workUnitId] = {
+      acceptanceCriteria: acceptanceCriteria.map((criterion) => criterion.trim()),
+      dependsOn: [...dependsOn],
+      ownedPaths: canonicalPaths,
+      permission,
+      state: "planned",
+      wave: 0,
+      workUnitId,
+    };
+  }
+
+  for (const unit of Object.values(workUnits)) {
+    if (
+      unit.dependsOn.some(
+        (dependency) => !WORK_UNIT_PATTERN.test(dependency) || !workUnits[dependency] || dependency === unit.workUnitId,
+      )
+    ) {
+      throw new ControllerError("invalid_dependencies", "dependsOn referencia una unidad inválida.", 2);
+    }
+  }
+  const visiting = new Set();
+  const visited = new Set();
+  function assignWave(unit) {
+    if (visiting.has(unit.workUnitId)) {
+      throw new ControllerError("dependency_cycle", "workUnits contiene un ciclo de dependencias.", 2);
+    }
+    if (visited.has(unit.workUnitId)) return unit.wave;
+    visiting.add(unit.workUnitId);
+    unit.wave = 1 + Math.max(0, ...unit.dependsOn.map((dependency) => assignWave(workUnits[dependency])));
+    visiting.delete(unit.workUnitId);
+    visited.add(unit.workUnitId);
+    return unit.wave;
+  }
+  Object.values(workUnits).forEach(assignWave);
+
+  const writers = Object.values(workUnits).filter((unit) => unit.permission === "writer");
+  for (let left = 0; left < writers.length; left += 1) {
+    for (let right = left + 1; right < writers.length; right += 1) {
+      if (
+        writers[left].ownedPaths.some((path) =>
+          writers[right].ownedPaths.some((candidate) => pathsCollide(path, candidate)),
+        )
+      ) {
+        throw new ControllerError(
+          "ownership_collision",
+          `Las unidades ${writers[left].workUnitId} y ${writers[right].workUnitId} colisionan.`,
+          2,
+        );
+      }
+    }
+  }
+
+  const modeLimit = MODE_LIMITS[capacity.mode].total;
+  const readyUnits = Object.values(workUnits).filter((unit) => unit.dependsOn.length === 0);
+  const readyReadOnly = readyUnits.filter((unit) => unit.permission === "read-only").length;
+  const readyWriters = readyUnits.length - readyReadOnly;
+  return {
+    effectiveCapacity: Math.min(
+      modeLimit,
+      capacity.platformCapacity,
+      Math.min(capacity.readOnlyCapacity, readyReadOnly) +
+        Math.min(capacity.writerIsolationCapacity, readyWriters),
+    ),
+    ...capacity,
+    evaluationGeneration: existing.evaluationGeneration ?? 1,
+    evaluations: existing.evaluations ?? {},
+    workUnits,
+  };
+}
+
+function comparableOwnedPaths(ownedPaths) {
+  if (!Array.isArray(ownedPaths)) return ownedPaths;
+  try {
+    return ownedPaths.map(canonicalOwnedPath);
+  } catch {
+    return ownedPaths;
+  }
+}
+
+function workUnitPlanDefinition(managed, missingFrom) {
+  const definition = {
+    isolationCapacity: managed.isolationCapacity,
+    mode: managed.mode,
+    platformCapacity: managed.platformCapacity,
+    readOnlyCapacity: managed.readOnlyCapacity,
+    writerIsolationCapacity: managed.writerIsolationCapacity,
+    workUnits: Object.fromEntries(
+      Object.entries(managed.workUnits).map(([workUnitId, unit]) => [
+        workUnitId,
+        {
+          acceptanceCriteria: unit.acceptanceCriteria,
+          dependsOn: unit.dependsOn,
+          ownedPaths: comparableOwnedPaths(unit.ownedPaths),
+          permission: unit.permission,
+          wave: unit.wave,
+          workUnitId: unit.workUnitId,
+        },
+      ]),
+    ),
+  };
+  if (!missingFrom) return definition;
+  for (const field of ["readOnlyCapacity", "writerIsolationCapacity"]) {
+    if (!Object.hasOwn(managed, field)) definition[field] = missingFrom[field];
+  }
+  for (const [workUnitId, unit] of Object.entries(managed.workUnits)) {
+    if (!Object.hasOwn(unit, "acceptanceCriteria") && missingFrom.workUnits[workUnitId]) {
+      definition.workUnits[workUnitId].acceptanceCriteria =
+        missingFrom.workUnits[workUnitId].acceptanceCriteria;
+    }
+  }
+  return definition;
+}
+
+function completeWorkUnitPlan(managed, configured) {
+  let completed = false;
+  for (const field of ["readOnlyCapacity", "writerIsolationCapacity"]) {
+    if (Object.hasOwn(managed, field)) continue;
+    managed[field] = configured[field];
+    completed = true;
+  }
+  for (const [workUnitId, unit] of Object.entries(managed.workUnits)) {
+    if (Object.hasOwn(unit, "acceptanceCriteria")) continue;
+    unit.acceptanceCriteria = [...configured.workUnits[workUnitId].acceptanceCriteria];
+    completed = true;
+  }
+  if (!Object.hasOwn(managed, "evaluationGeneration")) {
+    managed.evaluationGeneration = 1;
+    completed = true;
+  }
+  return completed;
+}
+
+function assertWorkUnitPlanReady(managed) {
+  if (
+    !managed.workUnits ||
+    (Object.hasOwn(managed, "readOnlyCapacity") &&
+      Object.hasOwn(managed, "writerIsolationCapacity") &&
+      Object.hasOwn(managed, "evaluationGeneration") &&
+      Object.values(managed.workUnits).every((unit) => Object.hasOwn(unit, "acceptanceCriteria")))
+  ) {
+    return;
+  }
+  throw new ControllerError(
+    "work_unit_plan_upgrade_required",
+    "La DevSession exige completar su plan de unidades mediante init antes de abrir intentos.",
+  );
+}
+
+function relatedAttempt(ledger, payload) {
+  if (payload.workUnitId !== undefined) return ledger.workUnitId === payload.workUnitId;
+  if (payload.laneId !== undefined) return ledger.laneId === payload.laneId;
+  if (payload.evaluationAxis !== undefined) return ledger.evaluationAxis === payload.evaluationAxis;
+  return ledger.workUnitId === undefined && ledger.laneId === undefined && ledger.evaluationAxis === undefined;
+}
+
+function activeAttempts(managed) {
+  return Object.values(managed.attempts).filter((attempt) =>
+    ["active", "awaiting_input"].includes(attempt.state),
+  );
+}
+
+function attemptIsWriter(session, attempt) {
+  return (
+    attempt.permission === "writer" ||
+    (attempt.permission === undefined &&
+      session.managed.workUnits?.[attempt.workUnitId]?.permission === "writer")
+  );
+}
+
+function managedAttemptIsWriter(managed, attempt) {
+  return (
+    attempt.permission === "writer" ||
+    (attempt.permission === undefined &&
+      managed.workUnits?.[attempt.workUnitId]?.permission === "writer")
+  );
+}
+
+function attemptPermission(session, identity, payload, workUnit) {
+  if (!session.managed.workUnits && payload.permission === undefined) return undefined;
+  if (!["read-only", "writer"].includes(payload.permission)) {
+    throw new ControllerError(
+      "invalid_attempt_permission",
+      "open exige permission read-only o writer para cada intento planificado.",
+      2,
+    );
+  }
+  const readOnlyRoles = new Set(["evaluador", "explorador", "planificador"]);
+  if (readOnlyRoles.has(identity.role) && payload.permission !== "read-only") {
+    throw new ControllerError("invalid_attempt_permission", `${identity.role} debe ser read-only.`, 2);
+  }
+  if (identity.role === "implementador" && payload.permission !== "writer") {
+    throw new ControllerError("invalid_attempt_permission", "El Implementador debe ser writer.", 2);
+  }
+  if (payload.permission === "writer" && workUnit && workUnit.permission !== "writer") {
+    throw new ControllerError(
+      "invalid_attempt_permission",
+      "El intento writer no tiene ownership de escritura en la unidad.",
+      2,
+    );
+  }
+  return payload.permission;
+}
+
+function attemptTrace(session, payload, workUnit) {
+  if (!session.managed.workUnits) return {};
+  if (typeof payload.baseRevision !== "string" || !payload.baseRevision.trim()) {
+    throw new ControllerError("base_revision_required", "open exige baseRevision no vacía.", 2);
+  }
+  if (typeof payload.threadId !== "string" || !payload.threadId.trim()) {
+    throw new ControllerError("thread_id_required", "open exige threadId no vacío.", 2);
+  }
+  if (
+    !Array.isArray(payload.criteria) ||
+    !payload.criteria.length ||
+    payload.criteria.some((criterion) => typeof criterion !== "string" || !criterion.trim()) ||
+    new Set(payload.criteria).size !== payload.criteria.length
+  ) {
+    throw new ControllerError("invalid_attempt_criteria", "open exige criteria trazables.", 2);
+  }
+  const criteria = payload.criteria.map((criterion) => criterion.trim());
+  if (workUnit && criteria.some((criterion) => !workUnit.acceptanceCriteria.includes(criterion))) {
+    throw new ControllerError(
+      "invalid_attempt_criteria",
+      "criteria debe pertenecer a la unidad asignada.",
+      2,
+    );
+  }
+  return {
+    baseRevision: payload.baseRevision.trim(),
+    criteria,
+    threadId: payload.threadId.trim(),
+    ...(workUnit ? { wave: workUnit.wave } : {}),
+  };
+}
+
+function assertAgentCapacity(session, identity, permission) {
+  const active = activeAttempts(session.managed);
+  const mode = session.managed.mode ?? "full";
+  const limits = MODE_LIMITS[mode];
+  const activeForRole = active.filter((attempt) => attempt.role === identity.role).length;
+  if (activeForRole >= (limits.roles[identity.role] ?? 1)) {
+    throw new ControllerError(
+      "role_capacity_reached",
+      `El rol ${identity.role} alcanzó el tope del modo ${mode}.`,
+    );
+  }
+  const totalLimit = technicalAgentCapacity(session.managed);
+  if (active.length >= totalLimit) {
+    throw new ControllerError(
+      "agent_capacity_reached",
+      "La capacidad efectiva de subagentes está ocupada.",
+    );
+  }
+  if (
+    permission === "read-only" &&
+    active.filter((attempt) => attempt.permission === "read-only").length >=
+      readOnlyAgentCapacity(session.managed)
+  ) {
+    throw new ControllerError(
+      "agent_capacity_reached",
+      "La capacidad de contextos read-only está ocupada.",
+    );
+  }
+  if (
+    permission === "writer" &&
+    active.filter((attempt) => managedAttemptIsWriter(session.managed, attempt)).length >=
+      (session.managed.writerIsolationCapacity ?? session.managed.isolationCapacity ?? 1)
+  ) {
+    throw new ControllerError("writer_conflict", "Ya existe un escritor activo en el working tree.");
+  }
+}
+
+function assertWorkUnitCanOpen(session, identity, payload, workUnit, permission) {
+  if (!workUnit) return;
+  if (permission === "writer") {
+    const activeWriter = activeAttempts(session.managed).find(
+      (attempt) => attempt.permission === "writer",
+    );
+    if (activeWriter) {
+      throw new ControllerError("writer_conflict", "Ya existe un escritor activo en el working tree.");
+    }
+  }
+  if (identity.role === "implementador") {
+    if (workUnit.validated && (typeof payload.impact !== "string" || !payload.impact.trim())) {
+      throw new ControllerError(
+        "work_unit_already_validated",
+        "Una unidad validada solo puede repetirse con impacto demostrado.",
+      );
+    }
+    if (workUnit.dependsOn.some((dependency) => !session.managed.workUnits[dependency].validated)) {
+      throw new ControllerError(
+        "dependencies_not_validated",
+        "La unidad conserva dependencias sin validación atribuible.",
+      );
+    }
+    if (!["planned", "failed", "consolidated"].includes(workUnit.state)) {
+      throw new ControllerError("invalid_work_unit_transition", `La unidad está en estado ${workUnit.state}.`);
+    }
+  }
+  if (identity.role === "tester" && workUnit.state !== "implemented") {
+    throw new ControllerError(
+      "work_unit_not_implemented",
+      "El Tester solo puede validar una unidad implementada.",
+    );
+  }
+}
+
+function requiredEvaluationAxes(managed) {
+  return managed.mode === "light" ? ["combined"] : ["standards", "specification"];
+}
+
+function currentEvaluationGeneration(managed) {
+  return managed.evaluationGeneration ?? 1;
+}
+
+function evaluationAttemptIsCurrent(managed, attempt) {
+  return (
+    !attempt.evaluationAxis ||
+    (attempt.evaluationGeneration ?? 1) === currentEvaluationGeneration(managed)
+  );
+}
+
+function currentEvaluation(managed, axis) {
+  const evaluation = managed.evaluations?.[axis];
+  return evaluation &&
+    (evaluation.generation ?? 1) === currentEvaluationGeneration(managed)
+    ? evaluation
+    : undefined;
+}
+
+function assertEvaluationCanOpen(session, identity, payload) {
+  if (identity.role !== "evaluador" || !session.managed.workUnits) return;
+  if (!workUnitStatus(session.managed).fanInReady) {
+    throw new ControllerError("fan_in_pending", "La evaluación final exige fan-in de unidades validadas.");
+  }
+  if (!requiredEvaluationAxes(session.managed).includes(payload.evaluationAxis)) {
+    throw new ControllerError(
+      "invalid_evaluation_axis",
+      "evaluationAxis no corresponde al modo de la DevSession.",
+      2,
+    );
+  }
+  const existing = Object.values(session.managed.attempts).find(
+    (attempt) =>
+      attempt.phaseId === identity.phaseId &&
+      attempt.evaluationAxis === payload.evaluationAxis &&
+      (attempt.evaluationGeneration ?? 1) === currentEvaluationGeneration(session.managed) &&
+      (["active", "awaiting_input"].includes(attempt.state) ||
+        (attempt.state === "completed" &&
+          currentEvaluation(session.managed, payload.evaluationAxis)?.state === "approved")),
+  );
+  if (existing) {
+    throw new ControllerError(
+      "evaluation_axis_conflict",
+      `El eje ${payload.evaluationAxis} ya tiene un intento vigente.`,
+    );
+  }
+}
+
+function advanceWorkUnitOnOpen(session, identity, workUnit, payload, attempt) {
+  if (!workUnit) return;
+  if (identity.role === "implementador") {
+    if (workUnit.validated) {
+      workUnit.validated = false;
+      workUnit.impact = payload.impact.trim();
+      session.managed.evaluationGeneration = currentEvaluationGeneration(session.managed) + 1;
+      session.managed.evaluations = {};
+    }
+    workUnit.implementationAttempt = attempt;
+    workUnit.state = "active";
+  }
+  if (identity.role === "tester") {
+    workUnit.state = "validating";
+    workUnit.testingAttempt = attempt;
+  }
+}
+
+function testerReportPassed(report) {
+  return /^(?:Ningun[oa]|No aplica)\.?$/i.test(testerFailure(report));
+}
+
+function testerFailure(report) {
+  return report.match(/^- \*\*Fallos:\*\*\s*(.+)$/m)?.[1].trim() ?? "No informado";
+}
+
+function advanceWorkUnitOnCommit(session, ledger, attempt, report) {
+  const workUnit = session.managed.workUnits?.[ledger.workUnitId];
+  if (!workUnit) return;
+  if (ledger.role === "implementador") {
+    workUnit.implementationEvidence = ledger.evidence;
+    workUnit.implementationAttempt = attempt;
+    workUnit.state = "implemented";
+  }
+  if (ledger.role === "tester") {
+    workUnit.testingAttempt = attempt;
+    if (testerReportPassed(report)) {
+      workUnit.consolidatedAttempt = attempt;
+      workUnit.state = "consolidated";
+      workUnit.validated = true;
+      workUnit.validationAttempt = attempt;
+      workUnit.validationEvidence = ledger.evidence;
+    } else {
+      workUnit.failureAttempt = attempt;
+      workUnit.failureCause = testerFailure(report);
+      workUnit.failureEvidence = ledger.evidence;
+      workUnit.state = "failed";
+      workUnit.validated = false;
+    }
+  }
+}
+
+function advanceEvaluationOnCommit(session, ledger, attempt, report) {
+  if (!ledger.evaluationAxis || !evaluationAttemptIsCurrent(session.managed, ledger)) return;
+  const approved = /^- \*\*Veredicto:\*\*\s*aprobado\.?$/m.test(report);
+  session.managed.evaluations ??= {};
+  session.managed.evaluations[ledger.evaluationAxis] = {
+    attempt,
+    generation: ledger.evaluationGeneration ?? currentEvaluationGeneration(session.managed),
+    state: approved ? "approved" : "changes_required",
+  };
+}
+
+function advanceUnitOnFail(session, ledger, attempt, cause) {
+  const workUnit = session.managed.workUnits?.[ledger.workUnitId];
+  if (workUnit && ledger.role === "implementador") workUnit.state = "failed";
+  if (workUnit && ledger.role === "tester") {
+    workUnit.failureAttempt = attempt;
+    workUnit.failureCause = cause;
+    workUnit.failureEvidence = { outcome: "failed" };
+    workUnit.state = "failed";
+    workUnit.validated = false;
+  }
+  if (ledger.evaluationAxis) {
+    if (!evaluationAttemptIsCurrent(session.managed, ledger)) return;
+    session.managed.evaluations ??= {};
+    session.managed.evaluations[ledger.evaluationAxis] = {
+      attempt,
+      generation: ledger.evaluationGeneration ?? currentEvaluationGeneration(session.managed),
+      state: "changes_required",
+    };
+  }
+}
+
+function workUnitStatus(managed) {
+  if (!managed.workUnits) return {};
+  const workUnits = Object.values(managed.workUnits)
+    .sort((left, right) => left.workUnitId.localeCompare(right.workUnitId))
+    .map((unit) => ({
+      ...unit,
+      ready:
+        !unit.validated &&
+        ["planned", "failed"].includes(unit.state) &&
+        unit.dependsOn.every((dependency) => managed.workUnits[dependency].validated),
+    }));
+  const readyReadOnly = workUnits.filter(
+    (unit) => unit.ready && unit.permission === "read-only",
+  ).length;
+  const readyWriters = workUnits.filter(
+    (unit) => unit.ready && unit.permission === "writer",
+  ).length;
+  const agentCapacity = technicalAgentCapacity(managed);
+  const readOnlyCapacity = readOnlyAgentCapacity(managed);
+  const fanInReady = workUnits.every((unit) => unit.validated && unit.state === "consolidated");
+  const active = activeAttempts(managed);
+  const activeReadOnly = active.filter((attempt) => attempt.permission === "read-only").length;
+  const activeWriters = active.filter((attempt) => managedAttemptIsWriter(managed, attempt)).length;
+  const activeEvaluators = active.filter((attempt) => attempt.role === "evaluador").length;
+  const activeAxes = new Set(
+    active
+      .filter(
+        (attempt) =>
+          attempt.evaluationAxis &&
+          (attempt.evaluationGeneration ?? 1) === currentEvaluationGeneration(managed),
+      )
+      .map((attempt) => attempt.evaluationAxis),
+  );
+  const pendingAxes = requiredEvaluationAxes(managed).filter(
+    (axis) => currentEvaluation(managed, axis)?.state !== "approved" && !activeAxes.has(axis),
+  );
+  const availableAgents = Math.max(0, agentCapacity - active.length);
+  const availableReadOnly = Math.max(0, readOnlyCapacity - activeReadOnly);
+  const writerIsolationCapacity =
+    managed.writerIsolationCapacity ?? managed.isolationCapacity ?? 1;
+  const availableWriters = Math.max(0, writerIsolationCapacity - activeWriters);
+  const evaluationCapacity = fanInReady
+    ? Math.min(
+        availableAgents,
+        availableReadOnly,
+        Math.max(0, MODE_LIMITS[managed.mode ?? "full"].roles.evaluador - activeEvaluators),
+        pendingAxes.length,
+      )
+    : 0;
+  const implementationCapacity = Math.min(
+    availableAgents,
+    Math.min(availableReadOnly, readyReadOnly) + Math.min(availableWriters, readyWriters),
+  );
+  return {
+    agentCapacity,
+    effectiveCapacity: Math.max(evaluationCapacity, implementationCapacity),
+    evaluationCapacity,
+    fanInReady,
+    implementationCapacity,
+    readOnlyCapacity,
+    writerIsolationCapacity,
+    workUnits,
+  };
+}
+
+function finalEvaluationStatus(managed) {
+  if (!managed.workUnits) return {};
+  const requiredAxes = requiredEvaluationAxes(managed);
+  const axes = Object.fromEntries(
+    requiredAxes.map((axis) => [axis, currentEvaluation(managed, axis)?.state ?? "pending"]),
+  );
+  return {
+    finalEvaluation: {
+      approved: requiredAxes.every((axis) => axes[axis] === "approved"),
+      axes,
+      generation: currentEvaluationGeneration(managed),
+      requiredAxes,
+    },
+  };
+}
+
 async function commandInit(options, payload) {
   const session = await readGlobal(options, false);
   const legacy = session.exists && !session.managed;
   if (session.managed) {
     validateGlobal(session.managed, options.session);
     assertRevision(options.expectedRevision, session.managed.revision);
+    if (payload.workUnits !== undefined) {
+      if (payload.workflow !== session.managed.workflow) {
+        throw new ControllerError("invalid_workflow", "El plan contradice el workflow de la sesión.", 2);
+      }
+      const configured = parseWorkUnits(payload, session.managed);
+      if (session.managed.workUnits) {
+        if (
+          stableJson(workUnitPlanDefinition(session.managed, configured)) !==
+          stableJson(workUnitPlanDefinition(configured))
+        ) {
+          throw new ControllerError("divergent_work_units", "La DevSession ya tiene otro plan de unidades.");
+        }
+        if (completeWorkUnitPlan(session.managed, configured)) {
+          if (session.managed.closed) {
+            throw new ControllerError("session_closed", "La DevSession ya está cerrada.");
+          }
+          session.managed.revision += 1;
+          await atomicWrite(session.global, withManaged(session.human, session.managed));
+          return {
+            command: "init",
+            configured: true,
+            legacy: false,
+            revision: session.managed.revision,
+            session: options.session,
+            state: "active",
+          };
+        }
+      } else {
+        if (session.managed.closed) {
+          throw new ControllerError("session_closed", "La DevSession ya está cerrada.");
+        }
+        Object.assign(session.managed, configured);
+        session.managed.revision += 1;
+        await atomicWrite(session.global, withManaged(session.human, session.managed));
+        return {
+          command: "init",
+          configured: true,
+          legacy: false,
+          revision: session.managed.revision,
+          session: options.session,
+          state: "active",
+        };
+      }
+    }
     return {
       command: "init",
       legacy: false,
@@ -374,6 +1127,8 @@ async function commandInit(options, payload) {
     sessionSlug: options.session,
     version: 1,
     workflow,
+    ...capacityConfig(payload),
+    ...parseWorkUnits(payload),
   };
   await mkdir(session.sessions, { recursive: true });
   await atomicWrite(session.global, withManaged(human, managed));
@@ -399,7 +1154,7 @@ function parsePhases(source) {
 }
 
 function parseRoleContract(source) {
-  const output = source.match(/^## Salida\n([\s\S]*?)(?=^## |\z)/m)?.[1];
+  const output = source.match(/^## Salida\r?\n([\s\S]*?)(?=^## |(?![\s\S]))/m)?.[1];
   if (!output) throw new ControllerError("invalid_role_contract", "El rol no declara ## Salida.");
   const labels = [...output.matchAll(/^- \*\*([^*]+?):\*\*/gm)].map((match) =>
     match[1].trim().replace(/[.]$/, ""),
@@ -423,6 +1178,11 @@ function renderSubdevTemplate(template, values) {
     .replaceAll("<phase-id>", values.phaseId)
     .replaceAll("<role>", values.role)
     .replaceAll("<attempt-number>", String(values.attempt))
+    .replaceAll("<work-unit-id>", values.workUnitId ?? "No aplica")
+    .replaceAll("<wave>", String(values.wave ?? "No aplica"))
+    .replaceAll("<permission>", values.permission ?? "No aplica")
+    .replaceAll("<base-revision>", String(values.baseRevision ?? "No aplica"))
+    .replaceAll("<thread-id>", values.threadId ?? "No aplica")
     .replace("<objective>", values.objective ?? "Pendiente")
     .replace("<rules>", values.rules ?? "- Según la DevSession global.")
     .replace("<tasks>", values.tasks ?? "- Según la DevSession global.")
@@ -443,6 +1203,7 @@ async function commandOpen(options, payload) {
   validateGlobal(session.managed, options.session);
   assertRevision(options.expectedRevision, session.managed.revision);
   if (session.managed.closed) throw new ControllerError("session_closed", "La DevSession ya está cerrada.");
+  assertWorkUnitPlanReady(session.managed);
 
   const identity = parseAttempt(options.attempt);
   if (payload.phaseId !== identity.phaseId || payload.role !== identity.role) {
@@ -453,6 +1214,28 @@ async function commandOpen(options, payload) {
   if (phases.get(identity.phaseId) !== identity.role) {
     throw new ControllerError("attempt_identity_conflict", "La fase y el rol contradicen el workflow.");
   }
+  let workUnit;
+  if (session.managed.workUnits && ["implementador", "tester"].includes(identity.role)) {
+    if (!WORK_UNIT_PATTERN.test(payload.workUnitId ?? "")) {
+      throw new ControllerError("work_unit_required", "open exige workUnitId para una sesión por unidades.", 2);
+    }
+    workUnit = session.managed.workUnits[payload.workUnitId];
+    if (!workUnit) {
+      throw new ControllerError("work_unit_not_found", "workUnitId no pertenece a la DevSession.", 2);
+    }
+  } else if (payload.workUnitId !== undefined && session.managed.workUnits) {
+    workUnit = session.managed.workUnits[payload.workUnitId];
+    if (!workUnit) {
+      throw new ControllerError("work_unit_not_found", "workUnitId no pertenece a la DevSession.", 2);
+    }
+  } else if (payload.workUnitId !== undefined) {
+    throw new ControllerError("work_unit_not_found", "La DevSession v1 no declara unidades.", 2);
+  }
+  if (payload.laneId !== undefined && !WORK_UNIT_PATTERN.test(payload.laneId)) {
+    throw new ControllerError("invalid_lane_id", "laneId debe ser canónico.", 2);
+  }
+  const permission = attemptPermission(session, identity, payload, workUnit);
+  const trace = attemptTrace(session, payload, workUnit);
   const openPayloadHash = hashText(stableJson(payload));
   const existingLedger = session.managed.attempts[options.attempt];
   if (existingLedger) {
@@ -472,10 +1255,13 @@ async function commandOpen(options, payload) {
       state: "active",
     };
   }
-  const prior = Object.values(session.managed.attempts).filter(
+  assertEvaluationCanOpen(session, identity, payload);
+  assertWorkUnitCanOpen(session, identity, payload, workUnit, permission);
+  const phasePrior = Object.values(session.managed.attempts).filter(
     (attempt) => attempt.phaseId === identity.phaseId,
   );
-  const expectedAttempt = Math.max(0, ...prior.map((attempt) => attempt.attempt)) + 1;
+  const prior = phasePrior.filter((attempt) => relatedAttempt(attempt, payload));
+  const expectedAttempt = Math.max(0, ...phasePrior.map((attempt) => attempt.attempt)) + 1;
   if (identity.attempt !== expectedAttempt || session.managed.attempts[options.attempt]) {
     throw new ControllerError("attempt_not_monotonic", "El número de intento no es monotónico.");
   }
@@ -522,6 +1308,7 @@ async function commandOpen(options, payload) {
       2,
     );
   }
+  assertAgentCapacity(session, identity, permission);
   const rolePath = join(options.root, ".agents", "roles", `${identity.role}.md`);
   const contract = parseRoleContract(await readUtf8(rolePath));
   const templatePath = join(options.root, ".agents", "templates", "subdev-session.md");
@@ -529,9 +1316,12 @@ async function commandOpen(options, payload) {
     ...identity,
     ...payload,
     ...reworkTrace,
+    ...trace,
     contract,
     identity: options.attempt,
+    permission,
     session: options.session,
+    wave: workUnit?.wave,
   });
   const envelopeManaged = {
     attempt: identity.attempt,
@@ -542,9 +1332,17 @@ async function commandOpen(options, payload) {
     phaseId: identity.phaseId,
     revision: 1,
     role: identity.role,
+    ...(permission !== undefined ? { permission } : {}),
+    ...trace,
     sessionSlug: options.session,
     state: "active",
     version: 1,
+    ...(workUnit ? { workUnitId: workUnit.workUnitId } : {}),
+    ...(payload.laneId !== undefined ? { laneId: payload.laneId } : {}),
+    ...(payload.evaluationAxis !== undefined ? { evaluationAxis: payload.evaluationAxis } : {}),
+    ...(payload.evaluationAxis !== undefined
+      ? { evaluationGeneration: currentEvaluationGeneration(session.managed) }
+      : {}),
   };
   const envelopePath = join(session.subdirectory, `${options.attempt}.md`);
   const envelopeSource = withManaged(human, envelopeManaged);
@@ -556,14 +1354,25 @@ async function commandOpen(options, payload) {
     await mkdir(dirname(envelopePath), { recursive: true });
     await atomicWrite(envelopePath, envelopeSource);
   }
+  if (permission === "writer") await acquireWriterReservation(options);
   session.managed.attempts[options.attempt] = {
     attempt: identity.attempt,
     ...reworkTrace,
     openPayloadHash,
     phaseId: identity.phaseId,
     role: identity.role,
+    ...(permission !== undefined ? { permission } : {}),
+    ...trace,
     state: "active",
+    ...(workUnit ? { workUnitId: workUnit.workUnitId } : {}),
+    ...(payload.laneId !== undefined ? { laneId: payload.laneId } : {}),
+    ...(payload.evaluationAxis !== undefined ? { evaluationAxis: payload.evaluationAxis } : {}),
+    ...(payload.evaluationAxis !== undefined
+      ? { evaluationGeneration: currentEvaluationGeneration(session.managed) }
+      : {}),
   };
+  advanceWorkUnitOnOpen(session, identity, workUnit, payload, options.attempt);
+  session.managed.currentPhase = identity.phaseId;
   session.managed.revision += 1;
   await atomicWrite(session.global, withManaged(session.human, session.managed));
   return {
@@ -904,6 +1713,9 @@ async function commandCommit(options, payload) {
       await atomicWrite(envelope.path, withManaged(envelopeHuman, envelope.managed));
       await atomicWrite(session.global, withManaged(session.human, session.managed));
     }
+    if (attemptIsWriter(session, ledger)) {
+      await releaseWriterReservation(options, { preserveForeignOwner: alreadyAcknowledged });
+    }
     return commitResult(options, session, ledger, true);
   }
   assertAttemptState(ledger, envelope, ["active"]);
@@ -930,12 +1742,30 @@ async function commandCommit(options, payload) {
     consolidatedHash,
     envelopeHumanHash: envelope.managed.humanHash,
     reportHash,
+    evidence: {
+      outcome:
+        ledger.role === "tester"
+          ? testerReportPassed(report)
+            ? "validated"
+            : "failed"
+          : ledger.evaluationAxis
+            ? evaluationAttemptIsCurrent(session.managed, ledger)
+              ? /^- \*\*Veredicto:\*\*\s*aprobado\.?$/m.test(report)
+                ? "approved"
+                : "changes_required"
+              : "obsolete"
+            : "completed",
+      reportHash,
+    },
     state: "completed",
   });
+  advanceWorkUnitOnCommit(session, ledger, options.attempt, report);
+  advanceEvaluationOnCommit(session, ledger, options.attempt, report);
   session.managed.revision += 1;
   const globalHuman = insertConsolidation(session.human, section);
   await atomicWrite(session.global, withManaged(globalHuman, session.managed));
   await atomicWrite(envelope.path, withManaged(envelopeHuman, envelope.managed));
+  if (attemptIsWriter(session, ledger)) await releaseWriterReservation(options);
   return commitResult(options, session, ledger);
 }
 
@@ -975,6 +1805,9 @@ async function commandFail(options, payload) {
         "ambiguous_checkpoint",
         "El estado confirmado de fail es inconsistente.",
       );
+    }
+    if (attemptIsWriter(session, ledger)) {
+      await releaseWriterReservation(options, { preserveForeignOwner: true });
     }
     return {
       attempt: options.attempt,
@@ -1019,6 +1852,7 @@ async function commandFail(options, payload) {
     });
     ledger.envelopeHumanHash = envelope.managed.humanHash;
     await atomicWrite(envelope.path, withManaged(envelopeHuman, envelope.managed));
+    if (attemptIsWriter(session, ledger)) await releaseWriterReservation(options);
     return {
       attempt: options.attempt,
       command: "fail",
@@ -1045,9 +1879,11 @@ async function commandFail(options, payload) {
     envelopeHumanHash: envelope.managed.humanHash,
     state: "failed",
   });
+  advanceUnitOnFail(session, ledger, options.attempt, cause);
   session.managed.revision += 1;
   await atomicWrite(session.global, withManaged(insertConsolidation(session.human, section), session.managed));
   await atomicWrite(envelope.path, withManaged(envelopeHuman, envelope.managed));
+  if (attemptIsWriter(session, ledger)) await releaseWriterReservation(options);
   return {
     attempt: options.attempt,
     command: "fail",
@@ -1188,6 +2024,21 @@ async function commandClose(options) {
   if (!session.managed) throw new ControllerError("legacy_requires_init", "La sesión legacy debe adoptarse con init.");
   validateGlobal(session.managed, options.session);
   assertRevision(options.expectedRevision, session.managed.revision);
+  if (session.managed.workUnits && !workUnitStatus(session.managed).fanInReady) {
+    throw new ControllerError(
+      "session_fan_in_pending",
+      "La DevSession no puede cerrar antes del fan-in de unidades validadas.",
+    );
+  }
+  if (
+    session.managed.workUnits &&
+    !finalEvaluationStatus(session.managed).finalEvaluation.approved
+  ) {
+    throw new ControllerError(
+      "session_evaluation_pending",
+      "La DevSession no puede cerrar sin todos los ejes aprobados.",
+    );
+  }
   const attempts = await classifyAttempts(session);
   if (attempts.some((attempt) => !["completed", "failed"].includes(attempt.state))) {
     throw new ControllerError(
@@ -1246,6 +2097,8 @@ async function commandStatus(options) {
     revision: session.managed.revision,
     session: options.session,
     state: session.managed.closed ? "completed" : "active",
+    ...workUnitStatus(session.managed),
+    ...finalEvaluationStatus(session.managed),
   };
 }
 

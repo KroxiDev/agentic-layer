@@ -119,6 +119,52 @@ validación reducida?
 La decisión del usuario no permite ignorar seguridad, integridad, acciones
 destructivas, reglas obligatorias ni instrucciones superiores.
 
+## Presupuesto y paralelismo controlado
+
+- `light` permite como máximo 4 subagentes activos.
+- `full` permite como máximo 9 subagentes activos.
+  El orquestador no cuenta dentro de esos topes y los valores son máximos, no
+  cuotas.
+- El límite efectivo de contextos de solo lectura es el mínimo entre el máximo
+  del modo, la capacidad real de la plataforma y el trabajo listo. El
+  aislamiento de escritores se calcula aparte y nunca reduce carriles
+  `read-only`. Con menor capacidad, reducir el fan-out usando agentes reales;
+  no simular agentes ni sustituirlos por procesos auxiliares.
+- Topes por rol: en `light`, Explorador 2 y los demás roles 1; en `full`,
+  Explorador 3, Tester 2, Evaluador 2 y los demás roles 1.
+- Formar oleadas deterministas únicamente con unidades listas. Cerrar cada hilo
+  después de consolidar su resultado para liberar capacidad.
+
+La planificación puede declarar entre una y tres unidades de implementación,
+cada una con `workUnitId`, `dependsOn`, `owned_paths`, permiso y orden. Las
+dependencias solo quedan satisfechas por validación atribuible del Tester. No
+repetir una unidad validada salvo impacto demostrado.
+
+Cada intento declara su propio permiso `read-only` o `writer`; un Tester
+`read-only` puede validar una unidad `writer` sin consumir aislamiento de
+escritor. `baseRevision`, `threadId`, criterios, oleada y fase son obligatorios
+en cada intento planificado.
+
+Solo puede existir un solo escritor activo por working tree. Un writer lock
+durable usa la identidad canónica del working tree y se comparte entre todas
+sus DevSessions. Sin worktrees
+aislados aprobados, Implementadores y Testers con permiso de escritura se
+ejecutan secuencialmente. Cada ruta editable tiene un propietario exclusivo;
+rechazar rutas no canónicas, escapes y colisiones exactas o de
+ancestro/descendiente antes de despachar. La comparación es portable a Windows:
+ignora mayúsculas y aliases por puntos o espacios terminales en cada segmento.
+
+Después de que todas las unidades estén implementadas, validadas y consolidadas,
+ejecutar el fan-in. En `full`, la evaluación final usa dos Evaluadores de solo
+lectura y ejes independientes: Estándares y Especificación. En `light`, usa un
+solo Evaluador con ambos ejes. La aprobación exige conformidad de todos los ejes
+requeridos.
+
+Cada fan-in tiene una generación. Reabrir una unidad invalida todos los ejes e
+incrementa la generación; cada eje puede reintentarse de forma monotónica y
+trazable. Un reporte rojo o `fail` del Tester deja la unidad no validada y
+habilita retrabajo del Implementador.
+
 ## Selección de workflow
 
 | Intención | Workflow |
@@ -172,11 +218,20 @@ El orquestador administra el ciclo con
 `node .agents/scripts/session-controller.mjs <comando> --session <slug>` y una
 revisión esperada en cada mutación. Usa `init`, `open`, `await-input`, `resume`,
 `commit`, `fail`, `recover`, `cleanup` y `close` según la transición requerida.
+El primer `init` persiste modo y capacidades y aplica desde entonces los topes,
+aunque el DAG todavía no exista.
+Tras planificar unidades, repetir `init` con la revisión vigente para registrar
+atómicamente el DAG y la capacidad detectada antes de abrir sus intentos.
 
 Actualizarla al cerrar cada fase. Es el único traspaso de estado entre
 subagentes y debe registrar:
 
 - objetivo, workflow, modo y fase actual;
+- presupuesto del modo, capacidad `read-only`, aislamiento de escritores y oleada;
+- unidades, dependencias, ownership, permiso por intento, hilos y revisión base;
+- estados implementada, validada y consolidada, con evidencia atribuible;
+- hilos abiertos/cerrados, fallos, retrabajo y resultado del fan-in;
+- generación y ejes de evaluación final con sus veredictos;
 - sector de importancia y reglas efectivas por sector;
 - especificación, tareas y decisiones;
 - archivos modificados;

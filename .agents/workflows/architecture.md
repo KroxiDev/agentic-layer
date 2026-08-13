@@ -20,3 +20,11 @@ Usar para decisiones de diseño con consecuencias durables.
 
 `Light` solo puede aplicarse al workflow posterior de implementación y requiere
 una petición explícita; no reduce exploración, comparación ni aprobación.
+
+El workflow posterior materializa la decisión en una a tres unidades de implementación
+con dependencias y ownership exclusivo, valida cada una y ejecuta
+fan-in antes de evaluar la arquitectura integrada. En `full`, Estándares y
+Especificación se revisan con dos Evaluadores de solo lectura; en el workflow
+posterior `light`, un Evaluador cubre ambos ejes.
+La fase `architecture-propose` ocurre antes de ese fan-in; solo
+`architecture-document` exige la evaluación final aprobada.

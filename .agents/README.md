@@ -31,12 +31,14 @@ por orden explícita con `agentic update`: el comando conserva DevSessions y
 archivos ajenos, repara el inventario incluso con la misma versión y escribe
 `.agents/VERSION` al final de la transacción.
 
-Después de actualizar la capa, `update` puede configurar explícitamente 9
-subagentes en un `config.toml` global o local. `--yes` no autoriza esa operación:
-requiere `--codex-config global|local|none`. El editor conserva el TOML que no
-gestiona y deriva estructuras ambiguas o strings multilínea a edición manual.
-Toda escritura autorizada usa un temporal hermano y revalida ancestros no-follow
-justo antes de crearlo y antes de la mutación final.
+Después de actualizar la capa, `update` puede habilitar explícitamente capacidad
+técnica para 12 subagentes en un `config.toml` global o local. `--yes` no
+autoriza esa operación: requiere `--codex-config global|local|none`. Los modos
+conservan topes inferiores (`light = 4`, `full = 9`), independientes de ese
+techo técnico. El editor conserva el TOML que no gestiona y deriva estructuras
+ambiguas o strings multilínea a edición manual. Toda escritura autorizada usa
+un temporal hermano y revalida ancestros no-follow justo antes de crearlo y
+antes de la mutación final.
 
 ## Mapa
 
@@ -73,6 +75,41 @@ incluidos los overrides locales, y mantiene el comportamiento común.
 Los adapters solo aplican restricciones técnicas y apuntan a archivos
 canónicos. No contienen workflows ni políticas completas.
 
+## Modelo de ejecución por unidades
+
+El Planificador registra en la DevSession un DAG de una a tres unidades
+verticales. Una unidad es estado durable de trabajo: `workUnitId`, criterios,
+dependencias, oleada, permiso y `ownedPaths`. Un intento es una ejecución
+monotónica de fase y rol asociada a esa unidad, carril o eje; conserva su propio
+`baseRevision`, `threadId`, permiso, criterios, causa de retrabajo y evidencia.
+Reintentar no crea otra unidad ni reactiva un intento terminal.
+
+El controlador concentra las invariantes mecánicas detrás de su CLI:
+
+1. valida DAG, ciclos, dependencias y ownership portable antes de despachar;
+2. abre sólo unidades listas y hace cumplir los gates `implemented` →
+   `validated` → `consolidated`;
+3. reserva un único writer por identidad canónica del working tree, incluso
+   entre DevSessions distintas;
+4. calcula por separado capacidad total, carriles `read-only` y aislamiento de
+   escritores;
+5. habilita fan-in únicamente cuando todas las unidades están validadas y
+   consolidadas;
+6. versiona el fan-in y acepta sólo Evaluadores de la generación vigente.
+
+La adquisición del writer lock publica por hard link un dueño exacto
+`{session, attempt, workingTreeId}`. Una transición inicial o un checkpoint
+recuperable exige seguir siendo dueño para liberar. Un terminal ya reconocido
+libera sólo si el lock continúa siendo suyo: si un intento sucesor lo adquirió,
+el reintento idempotente preserva la reserva ajena. Así `commit` y `fail`
+recuperan interrupciones reales sin romper exclusión entre sesiones.
+
+Las sesiones v1 sin unidades no se reinterpretan. Para una DevSession por
+unidades creada antes de que existiera toda la trazabilidad, `open` falla
+cerrado y exige repetir `init` con el plan aprobado. Ese upgrade sólo completa
+campos ausentes —criterios, capacidades separadas y generación inicial—,
+preserva estado e intentos y es byte-idempotente al repetirse.
+
 ## Invariantes
 
 1. CodeGraph, Engram y subagentes son requisitos obligatorios con fallo cerrado.
@@ -97,3 +134,11 @@ canónicos. No contienen workflows ni políticas completas.
     configuración de Codex como una operación opcional posterior.
 13. Los valores contractuales explícitos, incluidos autolinks y texto con
     ángulos, no se confunden con placeholders pendientes.
+14. `light` admite como máximo 4 subagentes activos y `full` 9; el orquestador
+    no cuenta y la capacidad técnica 12 de Codex no modifica esos topes.
+15. Cada ruta writer tiene un único propietario y sólo existe una reserva de
+    escritura activa por working tree.
+16. Una dependencia se satisface sólo con validación atribuible del Tester; el
+    fan-in y sus evaluaciones ocurren después de consolidar todas las unidades.
+17. Reabrir una unidad incrementa la generación de evaluación e invalida todos
+    sus ejes anteriores.

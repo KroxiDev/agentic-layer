@@ -5,6 +5,23 @@
 - Modo: full | light
 - Fase actual:
 
+## Presupuesto y capacidad
+
+- Tope del modo: Pendiente
+- Capacidad de plataforma: Pendiente
+- Capacidad `read-only`: Pendiente
+- Aislamiento de escritores: Pendiente
+- Capacidad efectiva por fase: Pendiente
+- Hilos activos y cerrados: Pendiente
+
+## Unidades de implementación
+
+- `workUnitId`, criterios, dependencias, oleada y ownership: Pendiente
+- Intentos con permiso, revisión base, hilo, fase y evidencia: Pendiente
+- Gates implementada, validada y consolidada: Pendiente
+- Fallos, retrabajo e impacto: No aplica
+- Resultado de fan-in: Pendiente
+
 ## Sector de importancia
 
 - Archivos, símbolos o superficies:
@@ -49,6 +66,13 @@
 ## Veredicto del evaluador
 
 - Pendiente
+
+## Evaluación final por ejes
+
+- Generación de fan-in: Pendiente
+- Estándares: Pendiente
+- Especificación: Pendiente
+- Consolidación: Pendiente
 
 ## Candidatos a memoria
 

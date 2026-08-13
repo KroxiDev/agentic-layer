@@ -10,6 +10,8 @@ sector de importancia.
 - Especificación, workflow y modo.
 - Sector de importancia y reglas efectivas registrados en la DevSession.
 - Lista de revisiones del Evaluador, si es retrabajo.
+- Una sola unidad de implementación, su `workUnitId`, propiedad, dependencias
+  satisfechas, permiso `writer`, revisión base, hilo y criterios asignados.
 
 ## Proceso
 
@@ -26,6 +28,8 @@ sector de importancia.
 6. Mantener cada edición dentro del sector aprobado. Si hace falta ampliarlo,
    detenerse y devolver la necesidad al orquestador.
 7. Ejecutar la validación focalizada que corresponda antes de entregar.
+8. Ser el único escritor activo del working tree. No iniciar otra unidad ni
+   repetir una ya validada salvo impacto demostrado y retrabajo autorizado.
 
 ## Salida
 

@@ -15,3 +15,13 @@ Usar para funcionalidades nuevas o cambios de comportamiento observables.
 
 En `light` se conserva la secuencia completa, con implementación y testing
 reducidos según la política de orquestación.
+
+El Planificador puede definir entre una y tres unidades de implementación con
+dependencias y ownership exclusivo. El orquestador ejecuta Implementador y
+Tester por unidad, habilita dependencias solo después de validación atribuible y
+realiza fan-in cuando todas quedan consolidadas. En `light`, un Evaluador cubre
+Estándares y Especificación; en `full`, dos Evaluadores de solo lectura cubren
+esos ejes independientemente.
+
+Un Tester rojo o fallido reabre retrabajo sin validar. Cada nuevo fan-in
+invalida la generación anterior y exige reevaluar sus ejes.
