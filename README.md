@@ -57,12 +57,11 @@ comando termina con salida `2`.
 
 La configuración de Codex es una operación opcional posterior. Para habilitar
 capacidad técnica de hasta 12 subagentes se puede elegir `--codex-config global`,
-`local` o `none`; `--yes` por sí solo nunca autoriza esa escritura. Los workflows
-mantienen sus propios topes de 4 (`light`) y 9 (`full`): 12 es capacidad de la
-plataforma, no una cuota ni un nuevo límite del modo. La configuración local
-prevalece sobre la global y un valor efectivo de 12 o más no se reduce ni se
-reescribe. Si el TOML es ambiguo o contiene strings multilínea, queda pendiente
-de edición manual y se conserva byte a byte. Las escrituras autorizadas son
+`local` o `none`; `--yes` por sí solo nunca autoriza esa escritura. La capacidad
+técnica no modifica los presupuestos de trabajo definidos por la política. La
+configuración local prevalece sobre la global y un valor efectivo de 12 o más no
+se reduce ni se reescribe. Si el TOML es ambiguo o contiene strings multilínea,
+queda pendiente de edición manual y se conserva byte a byte. Las escrituras autorizadas son
 atómicas y revalidan los ancestros no-follow antes del temporal y de la mutación
 final.
 
@@ -123,30 +122,18 @@ adopción es una copia y el propietario la mantiene.
 
 ## Activación y modos
 
-| Ejecución | Activación | Profundidad | Tope de subagentes activos |
-| --- | --- | --- | ---: |
-| Directa verificada | Riesgo bajo o medio, todos los límites directos y ninguna señal cerrada de `full` | Cambio acotado, tests proporcionales, validación focalizada y revisión del diff | No aplica |
-| `light` | Sólo por petición explícita | Mismos roles, workflow y DevSession; cambio y evidencia focalizados | 4 |
-| `full` | `orquestar` explícito sin `light`, o riesgo alto automático respaldado | Workflow completo, SDD proporcional, TDD cuando corresponda y validación declarada | 9 |
-
-`light` no selecciona modelo ni nivel de razonamiento. Por defecto no crea tests,
-no ejecuta la suite completa, no refactoriza y no amplía documentación. Conserva
-los contextos aislados, la revisión del diff, la evidencia de validación y todas
-las restricciones de seguridad. Si el impacto parece considerable, el orquestador
-recomienda `full` y pide una decisión informada antes de continuar.
-
-En TDD, cada test demuestra un comportamiento observable con todas las
-aserciones necesarias. Después de alcanzar verde puede hacerse un refactor
-acotado que no cambie comportamiento, alcance ni interfaces aprobadas; su
-validación focalizada se repite antes de continuar.
+| Ejecución | Uso |
+| --- | --- |
+| Directa verificada | Trabajo elegible para los límites directos de la política. |
+| `light` | Capa activada con intensidad reducida por petición explícita. |
+| `full` | Capa activada con el workflow completo exigido por su clasificación. |
 
 La matriz normativa vive una sola vez en
-`.agents/policies/orquestacion.md`. La cantidad de archivos no determina por sí
-sola el riesgo: una corrección clara de una unidad puede ser directa aunque
-ajuste varios archivos relacionados; `light` corresponde a una petición
-explícita; una modificación de seguridad de un solo archivo o un bug
-intermitente justifican `full`. Solo se consulta si falta un hecho que cambiaría
-la categoría.
+la [política de orquestación](.agents/policies/orquestacion.md). Allí viven la
+activación, los presupuestos, los modos, la validación y el cierre; las reglas
+TDD se derivan a la [política SDD/TDD](.agents/policies/sdd-tdd.md) y su
+[skill canónica](.agents/skills/agentic-tdd/SKILL.md). Este README describe la
+interface sin volver a enumerar categorías, límites o excepciones.
 
 ### Paralelismo controlado
 
@@ -170,16 +157,9 @@ Cada unidad atraviesa tres gates:
 3. el bloque administrado global la deja `consolidated` y su índice enlaza la
    evidencia atribuible.
 
-El Planificador elige antes de implementar una estrategia por unidad. La opción
-segura es `independent-rerun`; `distinct-acceptance-check` separa el chequeo de
-desarrollo de una señal observable de aceptación; y `verified-evidence-reuse`
-permite que el Tester acepte una señal local, rápida y determinista sin repetir
-el mismo comando. La reutilización exige autorización previa, revisión base,
-comando o procedimiento, resultado y criterio registrados, diff revisado y
-ningún cambio posterior en las rutas afectadas. Nunca aplica a seguridad,
-integridad, migración, compatibilidad pública, concurrencia, red, tiempo real,
-aleatoriedad, visuales ni entornos compartidos. Un reintento, una dependencia
-reabierta o una generación nueva vuelve obsoleta la evidencia.
+El Planificador registra la estrategia de validación de cada unidad y el Tester
+juzga su evidencia. Las opciones, condiciones de reutilización y reglas de
+vigencia pertenecen exclusivamente a la política canónica.
 
 Cada reporte contractual íntegro vive una sola vez, en la SubDevSession de su
 intento. La parte humana de la DevSession global guarda únicamente una referencia
@@ -195,18 +175,11 @@ lock global compartido por todas sus DevSessions. Implementadores y Testers que
 escriben se serializan; la exploración y la evaluación de solo lectura pueden
 usar fan-out cuando sus carriles son independientes.
 
-Cada unidad usa validación focalizada concreta sin repetir la suite completa. El
-fan-in comienza cuando todas están validadas y consolidadas; en `full`, la
-validación completa se ejecuta una sola vez después del fan-in y antes de
-evaluar. Un Evaluador `read-only` cubre conjuntamente Estándares y Especificación
-por defecto, incluso en `full`. Dos Evaluadores independientes sólo se habilitan
-cuando el plan registra antes del fan-in una estrategia dual y un riesgo de
-arquitectura, seguridad o integridad, compatibilidad o migración pública, o un
-fan-in considerable. Cada fan-in tiene una generación: reabrir una unidad
-invalida las aprobaciones anteriores e incrementa esa generación. Un reintento
-terminal idéntico de `commit` o `fail` es idempotente y sólo libera la reserva de
-writer si todavía pertenece exactamente a su sesión e intento; nunca toca la de
-un sucesor.
+El controlador hace cumplir gates, integración, estrategia y generación según
+el estado registrado; la política canónica decide cuándo son elegibles y qué
+evidencia exige el cierre. Un reintento terminal idéntico de `commit` o `fail`
+es idempotente y sólo libera la reserva de writer si todavía pertenece
+exactamente a su sesión e intento; nunca toca la de un sucesor.
 
 Las DevSessions anteriores al modelo por unidades siguen siendo compatibles.
 `status` no escribe y `init` puede completar de forma explícita, monotónica e

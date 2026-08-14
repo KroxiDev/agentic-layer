@@ -1,6 +1,9 @@
 # Workflow: architecture
 
 Usar para decisiones de diseño con consecuencias durables.
+Las mecánicas comunes de modo, delegación y cierre pertenecen a la
+[política de orquestación](../policies/orquestacion.md); este archivo fija las
+fases y el límite propio de una decisión arquitectónica.
 
 1. **Explorar — Explorador:** <!-- agentic-phase:v1 {"id":"architecture-explore","role":"explorador"} --> describir estado actual, restricciones, seams,
    dependencias y decisiones previas.
@@ -23,6 +26,6 @@ evaluación de código.
 
 Si la decisión aprobada debe implementarse, cerrar `architecture` y transferirla
 una sola vez a `feature` o `refactor` como restricción y criterio de aceptación.
-Ese workflow posterior es el único responsable de implementar una a tres
-unidades, testearlas, ejecutar fan-in, evaluar y documentar el resultado final.
-`architecture` no vuelve a evaluar ni documentar la implementación ya cerrada.
+Ese workflow posterior aplica la política canónica y es el único responsable de
+implementar, verificar, evaluar y documentar el resultado final; `architecture`
+no repite ese cierre.

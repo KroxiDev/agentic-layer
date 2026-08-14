@@ -44,7 +44,7 @@ archivos ajenos, repara el inventario incluso con la misma versión y escribe
 Después de actualizar la capa, `update` puede habilitar explícitamente capacidad
 técnica para 12 subagentes en un `config.toml` global o local. `--yes` no
 autoriza esa operación: requiere `--codex-config global|local|none`. Los modos
-conservan topes inferiores (`light = 4`, `full = 9`), independientes de ese
+conservan los presupuestos definidos por la política, independientes de ese
 techo técnico. El editor conserva el TOML que no gestiona y deriva estructuras
 ambiguas o strings multilínea a edición manual. Toda escritura autorizada usa
 un temporal hermano y revalida ancestros no-follow justo antes de crearlo y
@@ -57,7 +57,8 @@ antes de la mutación final.
 - `scripts/session-controller.mjs`: ciclo portable, recuperable e idempotente
   de DevSession global y SubDevSessions.
 - `workflows/`: orden de fases para feature, bugfix, refactor y architecture.
-- `skills/`: procedimientos portables invocados por el orquestador o los roles.
+- `skills/`: routing portable de orquestación y procedimientos especializados
+  invocados por los roles.
 - `templates/`: formatos de la DevSession global y de los sobres de fase.
 - `sessions/`: DevSessions globales y SubDevSessions efímeras ignoradas por
   control de versiones; `gitignore.asset` es el `.gitignore` que el
@@ -71,6 +72,22 @@ antes de la mutación final.
 - `../scripts/agentic-init.mjs`: inicializador y actualizador sin dependencias externas.
 - `../tests/agentic-init.test.mjs`: pruebas de adopción, seguridad,
   idempotencia y contenido del paquete.
+
+## Mapa de propietarios
+
+Cada decisión se modifica en su propietario y los demás módulos la consumen por
+referencia:
+
+| Tipo de decisión | Propietario canónico | Responsabilidad de los consumidores |
+| --- | --- | --- |
+| Activación, modos, presupuestos, unidades, validación, evaluación y cierre | [Política de orquestación](policies/orquestacion.md) | Enlazar la política sin copiar categorías, límites ni excepciones. |
+| Estado durable e invariantes ejecutables | [`session-controller.mjs`](scripts/session-controller.mjs) | Usar su CLI y comprobar comportamiento observable. |
+| Orden e intención propios de cada flujo | [`workflows/`](workflows/) | Conservar marcadores `agentic-phase:v1` y referenciar reglas comunes. |
+| Entradas, proceso, salida y límites exclusivos de un rol | [`roles/`](roles/) | Mantener el contrato aislado y enlazar la política transversal. |
+| Routing operativo | [`skills/orquestar/SKILL.md`](skills/orquestar/SKILL.md) | Cargar política, workflow y controlador; no actuar como otra política. |
+| Datos que persisten durante la tarea | [`templates/dev-session.md`](templates/dev-session.md) | Declarar campos sin explicar de nuevo sus reglas. |
+| Descubrimiento de plataforma | [`.codex/`](../.codex/) y [`.claude/`](../.claude/) | Aplicar solo restricciones técnicas y apuntar al núcleo. |
+| Inventario y estructura distribuible | [`agentic-init.mjs`](../scripts/agentic-init.mjs) | Validar archivos, enlaces, secciones y marcadores estables. |
 
 ## Interface y adapters
 
@@ -103,11 +120,9 @@ El controlador concentra las invariantes mecánicas detrás de su CLI:
    entre DevSessions distintas;
 4. calcula por separado capacidad total, carriles `read-only` y aislamiento de
    escritores;
-5. habilita fan-in únicamente cuando todas las unidades están validadas y
-   consolidadas;
-6. usa evaluación combinada por defecto y sólo admite evaluación dual con una
-   categoría de riesgo registrada en el plan;
-7. versiona el fan-in y acepta sólo Evaluadores de la generación vigente.
+5. valida la integración, la estrategia y la generación codificadas en el
+   estado; la elegibilidad humana de esas transiciones pertenece a la
+   [política canónica](policies/orquestacion.md).
 
 `commit` deja el cuerpo contractual íntegro únicamente en la SubDevSession del
 intento. La parte humana global mantiene un índice compacto atribuible —ruta y
@@ -116,20 +131,11 @@ consume `status`. El orquestador resuelve ese índice y entrega al Evaluador y a
 Documentador, cuando su gate se abre, solo los sobres pertinentes antes de
 permitir `cleanup`.
 
-La validación de cada unidad es focalizada y atribuible. En `full`, la suite
-completa se ejecuta una sola vez después del fan-in y antes de la evaluación
-final; no se repite por unidad. El Planificador registra por unidad
-`independent-rerun`, `distinct-acceptance-check` o
-`verified-evidence-reuse`. La reutilización no agrega estado administrado: el
-Tester juzga la especificación, el reporte íntegro, la revisión base y el diff,
-y solo su reporte puede satisfacer dependencias. Cualquier cambio relevante,
-reintento, dependencia reabierta o generación nueva vuelve obsoleta la
-evidencia.
-
-Documentador se abre únicamente después de una evaluación aprobada y cuando hay
-documentación afectada o una interfaz pública, un artefacto contractual, una
-decisión durable o un candidato validado pendiente para Engram. Si no existe una
-entrada, el orquestador registra `No aplica` con el motivo sin crear ese contexto.
+Las estrategias de validación, su vigencia, el cierre integrado, la evaluación
+y el gate de Documentador se definen una sola vez en la
+[política canónica](policies/orquestacion.md). El controlador conserva solo el
+estado y los gates ejecutables; Planificador, Tester, Evaluador y Documentador
+aplican sus contratos de rol mediante esa referencia.
 
 La adquisición del writer lock publica por hard link un dueño exacto
 `{session, attempt, workingTreeId}`. Una transición inicial o un checkpoint
@@ -172,23 +178,13 @@ por defecto.
     configuración de Codex como una operación opcional posterior.
 13. Los valores contractuales explícitos, incluidos autolinks y texto con
     ángulos, no se confunden con placeholders pendientes.
-14. `light` admite como máximo 4 subagentes activos y `full` 9; el orquestador
-    no cuenta y la capacidad técnica 12 de Codex no modifica esos topes.
-15. Cada ruta writer tiene un único propietario y sólo existe una reserva de
-    escritura activa por working tree.
-16. Una dependencia se satisface sólo con validación atribuible del Tester; el
-    fan-in ocurre después de consolidar todas las unidades y la suite completa
-    de `full` se ejecuta una sola vez después de esa barrera.
-17. La evidencia del Implementador nunca valida automáticamente. Su reutilización
-    exige autorización previa, señal determinista y local, misma revisión y diff
-    sin cambios; el Tester sigue siendo la autoridad del gate.
-18. Reabrir una unidad incrementa la generación de evaluación e invalida todos
-    sus ejes anteriores.
-19. La evaluación combinada cubre Estándares y Especificación por defecto; la
-    dual exige un riesgo admitido registrado antes del fan-in.
-20. Documentador es condicional por evidencia: se abre sólo ante documentación o
-    memoria durable real; en otro caso se registra `No aplica` sin abrirlo.
-21. El contrato administrado solo admite campos canónicos. Una entrada
+14. Los límites, categorías y excepciones transversales tienen un único
+    propietario humano: `policies/orquestacion.md`.
+15. El controlador hace cumplir ownership, gates, evidencia y generaciones sin
+    convertir su implementación en otra fuente de prosa normativa.
+16. Roles, workflows, skills, templates y adapters consumen a sus propietarios
+    mediante referencias y marcadores estables.
+17. El contrato administrado solo admite campos canónicos. Una entrada
     desconocida puede salir del bloque únicamente por elección interactiva
     explícita y permanece efectiva bajo `## Reglas adicionales del proyecto`;
     cancelar o ejecutar sin interacción conserva el destino byte a byte.

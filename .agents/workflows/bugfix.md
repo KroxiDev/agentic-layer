@@ -2,6 +2,9 @@
 
 Usar para bugs, fallos y regresiones. La disciplina canónica es
 `.agents/skills/agentic-diagnostico-bugs/SKILL.md`.
+Las mecánicas comunes de modo, unidades, validación, evaluación y cierre
+pertenecen a la [política de orquestación](../policies/orquestacion.md); este
+archivo fija únicamente el orden y la intención de las fases de `bugfix`.
 
 1. **Reproducir — Tester:** <!-- agentic-phase:v1 {"id":"bugfix-reproduce","role":"tester"} --> construir un bucle rojo-capaz, ejecutar la
    reproducción y minimizarla. Si no existe una señal válida, detenerse y
@@ -20,24 +23,14 @@ Usar para bugs, fallos y regresiones. La disciplina canónica es
    regresión y las validaciones exigidas.
 6. **Evaluar — Evaluador:** <!-- agentic-phase:v1 {"id":"bugfix-evaluate","role":"evaluador"} --> aprobar o devolver cambios concretos; máximo dos
    ciclos hacia Implementador.
-7. **Documentar — Documentador (condicional):** <!-- agentic-phase:v1 {"id":"bugfix-document","role":"documentador"} --> abrir únicamente cuando el gate de la
-   política de orquestación detecte documentación o memoria durable pendiente.
+7. **Documentar — Documentador (condicional):** <!-- agentic-phase:v1 {"id":"bugfix-document","role":"documentador"} --> ejecutar solo cuando el gate canónico
+   autorice trabajo documental o de memoria durable.
 
 En `light` se conserva la secuencia y se justifica brevemente cualquier mecánica
 omitida porque no aumentaría la información. La reducción de evidencia nunca
 permite hipotetizar sin un bucle rojo-capaz o evidencia equivalente ni omitir
 una regresión necesaria para demostrar el arreglo.
 
-Un bugfix conserva normalmente una sola unidad de implementación. Si el plan
-demuestra unidades independientes, respetar sus dependencias, ownership y
-validación focalizada inmediata sin superar tres. Ejecutar fan-in tras
-consolidarlas; en `full`, ejecutar la validación completa una sola vez después
-del fan-in. Evaluar Estándares y Especificación con un Evaluador combinado por
-defecto, o con dos Evaluadores independientes solo cuando el plan haya
-registrado antes del fan-in una estrategia dual y un `evaluationRisk` admitido.
-
-Un Tester rojo o fallido reabre retrabajo sin validar. Cada nuevo fan-in
-invalida la generación anterior y exige reevaluar sus ejes.
-
-La validación por unidad y la fase Documentador aplican los gates canónicos de
-la política de orquestación; los roles no reinterpretan sus excepciones.
+Un bugfix conserva normalmente una sola unidad de implementación. Dividirlo
+solo cuando el diagnóstico demuestre unidades independientes; su contrato y sus
+gates son los definidos por la política canónica.

@@ -9,16 +9,14 @@ conocimiento durable.
 
 - Especificación, decisiones y DevSession.
 - En la documentación final, archivos modificados y veredicto aprobado.
+- [Política de orquestación](../policies/orquestacion.md) y workflow vigente.
 - Rutas explícitas a las SubDevSessions seleccionadas de implementación,
   testing y evaluación aprobada que condicionen la documentación; nunca el
   historial completo de reportes.
 - Reglas efectivas de documentación.
 - Condición concreta que abrió el gate de Documentador según la política
   canónica.
-- En la documentación final, resultado consolidado del fan-in y aprobación de
-  todos los ejes requeridos. `architecture-propose` recibe la decisión de
-  diseño previa a la aprobación; `architecture-record` recibe la decisión ya
-  aprobada, sin exigir implementación.
+- Evidencia de que la fase vigente cumple sus precondiciones canónicas.
 
 ## Proceso
 
@@ -30,13 +28,9 @@ conocimiento durable.
 3. Consultar Engram antes de registrar decisiones para evitar contradicciones o
    duplicados.
 4. Consolidar candidatos validados en Engram con ámbito de proyecto.
-5. En la fase final, actuar solo después del fan-in y de la evaluación aprobada;
-   no documentar estados parciales de unidades o hilos activos.
-   `architecture-propose` no exige fan-in: redacta únicamente la propuesta que
-   el usuario todavía debe aprobar. `architecture-record` registra la decisión
-   aprobada y puede cerrar una tarea exclusivamente arquitectónica. Si existe un
-   workflow posterior, su Documentador es el único que documenta el resultado
-   implementado; `architecture` no repite ese cierre.
+5. Actuar solo cuando la fase vigente satisfaga las precondiciones de su
+   workflow y de la política; no documentar estados parciales ni repetir el
+   cierre perteneciente a otro workflow.
 
 ## Salida
 

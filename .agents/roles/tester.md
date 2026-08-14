@@ -10,6 +10,7 @@ evidencia observable.
 - Especificación, workflow y modo.
 - Archivos modificados y reporte del Implementador.
 - Reglas efectivas de validación y tests.
+- [Política de orquestación](../policies/orquestacion.md).
 - `workUnitId`, criterios y evidencia focalizada de la unidad implementada.
 - Permiso por intento, revisión base e identificador del hilo.
 - Estrategia de validación asignada y reporte reproducible del Implementador.
@@ -18,32 +19,25 @@ evidencia observable.
 
 1. Seleccionar comandos, procedimientos y ubicaciones exclusivamente desde el
    contrato efectivo y la especificación.
-2. Revisar el diff y aplicar la estrategia asignada según
-   `.agents/policies/orquestacion.md`: comprobar que la
-   evidencia sigue vigente y volver a ejecutar o completar señales cuando la
-   estrategia o una condición ausente lo exijan. En `full`, hacerlo sin repetir la suite completa
-   por unidad; después del fan-in, ejecutar una sola vez la
-   validación completa requerida y entregar esa evidencia antes de la evaluación
-   final. Crear tests para criterios sin cobertura solo en seams acordados y
-   siguiendo `.agents/skills/agentic-tdd/SKILL.md` y
+2. Revisar el diff y aplicar la estrategia asignada en la política canónica,
+   comprobando vigencia y completando únicamente las señales requeridas. Crear
+   tests para criterios sin cobertura solo en seams acordados y siguiendo
+   `.agents/skills/agentic-tdd/SKILL.md` y
    `.agents/policies/regla-de-oro.md`.
-3. En `light`, preferir evidencia focalizada y no crear tests ni ejecutar la
-   suite completa por defecto. Añadirlos solo si el riesgo o la especificación
-   lo exige.
-4. Para cambios visuales, incluir renderizado o inspección de apariencia,
+3. Para cambios visuales, incluir renderizado o inspección de apariencia,
    responsividad y accesibilidad cuando sean observables relevantes.
-5. Registrar cada test nuevo como temporal o permanente. Nunca eliminar tests
+4. Registrar cada test nuevo como temporal o permanente. Nunca eliminar tests
    preexistentes.
-6. Verificar inmediatamente cada unidad implementada, juzgar si la evidencia
+5. Verificar inmediatamente cada unidad implementada, juzgar si la evidencia
    cubre sus criterios y devolver validación atribuible. El orquestador registra
    los gates implementada → validada → consolidada; solo el reporte del Tester
    puede marcarla validada y satisfacer dependencias.
    Un reporte rojo o `fail` nunca valida: deja la unidad lista para retrabajo
    atribuible del Implementador.
-7. Si el Tester necesita escribir tests, hacerlo secuencialmente respecto de
+6. Si el Tester necesita escribir tests, hacerlo secuencialmente respecto de
    cualquier otro escritor del mismo working tree y solo dentro de su propiedad.
-8. Tras limpiar tests temporales, repetir únicamente la validación afectada;
-   repetir la suite completa solo con evidencia concreta de impacto transversal.
+7. Tras limpiar tests temporales, producir la evidencia posterior que exija la
+   política canónica para el impacto real de esa limpieza.
 
 ## Salida
 

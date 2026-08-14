@@ -112,7 +112,7 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 | `.agents/roles/` | Seis contratos de salida con límites explícitos | Profundo: cada rol oculta su método |
 | `.agents/scripts/session-controller.mjs` | Unidades/DAG, gates, capacidades, generaciones, transiciones, locks globales, recuperación, acuses y limpieza | Profundo: una CLI portable y transaccional |
 | `.agents/workflows/` | Orden de fases por intención | Delgado: sólo secuencia |
-| `.agents/skills/` | Procedimientos invocables (grilling, TDD, diagnóstico) | Profundo: disciplina completa por archivo |
+| `.agents/skills/` | Routing de orquestación y disciplinas invocables (grilling, TDD, diagnóstico) | `orquestar` delgada; disciplinas especializadas profundas |
 | `.agents/templates/` | Formato de la DevSession global y de los sobres efímeros | Delgado: estructura |
 | `AGENTS.md` | Seam de configuración: hechos y restricciones del proyecto | Interface mínima de toda la capa |
 | `.codex/agents/*.toml` | Nombre, descripción, sandbox y puntero al rol canónico | Delgado por diseño |
@@ -122,6 +122,13 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 | `bin/agentic.mjs` | Despacho de `init`, `update` y ayuda | Delgado: no reimplementa nada |
 | `scripts/agentic-init.mjs` | Detección, plan, copia/actualización recuperable, contrato, configuración opcional de Codex y comprobaciones | Profundo: toda la adopción y actualización |
 | `tests/agentic-init.test.mjs` | Comportamiento público de la CLI en directorios temporales | Especificación ejecutable |
+
+Este mapa expresa ownership, no una obligación de repetir reglas. El inventario
+operativo de propietarios y la responsabilidad exacta de cada consumidor se
+mantienen en el [README interno](../.agents/README.md#mapa-de-propietarios): la
+política posee decisiones humanas transversales, el controlador sus invariantes
+ejecutables, workflows el orden, roles sus contratos, la skill el routing y las
+plantillas solo los datos persistidos.
 
 La regla que mantiene la interface pequeña: un proyecto normal edita
 `AGENTS.md` y nada más — ver [ADR 0002](adr/0002-agents-md-como-unico-seam.md).
@@ -281,8 +288,8 @@ flowchart TD
     consolidated --> all{"¿todas las unidades?"}
     all -->|no| ready
     all -->|sí| fanin["fan-in de la<br/>generación vigente"]
-    fanin --> fulltest["full: validación completa única<br/>light: evidencia proporcional"]
-    fulltest --> axes["combinada por defecto<br/>dual sólo por riesgo registrado"]
+    fanin --> fulltest["validación integrada<br/>según la política"]
+    fulltest --> axes["evaluación según<br/>estrategia registrada"]
     axes --> approved{"¿todos los ejes<br/>aprobados?"}
     approved -->|no| rework
     approved -->|sí| docgate{"¿documentación o<br/>memoria durable?"}
@@ -347,25 +354,13 @@ Los gates son mecánicos:
 3. una validación verde la deja además `consolidated` y puede satisfacer
    `dependsOn`.
 
-La evidencia de cada unidad usa un caso, patrón o procedimiento focalizado
-concreto. La suite completa no se repite por unidad: en `full` se ejecuta una
-sola vez después del fan-in y antes de abrir la evaluación final.
-
-El Planificador registra en la especificación una de tres estrategias por
-unidad. `independent-rerun` es el valor seguro; `distinct-acceptance-check`
-separa el chequeo de desarrollo de una señal observable de aceptación; y
-`verified-evidence-reuse` permite al Tester juzgar evidencia previa sin repetir
-el mismo comando. Esta última sólo es válida para señales locales, rápidas y
-deterministas, autorizadas antes de implementar, con revisión, procedimiento,
-resultado y criterio trazables. El Tester revisa el diff y conserva la autoridad
-exclusiva del gate.
-
-No se persiste otra máquina de estados para esa decisión: la especificación y el
-reporte íntegro ya son sus seams. Un cambio posterior en rutas afectadas, un
-reintento, una dependencia reabierta o una generación nueva invalida la
-evidencia. Los riesgos de seguridad, integridad, migración, compatibilidad
-pública o concurrencia y las señales con red, tiempo, aleatoriedad, inspección
-visual o entorno compartido siempre requieren evidencia nueva.
+La evidencia focalizada pertenece a la unidad y el reporte del Tester conserva
+la autoridad exclusiva del gate. La selección de estrategia, su vigencia y el
+momento de la validación integrada pertenecen a la
+[política de orquestación](../.agents/policies/orquestacion.md), no a este
+documento. El controlador persiste únicamente el estado necesario para rechazar
+transiciones o evidencia obsoletas; no añade otra máquina para reinterpretar la
+decisión humana.
 
 Las oleadas se derivan del DAG y contienen únicamente unidades listas. La
 propiedad de rutas writer es exclusiva y portable: se normalizan rutas
@@ -412,16 +407,12 @@ edad. `cleanup` continúa limitado a sobres acusados y `safe_to_delete`.
 
 ### Fan-in, generaciones y sesiones heredadas
 
-El fan-in sólo queda listo cuando todas las unidades están validadas y
-consolidadas. La estrategia `combined` usa un Evaluador de solo lectura para
-Estándares y Especificación y es la predeterminada en `full` y `light`. La
-estrategia `dual` usa dos Evaluadores independientes y sólo es válida si el plan
-registró antes del fan-in una categoría `evaluationRisk` de arquitectura,
-seguridad o integridad, compatibilidad o migración pública, o fan-in
-considerable. Cada fan-in lleva una generación. Reabrir una unidad incrementa
-esa generación, limpia sus resultados y vuelve obsoleto cualquier Evaluador
-anterior; sólo los ejes requeridos y aprobados de la generación actual permiten
-`close`.
+El controlador sólo marca la integración lista cuando todas las unidades están
+validadas y consolidadas. Persiste estrategia, riesgo y generación, valida sus
+valores ejecutables y, al reabrir una unidad, incrementa la generación e
+invalida resultados anteriores. La política canónica es la única propietaria de
+la elegibilidad humana de cada estrategia y de las categorías admitidas; esta
+sección documenta únicamente el estado y las transiciones del controlador.
 
 Las DevSessions v1 sin unidades conservan su comportamiento. Una sesión por
 unidades creada antes de que existieran criterios, capacidades separadas,

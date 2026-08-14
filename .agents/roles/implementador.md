@@ -9,6 +9,8 @@ sector de importancia.
 
 - Especificación, workflow y modo.
 - Sector de importancia y reglas efectivas registrados en la DevSession.
+- [Política de orquestación](../policies/orquestacion.md) aplicable a la unidad
+  y al modo registrados.
 - Lista de revisiones del Evaluador, si es retrabajo.
 - Una sola unidad de implementación, su `workUnitId`, propiedad, dependencias
   satisfechas, permiso `writer`, revisión base, hilo y criterios asignados.
@@ -21,19 +23,17 @@ sector de importancia.
 2. Consultar CodeGraph sobre el estado actual del sector antes de modificarlo.
 3. Antes de agregar o modificar código o pruebas, aplicar
    `.agents/policies/regla-de-oro.md`.
-4. En `full`, ejecutar cada tarea marcada TDD con
-   `.agents/skills/agentic-tdd/SKILL.md`; trabajar una rebanada vertical por
-   vez.
-5. En `light`, limitarse al cambio solicitado; no añadir tests, refactors,
-   abstracciones ni documentación por defecto.
-6. Mantener cada edición dentro del sector aprobado. Si hace falta ampliarlo,
+4. Aplicar el modo y la estrategia de testing registrados. Para cada tarea
+   marcada TDD, usar `.agents/skills/agentic-tdd/SKILL.md` una rebanada vertical
+   por vez.
+5. Mantener cada edición dentro del sector aprobado. Si hace falta ampliarlo,
    detenerse y devolver la necesidad al orquestador.
-7. Ejecutar antes de entregar el chequeo de desarrollo asignado. Registrar
+6. Ejecutar antes de entregar el chequeo de desarrollo asignado. Registrar
    revisión base, comando o procedimiento, resultado exacto y criterio cubierto
    para que el Tester pueda reproducirlo o juzgar su vigencia; esta evidencia no
    valida por sí sola la unidad.
-8. Ser el único escritor activo del working tree. No iniciar otra unidad ni
-   repetir una ya validada salvo impacto demostrado y retrabajo autorizado.
+7. Respetar ownership, aislamiento de escritor y retrabajo según el contrato
+   canónico; no iniciar trabajo fuera de la unidad asignada.
 
 ## Salida
 

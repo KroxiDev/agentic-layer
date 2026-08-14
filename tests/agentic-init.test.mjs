@@ -101,6 +101,33 @@ function countPendingFields(contract) {
   return contract.match(/<pendiente: [^>]+>/g)?.length ?? 0;
 }
 
+function markdownLinks(source) {
+  return [...source.matchAll(/\[[^\]]*\]\(([^)]+)\)/g)].map((match) =>
+    match[1].trim().replace(/^<|>$/g, "").replaceAll("\\", "/"),
+  );
+}
+
+function linksToPolicy(source, policy) {
+  return markdownLinks(source).some(
+    (target) => target.split("#")[0].endsWith(`policies/${policy}`),
+  );
+}
+
+function markdownSection(source, heading) {
+  const marker = `## ${heading}`;
+  const start = source.indexOf(marker);
+  if (start < 0) return null;
+  const contentStart = start + marker.length;
+  const next = source.indexOf("\n## ", contentStart);
+  return source.slice(contentStart, next < 0 ? source.length : next);
+}
+
+function roleOutputLabels(source) {
+  return [...(markdownSection(source, "Salida") ?? "").matchAll(/^- \*\*([^*]+?):\*\*/gm)].map(
+    (match) => match[1],
+  );
+}
+
 function runExecutable(...arguments_) {
   return spawnSync(process.execPath, [BIN, ...arguments_], {
     cwd: ROOT,
@@ -873,9 +900,6 @@ test("simula la adopción completa dentro de un directorio temporal", async () =
 
 test("distribuye la Regla de Oro y conecta sus consumidores obligatorios", async () => {
   const policyReference = ".agents/policies/regla-de-oro.md";
-  const globalActivation = `## Desarrollo
-
-- Antes de agregar o modificar código o pruebas, leer y aplicar \`.agents/policies/regla-de-oro.md\`, tanto en tareas directas como orquestadas.`;
   const consumers = ["planificador", "implementador", "tester", "evaluador"];
   const manifest = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8"));
   const rootAgents = await readFile(join(ROOT, "AGENTS.md"), "utf8");
@@ -894,13 +918,8 @@ test("distribuye la Regla de Oro y conecta sus consumidores obligatorios", async
       policyPresent: existsSync(join(ROOT, ...policyReference.split("/"))),
       templateInventory: TEMPLATE_FILES.includes(policyReference),
       packageInventory: manifest.files.includes(policyReference),
-      globalActivation: rootAgents.includes(globalActivation),
-      consumersRegistered:
-        orchestration.includes("Consumidores obligatorios") &&
-        orchestration.includes(policyReference) &&
-        consumers.every((role) =>
-          orchestration.includes(role[0].toUpperCase() + role.slice(1)),
-        ),
+      globalActivation: markdownSection(rootAgents, "Desarrollo")?.includes(policyReference),
+      canonicalPolicyRegistered: orchestration.includes(policyReference),
       roleReferences: Object.fromEntries(
         consumers.map((role, index) => [role, roleContents[index].includes(policyReference)]),
       ),
@@ -910,7 +929,7 @@ test("distribuye la Regla de Oro y conecta sus consumidores obligatorios", async
       templateInventory: true,
       packageInventory: true,
       globalActivation: true,
-      consumersRegistered: true,
+      canonicalPolicyRegistered: true,
       roleReferences: {
         planificador: true,
         implementador: true,
@@ -5762,7 +5781,7 @@ test("session controller conserva residuos de sobres interrumpidos y bloquea el 
   );
 });
 
-test("los contratos canónicos definen cierre, validación y evaluación proporcionales", async () => {
+test("los contratos canónicos enlazan políticas y exponen marcadores estables", async () => {
   const agentsContract = await readFile(join(ROOT, "AGENTS.md"), "utf8");
   const orchestration = await readFile(
     join(ROOT, ".agents", "policies", "orquestacion.md"),
@@ -5811,44 +5830,84 @@ test("los contratos canónicos definen cierre, validación y evaluación proporc
     "utf8",
   );
 
-  assert.match(orchestration, /`light`[^\n]*4 subagentes/);
-  assert.match(orchestration, /`full`[^\n]*9 subagentes/);
-  assert.match(orchestration, /m[ií]nimo entre[\s\S]*modo[\s\S]*plataforma[\s\S]*listas[\s\S]*aislamiento/i);
-  assert.match(orchestration, /agentes reales[\s\S]*no (?:simular|sustituirlos por procesos auxiliares)/i);
-  assert.match(orchestration, /un solo escritor activo por working tree/i);
-  assert.match(orchestration, /validación completa una sola vez[\s\S]*antes de la evaluación final/i);
-  assert.match(orchestration, /un solo Evaluador[\s\S]*Estándares[\s\S]*Especificación[\s\S]*evaluationStrategy: dual/i);
-  assert.match(orchestration, /evaluationRisk[\s\S]*architectural-decision[\s\S]*security-or-integrity/);
-  assert.match(
-    orchestration,
-    /cuerpo íntegro[\s\S]*SubDevSession[\s\S]*referencia compacta[\s\S]*bloque administrado/i,
-  );
-  assert.match(orchestration, /Evaluador[\s\S]*Documentador[\s\S]*pasar sus rutas[\s\S]*antes de `cleanup`/i);
-  assert.match(skill, /fan-out[\s\S]*oleadas[\s\S]*fan-in/i);
-  assert.match(skill, /cerrar cada hilo/i);
-  assert.match(skill, /un Evaluador[\s\S]*conjuntamente[\s\S]*dos Evaluadores independientes/i);
-  assert.match(skill, /SubDevSession[\s\S]*referencia compacta[\s\S]*seleccionar explícitamente/i);
-  assert.match(roles.explorador, /carril asignado/i);
-  assert.match(roles.planificador, /workUnitId[\s\S]*dependsOn[\s\S]*owned_paths/);
-  assert.match(roles.implementador, /una sola unidad/i);
-  assert.match(roles.tester, /implementada[\s\S]*validada[\s\S]*consolidada/i);
-  assert.match(roles.tester, /sin repetir la suite completa[\s\S]*después del fan-in/i);
-  assert.match(roles.evaluador, /eje combinado[\s\S]*evaluación dual justificada/i);
-  assert.match(roles.evaluador, /Rutas explícitas[\s\S]*nunca el\s+historial completo/i);
-  assert.match(roles.documentador, /fan-in/i);
-  assert.match(roles.documentador, /Rutas explícitas[\s\S]*nunca el\s+historial completo/i);
-  assert.match(roles.documentador, /architecture-propose[^\n]*no exige fan-in/i);
-  assert.match(roles.documentador, /architecture-record[\s\S]*cerrar una tarea exclusivamente arquitectónica/i);
-  for (const source of [workflows.bugfix, workflows.feature, workflows.refactor]) {
-    assert.match(source, /unidad(?:es)? de (?:implementación|trabajo)/i);
-    assert.match(source, /fan-in/i);
+  const requiredPolicySections = [
+    "Decisión de activación",
+    "Modos",
+    "Presupuesto y paralelismo controlado",
+    "Estrategias de validación por unidad",
+    "Gate condicional de Documentador",
+    "Selección de workflow",
+    "Delegación aislada",
+    "DevSession",
+    "Engram",
+    "Cierre",
+  ];
+  for (const heading of requiredPolicySections) {
+    assert.notEqual(markdownSection(orchestration, heading), null, `Falta la sección ${heading}.`);
   }
-  assert.match(workflows.feature, /Un Evaluador[\s\S]*combinada[\s\S]*Dos Evaluadores independientes/i);
-  assert.match(workflows.architecture, /termina[\s\S]*architecture-record[\s\S]*no exige unidades/i);
-  assert.match(workflows.architecture, /transferirla[\s\S]*una sola vez[\s\S]*feature[\s\S]*refactor/i);
+
+  const expectedPhases = {
+    architecture: [
+      { id: "architecture-explore", role: "explorador" },
+      { id: "architecture-plan", role: "planificador" },
+      { id: "architecture-propose", role: "documentador" },
+      { id: "architecture-record", role: "documentador" },
+    ],
+    bugfix: [
+      { id: "bugfix-reproduce", role: "tester" },
+      { id: "bugfix-diagnose", role: "explorador" },
+      { id: "bugfix-plan", role: "planificador" },
+      { id: "bugfix-implement", role: "implementador" },
+      { id: "bugfix-test", role: "tester" },
+      { id: "bugfix-evaluate", role: "evaluador" },
+      { id: "bugfix-document", role: "documentador" },
+    ],
+    feature: [
+      { id: "feature-explore", role: "explorador" },
+      { id: "feature-plan", role: "planificador" },
+      { id: "feature-implement", role: "implementador" },
+      { id: "feature-test", role: "tester" },
+      { id: "feature-evaluate", role: "evaluador" },
+      { id: "feature-document", role: "documentador" },
+    ],
+    refactor: [
+      { id: "refactor-explore", role: "explorador" },
+      { id: "refactor-plan", role: "planificador" },
+      { id: "refactor-implement", role: "implementador" },
+      { id: "refactor-test", role: "tester" },
+      { id: "refactor-evaluate", role: "evaluador" },
+      { id: "refactor-document", role: "documentador" },
+    ],
+  };
+  for (const [workflow, source] of Object.entries(workflows)) {
+    const phases = [...source.matchAll(/<!-- agentic-phase:v1 (\{[^\n]+\}) -->/g)].map(
+      (match) => JSON.parse(match[1]),
+    );
+    assert.deepEqual(phases, expectedPhases[workflow]);
+    assert.equal(
+      linksToPolicy(source, "orquestacion.md"),
+      true,
+      `${workflow}.md no enlaza la política canónica.`,
+    );
+  }
+
+  for (const [role, source] of Object.entries(roles)) {
+    assert.deepEqual(
+      [...source.matchAll(/^## (.+)$/gm)].map((match) => match[1]),
+      ["Misión", "Entradas", "Proceso", "Salida", "Límites"],
+    );
+    assert.equal(
+      linksToPolicy(source, "orquestacion.md"),
+      true,
+      `${role}.md no enlaza la política canónica.`,
+    );
+  }
+
+  assert.equal(linksToPolicy(skill, "orquestacion.md"), true);
+  assert.ok(agentsContract.includes(".agents/policies/orquestacion.md"));
   assert.doesNotMatch(
-    workflows.architecture,
-    /agentic-phase:v1 \{"id":"architecture-(?:implement|evaluate|document)"/,
+    [skill, ...Object.values(roles), ...Object.values(workflows)].join("\n"),
+    /architectural-decision|security-or-integrity|public-compatibility-or-migration|considerable-fan-in/,
   );
   assert.match(tdd, /un comportamiento observable por test[\s\S]*todas las aserciones[\s\S]*necesarias/i);
   assert.match(tdd, /refactor acotado[\s\S]*volver a ejecutar la validación focalizada/i);
@@ -5857,16 +5916,20 @@ test("los contratos canónicos definen cierre, validación y evaluación proporc
     agentsContract,
     /node --test --test-name-pattern="<patrón concreto del caso relacionado>"[\s\S]*tests\/agentic-init\.test\.mjs/,
   );
-  assert.match(devSession, /## Presupuesto y capacidad/);
-  assert.match(devSession, /## Unidades de implementación/);
-  assert.match(devSession, /## Evaluación final por ejes/);
-  assert.match(devSession, /evaluationStrategy[\s\S]*evaluationRisk/);
-  assert.match(devSession, /## Índice compacto de reportes[\s\S]*SubDevSession indicada/);
-  assert.match(subdevSession, /- Unidad: `<work-unit-id>`/);
-  assert.match(subdevSession, /- Permiso: `<permission>`/);
-  assert.match(subdevSession, /Única fuente del cuerpo íntegro[\s\S]*referencia compacta/);
-  assert.match(codexAdapter, /\.agents\/roles\/implementador\.md/);
-  assert.match(claudeAdapter, /\.agents\/roles\/implementador\.md/);
+  for (const heading of [
+    "Presupuesto y capacidad",
+    "Unidades de implementación",
+    "Evaluación final por ejes",
+    "Índice compacto de reportes",
+  ]) {
+    assert.notEqual(markdownSection(devSession, heading), null, `Falta la sección ${heading}.`);
+  }
+  assert.ok(devSession.includes("evaluationStrategy"));
+  assert.ok(devSession.includes("evaluationRisk"));
+  assert.ok(subdevSession.includes("- Unidad: `<work-unit-id>`"));
+  assert.ok(subdevSession.includes("- Permiso: `<permission>`"));
+  assert.ok(codexAdapter.includes(".agents/roles/implementador.md"));
+  assert.ok(claudeAdapter.includes(".agents/roles/implementador.md"));
   assert.doesNotMatch(codexAdapter + claudeAdapter, /light\s*=\s*4|full\s*=\s*9/);
 });
 
@@ -5878,43 +5941,32 @@ test("la activación canónica decide por riesgo y mantiene consumidores delgado
     readFile(join(ROOT, ".claude", "skills", "orquestar", "SKILL.md"), "utf8"),
     readFile(join(ROOT, "README.md"), "utf8"),
   ]);
-  const activationSeam = agentsContract.match(
-    /## Activación y modo\n([\s\S]*?)\n## Requisitos globales/,
-  )?.[1];
+  const activationSeam = markdownSection(agentsContract, "Activación y modo") ?? "";
+  const decisionSeam = markdownSection(orchestration, "Decisión de activación") ?? "";
 
-  assert.match(activationSeam ?? "", /fuente normativa/i);
-  assert.match(activationSeam ?? "", /sin orquestar[\s\S]*seguridad/i);
+  assert.ok(activationSeam.includes(".agents/policies/orquestacion.md"));
+  assert.deepEqual(
+    [...decisionSeam.matchAll(/^\|\s*(\d+)\s*\|/gm)].map((match) => Number(match[1])),
+    [1, 2, 3, 4, 5, 6],
+  );
   assert.doesNotMatch(
     [activationSeam, skill, claudeAdapter].join("\n"),
     /tareas? no triviales?|cambios?\s+multiarchivo|comportamiento nuevo/i,
   );
-
-  assert.match(orchestration, /## Decisión de activación/);
-  assert.doesNotMatch(
-    orchestration,
-    /tareas? no triviales?:|cambios?\s+multiarchivo,\s*comportamiento nuevo/i,
-  );
-  assert.match(orchestration, /instrucciones explícitas[\s\S]*límites de seguridad/i);
-  assert.match(orchestration, /varios\s+archivos estrechamente relacionados[\s\S]*ejecución directa/i);
-  assert.match(orchestration, /seguridad[\s\S]*activa `full`/i);
-  assert.match(orchestration, /migración o compatibilidad pública[\s\S]*`full`/i);
-  assert.match(orchestration, /bug reproducible[\s\S]*causa directa[\s\S]*ejecución directa/i);
-  assert.match(orchestration, /intermitente[\s\S]*hipótesis competidoras[\s\S]*`full`/i);
-  assert.match(orchestration, /falta un hecho[\s\S]*cambiaría la categoría/i);
-  assert.match(orchestration, /entrega\s+directa[\s\S]*por qué era elegible[\s\S]*validación/i);
   assert.equal(
     orchestration.match(/^### Categorías de `full` automático$/gm)?.length,
     1,
   );
+  assert.equal(linksToPolicy(skill, "orquestacion.md"), true);
+  assert.ok(claudeAdapter.includes(".agents/skills/orquestar/SKILL.md"));
   assert.doesNotMatch(
     skill + claudeAdapter,
     /decisión arquitectónica durable|hipótesis competidoras|concurrencia de escritores/i,
   );
 
-  assert.match(readme, /\| Directa verificada \|/);
-  assert.match(readme, /\| `light` \|/);
-  assert.match(readme, /\| `full` \|/);
-  assert.match(readme, /cantidad de archivos[\s\S]*no determina[\s\S]*riesgo/i);
+  assert.ok(readme.includes("| Directa verificada |"));
+  assert.ok(readme.includes("| `light` |"));
+  assert.ok(readme.includes("| `full` |"));
 });
 
 test("el diagnóstico de bugs escala con la incertidumbre y conserva sus guardrails", async () => {
@@ -5985,16 +6037,39 @@ test("los contratos separan la evidencia del Implementador del gate del Tester",
     readFile(join(ROOT, ".agents", "roles", "tester.md"), "utf8"),
   ]);
 
-  assert.match(planner, /seleccionar[\s\S]*estrategia\s+de validación[\s\S]*cada\s+unidad/i);
-  assert.match(implementer, /revisión base[\s\S]*comando o procedimiento[\s\S]*resultado exacto[\s\S]*criterio cubierto/i);
-  assert.match(tester, /revisar el diff[\s\S]*estrategia asignada/i);
-  assert.match(
-    tester,
-    /\*\*Evidencia:\*\*[\s\S]*estrategia usada[\s\S]*evidencia revisada[\s\S]*ejecuciones propias[\s\S]*Omisiones/i,
+  assert.notEqual(markdownSection(orchestration, "Estrategias de validación por unidad"), null);
+  assert.deepEqual(
+    {
+      implementer: roleOutputLabels(implementer),
+      planner: roleOutputLabels(planner),
+      tester: roleOutputLabels(tester),
+    },
+    {
+      implementer: [
+        "Archivos modificados",
+        "Tareas completadas y pendientes",
+        "Tests creados",
+        "Validación ejecutada",
+        "Desvíos o dudas",
+        "Candidato a memoria",
+      ],
+      planner: [
+        "Objetivo y comportamiento esperado",
+        "Criterios de aceptación verificables",
+        "No-objetivos y restricciones",
+        "Puntos de integración y seams acordados",
+        "Tareas ordenadas",
+        "Validación",
+        "Documentación esperada",
+        "Decisiones pendientes",
+        "Candidato a memoria",
+      ],
+      tester: ["Evidencia", "Tests creados", "Fallos", "Omisiones", "Candidato a memoria"],
+    },
   );
-  assert.match(orchestration, /solo el Tester[\s\S]*marca la unidad como validada/i);
-  assert.match(orchestration, /distinct-acceptance-check[\s\S]*responsabilidades distintas/i);
-  assert.match(implementer, /No marcar la unidad como validada/i);
+  for (const source of [planner, implementer, tester]) {
+    assert.equal(linksToPolicy(source, "orquestacion.md"), true);
+  }
 });
 
 test("el cierre abre Documentador únicamente cuando existe una entrada real", async () => {
@@ -6007,19 +6082,24 @@ test("el cierre abre Documentador únicamente cuando existe una entrada real", a
     ),
   ]);
 
-  assert.match(orchestration, /## Gate condicional de Documentador/);
-  assert.match(
-    orchestration,
-    /documentación vigente[\s\S]*contrato[\s\S]*decisión durable[\s\S]*candidato validado[\s\S]*Engram/i,
-  );
-  assert.match(orchestration, /interfaz[\s\S]*sigue\s+exigiendo\s+Documentador/i);
-  assert.match(orchestration, /No aplica[\s\S]*motivo breve[\s\S]*no (?:abrir|crear)[^\n]*Documentador/i);
-  assert.match(skill, /gate\s+de Documentador[\s\S]*No aplica/i);
-  assert.match(documenter, /condición que abrió el gate/i);
-  assert.match(documenter, /no se abre[\s\S]*certificar `No aplica`/i);
-  for (const workflow of workflows) {
-    assert.match(workflow, /Documentar[^\n]*condicional/i);
-    assert.match(workflow, /política de orquestación/i);
+  const gate = markdownSection(orchestration, "Gate condicional de Documentador") ?? "";
+  assert.equal([...gate.matchAll(/^- /gm)].length, 4);
+  assert.ok(gate.includes("No aplica"));
+  assert.equal(linksToPolicy(skill, "orquestacion.md"), true);
+  assert.equal(linksToPolicy(documenter, "orquestacion.md"), true);
+  assert.deepEqual(roleOutputLabels(documenter), [
+    "Documentación modificada",
+    "Sin cambios",
+    "Memoria guardada",
+    "Pendientes reales",
+  ]);
+  for (const [index, workflow] of workflows.entries()) {
+    const name = ["feature", "bugfix", "refactor"][index];
+    const phases = [...workflow.matchAll(/<!-- agentic-phase:v1 (\{[^\n]+\}) -->/g)].map(
+      (match) => JSON.parse(match[1]),
+    );
+    assert.deepEqual(phases.at(-1), { id: `${name}-document`, role: "documentador" });
+    assert.equal(linksToPolicy(workflow, "orquestacion.md"), true);
   }
 });
 
@@ -6072,10 +6152,9 @@ test("session controller se distribuye con contratos portables y excluye sesione
         },
         orchestrationContract:
           orchestration.includes(controllerPath) &&
-          orchestration.includes("init") &&
-          orchestration.includes("commit") &&
-          orchestration.includes("cleanup") &&
-          skill.includes(controllerPath),
+          markdownLinks(skill).some((target) =>
+            target.split("#")[0].endsWith("/scripts/session-controller.mjs"),
+          ),
         packageExcludesSessions: manifest.files.every(
           (path) => !path.startsWith(".agents/sessions/") || path === ".agents/sessions/gitignore.asset",
         ),

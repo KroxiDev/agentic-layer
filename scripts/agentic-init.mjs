@@ -27,6 +27,7 @@ const CONTRACT_START = "<!-- AGENTIC_PROJECT_CONTRACT_START -->";
 const CONTRACT_END = "<!-- AGENTIC_PROJECT_CONTRACT_END -->";
 const GENERATED_CONTRACT_MARKER = "<!-- AGENTIC_PROJECT_CONTRACT_GENERATED -->";
 const GOLDEN_RULE_POLICY = ".agents/policies/regla-de-oro.md";
+const ORCHESTRATION_POLICY = ".agents/policies/orquestacion.md";
 const GOLDEN_RULE_DEVELOPMENT_BULLET =
   `- Antes de agregar o modificar código o pruebas, leer y aplicar \`${GOLDEN_RULE_POLICY}\`, tanto en tareas directas como orquestadas.`;
 const GOLDEN_RULE_DEVELOPMENT = `## Desarrollo
@@ -35,7 +36,7 @@ ${GOLDEN_RULE_DEVELOPMENT_BULLET}`;
 const SOURCE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TEMPLATE_FILES = [
   ".agents/README.md",
-  ".agents/policies/orquestacion.md",
+  ORCHESTRATION_POLICY,
   GOLDEN_RULE_POLICY,
   ".agents/policies/sdd-tdd.md",
   ".agents/roles/documentador.md",
@@ -100,6 +101,18 @@ const PACKAGE_FILES = [
 function templateSourcePath(relativePath) {
   const source = TEMPLATE_ASSET_SOURCES.get(relativePath) ?? relativePath;
   return join(SOURCE_ROOT, ...source.split("/"));
+}
+
+function markdownLinkTargets(source) {
+  return [...source.matchAll(/\[[^\]]*\]\(([^)]+)\)/g)].map((match) =>
+    match[1].trim().replace(/^<|>$/g, "").replaceAll("\\", "/"),
+  );
+}
+
+function linksToCanonicalPolicy(source) {
+  return markdownLinkTargets(source).some((target) =>
+    target.split("#")[0].endsWith("policies/orquestacion.md"),
+  );
 }
 
 // Archivo generado, no distribuido: registra qué versión de la capa quedó
@@ -2640,13 +2653,15 @@ async function validateTemplateDistribution() {
   }
   errors.push(...(await packageManifestErrors()));
 
-  const [sessionsIgnore, devSession, subdevSession, rootAgents, orchestration] = await Promise.all([
-    readFile(templateSourcePath(".agents/sessions/.gitignore"), "utf8"),
-    readFile(join(SOURCE_ROOT, ".agents", "templates", "dev-session.md"), "utf8"),
-    readFile(join(SOURCE_ROOT, ".agents", "templates", "subdev-session.md"), "utf8"),
-    readFile(join(SOURCE_ROOT, "AGENTS.md"), "utf8"),
-    readFile(join(SOURCE_ROOT, ".agents", "policies", "orquestacion.md"), "utf8"),
-  ]);
+  const [sessionsIgnore, devSession, subdevSession, rootAgents, orchestration, orchestrationSkill] =
+    await Promise.all([
+      readFile(templateSourcePath(".agents/sessions/.gitignore"), "utf8"),
+      readFile(join(SOURCE_ROOT, ".agents", "templates", "dev-session.md"), "utf8"),
+      readFile(join(SOURCE_ROOT, ".agents", "templates", "subdev-session.md"), "utf8"),
+      readFile(join(SOURCE_ROOT, "AGENTS.md"), "utf8"),
+      readFile(join(SOURCE_ROOT, ...ORCHESTRATION_POLICY.split("/")), "utf8"),
+      readFile(join(SOURCE_ROOT, ".agents", "skills", "orquestar", "SKILL.md"), "utf8"),
+    ]);
   for (const relativePath of PACKAGE_FILES) {
     if (/(^|\/)\.(?:git|npm)ignore$/.test(relativePath)) {
       errors.push(`npm no puede transportar ${relativePath} con su nombre canónico.`);
@@ -2675,16 +2690,23 @@ async function validateTemplateDistribution() {
   } catch (error) {
     errors.push(`AGENTS.md contiene un contrato canónico inválido: ${error.message}`);
   }
-  if (!rootAgents.includes(GOLDEN_RULE_DEVELOPMENT)) {
+  const developmentStart = rootAgents.indexOf("## Desarrollo");
+  const developmentEnd = rootAgents.indexOf("\n## ", developmentStart + 1);
+  const developmentSection =
+    developmentStart < 0
+      ? ""
+      : rootAgents.slice(developmentStart, developmentEnd < 0 ? rootAgents.length : developmentEnd);
+  if (!developmentSection.includes(GOLDEN_RULE_POLICY)) {
     errors.push("AGENTS.md no activa la Regla de Oro para tareas directas y orquestadas.");
   }
-  if (
-    !orchestration.includes(`- \`${GOLDEN_RULE_POLICY}\``) ||
-    !orchestration.includes(
-      "Consumidores obligatorios: Planificador, Implementador, Tester y Evaluador.",
-    )
-  ) {
+  if (!orchestration.includes(GOLDEN_RULE_POLICY)) {
     errors.push("orquestacion.md no registra los consumidores obligatorios de la Regla de Oro.");
+  }
+  if (!rootAgents.includes(ORCHESTRATION_POLICY)) {
+    errors.push(`AGENTS.md no referencia ${ORCHESTRATION_POLICY}.`);
+  }
+  if (!linksToCanonicalPolicy(orchestrationSkill)) {
+    errors.push("La skill orquestar no enlaza la política canónica de orquestación.");
   }
 
   const devSessionFields = [
@@ -2735,6 +2757,9 @@ async function validateTemplateDistribution() {
     ) {
       errors.push(`.agents/roles/${role}.md no consume ${GOLDEN_RULE_POLICY}.`);
     }
+    if (!linksToCanonicalPolicy(content)) {
+      errors.push(`.agents/roles/${role}.md no enlaza ${ORCHESTRATION_POLICY}.`);
+    }
   }
 
   const roleNames = new Set(ROLE_NAMES.map((role) => normalizeLabel(role)));
@@ -2743,9 +2768,30 @@ async function validateTemplateDistribution() {
       join(SOURCE_ROOT, ".agents", "workflows", `${workflow}.md`),
       "utf8",
     );
-    for (const match of content.matchAll(/—\s+([A-ZÁÉÍÓÚÑ][\p{L}-]+):/gu)) {
-      if (!roleNames.has(normalizeLabel(match[1]))) {
-        errors.push(`El workflow ${workflow} referencia un rol inexistente: ${match[1]}.`);
+    if (!linksToCanonicalPolicy(content)) {
+      errors.push(`.agents/workflows/${workflow}.md no enlaza ${ORCHESTRATION_POLICY}.`);
+    }
+    const phaseIds = new Set();
+    const phaseMarkers = [...content.matchAll(/<!-- agentic-phase:v1 (\{[^\n]+\}) -->/g)];
+    if (!phaseMarkers.length) errors.push(`El workflow ${workflow} no declara fases canónicas.`);
+    for (const match of phaseMarkers) {
+      let phase;
+      try {
+        phase = JSON.parse(match[1]);
+      } catch {
+        errors.push(`El workflow ${workflow} contiene un marcador de fase inválido.`);
+        continue;
+      }
+      if (typeof phase.id !== "string" || typeof phase.role !== "string") {
+        errors.push(`El workflow ${workflow} contiene una fase sin id o rol.`);
+        continue;
+      }
+      if (phaseIds.has(phase.id)) {
+        errors.push(`El workflow ${workflow} repite la fase ${phase.id}.`);
+      }
+      phaseIds.add(phase.id);
+      if (!roleNames.has(normalizeLabel(phase.role))) {
+        errors.push(`El workflow ${workflow} referencia un rol inexistente: ${phase.role}.`);
       }
     }
   }
@@ -2754,8 +2800,7 @@ async function validateTemplateDistribution() {
   for (const relativePath of [...new Set(markdownFiles)]) {
     const absolutePath = join(SOURCE_ROOT, ...relativePath.split("/"));
     const content = await readFile(absolutePath, "utf8");
-    for (const match of content.matchAll(/\[[^\]]*\]\(([^)]+)\)/g)) {
-      const rawTarget = match[1].trim().replace(/^<|>$/g, "");
+    for (const rawTarget of markdownLinkTargets(content)) {
       if (/^(?:[a-z]+:|#)/i.test(rawTarget)) continue;
       const fileTarget = rawTarget.split("#")[0];
       // La documentación interna no viaja en el paquete: sus enlaces solo pueden

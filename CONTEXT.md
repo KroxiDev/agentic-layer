@@ -118,21 +118,19 @@ usar procesos auxiliares como sustitutos.
 _Evitar_: paralelismo sin límites, llenar cupos, oleada.
 
 **Fan-in**:
-La barrera posterior a todas las unidades validadas y consolidadas. En `full`,
-la validación completa ocurre una sola vez después de esta barrera y antes de
-evaluar el resultado integrado.
+La barrera de integración posterior a las unidades exigidas por el plan. Sus
+precondiciones y la validación de cierre pertenecen a la
+[política de orquestación](.agents/policies/orquestacion.md).
 _Evitar_: merge de Git, consolidación de una unidad, suite por unidad.
 
 **Estrategia de evaluación**:
-La forma registrada antes del fan-in de cubrir Estándares y Especificación.
-`combined` usa un Evaluador para ambos y es la predeterminada en cualquier modo;
-`dual` usa dos Evaluadores independientes y exige un riesgo admitido explícito.
+La forma persistida de cubrir Estándares y Especificación. Sus valores,
+elegibilidad y momento de registro se definen en la política canónica.
 _Evitar_: modo full, generación, intensidad de testing.
 
 **Riesgo dual**:
-La categoría determinista que justifica separar la evaluación: decisión
-arquitectónica, seguridad o integridad, compatibilidad o migración pública, o
-fan-in considerable de varias unidades independientes.
+Una categoría admitida por la política canónica que justifica separar los ejes
+de evaluación. El glosario nombra el concepto, no reproduce su lista normativa.
 _Evitar_: riesgo residual, severidad genérica, preferencia del evaluador.
 
 **DevSession**:

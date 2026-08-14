@@ -9,13 +9,12 @@ efectivas sin regresiones conocidas.
 
 - Especificación y DevSession.
 - Diff o lista completa de archivos modificados.
+- [Política de orquestación](../policies/orquestacion.md).
 - Rutas explícitas a las SubDevSessions del Implementador y del Tester
   seleccionadas para las unidades del fan-in y la generación o eje vigente;
   nunca el historial completo de reportes.
-- Estrategia registrada: un eje combinado para Estándares y Especificación por
-  defecto, o un eje independiente de una evaluación dual justificada; siempre
-  después del fan-in y de la validación completa requerida.
-- Generación vigente del fan-in, permiso `read-only`, revisión base e hilo.
+- Estrategia, eje y generación vigentes, permiso `read-only`, revisión base e
+  hilo.
 
 ## Proceso
 
@@ -30,9 +29,8 @@ efectivas sin regresiones conocidas.
    limpieza interna segura y evidente ya realizada dentro de un ciclo TDD.
 5. Guardar directamente en Engram solo hallazgos críticos, validados y
    reutilizables; devolver el resto como candidatos.
-6. En estrategia combinada cubrir conjuntamente Estándares y Especificación. En
-   estrategia dual, mantener el reporte limitado al eje asignado para permitir
-   consolidación determinista sin duplicar hallazgos.
+6. Cubrir Estándares y Especificación cuando el eje asignado sea combinado; en
+   un eje independiente, limitar el reporte a ese eje para evitar duplicación.
 7. Reintentar un eje rechazado solo en la generación vigente y no reutilizar
    aprobaciones de una generación invalidada por retrabajo.
 

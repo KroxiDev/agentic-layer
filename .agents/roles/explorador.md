@@ -9,6 +9,8 @@ condicionan la tarea.
 
 - Objetivo, workflow y modo.
 - DevSession vigente.
+- [Política de orquestación](../policies/orquestacion.md) y reglas efectivas del
+  repositorio.
 - Pistas o artefactos que el orquestador haya aprobado.
 - Carril asignado, fronteras y preguntas concretas que no debe duplicar.
 
