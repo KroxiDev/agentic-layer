@@ -54,6 +54,220 @@ import {
   snapshotDirectory,
 } from "./agentic-test-helpers.mjs";
 
+test("session controller exige el contexto mínimo antes de abrir un sobre", async () => {
+  const attempt = "feature-explore--explorador--a01";
+  for (const [suffix, override, error] of [
+    ["sin-objetivo", { objective: undefined }, "open_context_required"],
+    ["objetivo-vacio", { objective: " \n" }, "open_context_required"],
+    ["sin-reglas", { rules: undefined }, "open_context_required"],
+    ["reglas-vacias", { rules: "\t" }, "open_context_required"],
+    ["sin-tareas", { tasks: undefined }, "open_context_required"],
+    ["tareas-vacias", { tasks: "" }, "open_context_required"],
+    ["sin-hallazgos", { findings: undefined }, "open_context_required"],
+    ["sin-rutas", { contextPaths: undefined }, "context_paths_required"],
+  ]) {
+    const fixture = await createManagedSession(`contexto-minimo-${suffix}`);
+    const before = await readFile(fixture.globalPath, "utf8");
+    const opened = runSessionController(
+      fixture.repository,
+      "open",
+      {
+        session: `contexto-minimo-${suffix}`,
+        attempt,
+        expectedRevision: 1,
+      },
+      { phaseId: "feature-explore", role: "explorador", ...override },
+    );
+
+    assert.deepEqual(controllerOutcome(opened), { code: 2, error });
+    assert.equal(await readFile(fixture.globalPath, "utf8"), before);
+    assert.equal(
+      existsSync(
+        join(
+          fixture.repository,
+          ".agents",
+          "sessions",
+          `contexto-minimo-${suffix}`,
+          `${attempt}.md`,
+        ),
+      ),
+      false,
+    );
+  }
+});
+
+test("session controller materializa un sobre de contexto mínimo autocontenido", async () => {
+  const session = "contexto-minimo-autocontenido";
+  const attempt = "feature-explore--explorador--a01";
+  const fixture = await createManagedSession(session);
+  const contextPaths = [
+    ".agents/roles/explorador.md",
+    ".agents/templates/subdev-session.md",
+  ];
+  const opened = runSessionController(
+    fixture.repository,
+    "open",
+    { session, attempt, expectedRevision: 1 },
+    {
+      contextPaths,
+      findings: "No aplica",
+      objective: "Delimitar el seam de contexto mínimo.",
+      phaseId: "feature-explore",
+      role: "explorador",
+      rules: "Cadena efectiva: AGENTS.md; solo lectura.",
+      tasks: "Identificar dependencias y devolver evidencia atribuible.",
+    },
+  );
+
+  assert.equal(opened.status, 0, opened.stderr);
+  const envelopeSource = await readFile(
+    join(fixture.repository, ".agents", "sessions", session, `${attempt}.md`),
+    "utf8",
+  );
+  const envelope = parseManagedState(envelopeSource);
+  const global = parseManagedState(await readFile(fixture.globalPath, "utf8"));
+  assert.equal(envelope.sourceRevision, 1);
+  assert.deepEqual(envelope.contextPaths, contextPaths);
+  assert.equal(global.attempts[attempt].sourceRevision, 1);
+  assert.deepEqual(global.attempts[attempt].contextPaths, contextPaths);
+  for (const expected of [
+    "Delimitar el seam de contexto mínimo.",
+    "Cadena efectiva: AGENTS.md; solo lectura.",
+    "Identificar dependencias y devolver evidencia atribuible.",
+    "## Rutas de contexto seleccionadas",
+    "- Revisión fuente: `1`",
+    ...contextPaths.map((path) => `- \`${path}\``),
+  ]) {
+    assert.match(envelopeSource, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  assert.doesNotMatch(envelopeSource, /Según la DevSession global|DevSession global:/);
+});
+
+test("session controller calcula la revisión fuente del contexto mínimo", async () => {
+  const session = "contexto-minimo-revision-fuente";
+  const attempt = "feature-explore--explorador--a01";
+  const fixture = await createManagedSession(session);
+  const before = await readFile(fixture.globalPath, "utf8");
+  const opened = runSessionController(
+    fixture.repository,
+    "open",
+    { session, attempt, expectedRevision: 1 },
+    {
+      phaseId: "feature-explore",
+      role: "explorador",
+      sourceRevision: 99,
+    },
+  );
+
+  assert.deepEqual(controllerOutcome(opened), {
+    code: 2,
+    error: "source_revision_is_managed",
+  });
+  assert.equal(await readFile(fixture.globalPath, "utf8"), before);
+  assert.equal(
+    existsSync(join(fixture.repository, ".agents", "sessions", session, `${attempt}.md`)),
+    false,
+  );
+});
+
+test("session controller rechaza rutas inseguras del contexto mínimo sin escribir", async () => {
+  const attempt = "feature-explore--explorador--a01";
+  const cases = [
+    ["duplicada-portable", ["Docs/Plan.md", "docs/plan.md"], "duplicate_context_path"],
+    ["absoluta-posix", ["/tmp/plan.md"], "invalid_context_path"],
+    ["absoluta-windows", ["C:/temp/plan.md"], "invalid_context_path"],
+    ["separador-windows", ["docs\\plan.md"], "invalid_context_path"],
+    ["escape", ["docs/../AGENTS.md"], "invalid_context_path"],
+    ["segmento-vacio", ["docs//plan.md"], "invalid_context_path"],
+    ["alias-punto", ["docs/plan.md."], "invalid_context_path"],
+    ["alias-espacio", ["docs/plan.md "], "invalid_context_path"],
+    ["indice-protegido", [".codegraph/index.db"], "protected_context_path"],
+    ["directorio-completo", [".agents/roles"], "invalid_context_path"],
+  ];
+
+  for (const [suffix, contextPaths, error] of cases) {
+    const session = `contexto-minimo-ruta-${suffix}`;
+    const fixture = await createManagedSession(session);
+    const before = await readFile(fixture.globalPath, "utf8");
+    const opened = runSessionController(
+      fixture.repository,
+      "open",
+      { session, attempt, expectedRevision: 1 },
+      { contextPaths, phaseId: "feature-explore", role: "explorador" },
+    );
+
+    assert.deepEqual(controllerOutcome(opened), { code: 2, error });
+    assert.equal(await readFile(fixture.globalPath, "utf8"), before);
+    assert.equal(
+      existsSync(join(fixture.repository, ".agents", "sessions", session, `${attempt}.md`)),
+      false,
+    );
+  }
+});
+
+test("session controller conserva el ciclo legacy previo al contexto mínimo", async () => {
+  const session = "contexto-minimo-legacy";
+  const attempt = "feature-implement--implementador--a01";
+  const fixture = await createManagedAttempt(session, attempt);
+  let legacySource = await readFile(fixture.envelopePath, "utf8");
+  const legacyManaged = parseManagedState(legacySource);
+  delete legacyManaged.contextPaths;
+  delete legacyManaged.sourceRevision;
+  legacySource = legacySource
+    .replace("- Revisión fuente: `1`\n", "")
+    .replace(
+      "Aplicar las reglas efectivas indicadas para el intento.",
+      "- Según la DevSession global.",
+    )
+    .replace(
+      "Completar las tareas y criterios asignados al intento.",
+      "- Según la DevSession global.",
+    )
+    .replace(/\n## Rutas de contexto seleccionadas\n[\s\S]*?(?=\n## Contrato de salida esperado)/, "");
+  await writeFile(fixture.envelopePath, replaceManagedState(legacySource, legacyManaged), "utf8");
+
+  const committed = runSessionController(
+    fixture.repository,
+    "commit",
+    { session, attempt, expectedRevision: 2 },
+    {
+      report: [
+        "- **Archivos modificados:** No aplica.",
+        "- **Tareas completadas y pendientes:** completadas.",
+        "- **Tests creados:** No aplica.",
+        "- **Validación ejecutada:** comprobación legacy verde.",
+        "- **Desvíos o dudas:** No aplica.",
+        "- **Candidato a memoria:** No aplica.",
+      ].join("\n"),
+    },
+  );
+  const recovered = runSessionController(fixture.repository, "recover", { session });
+  const cleaned = runSessionController(
+    fixture.repository,
+    "cleanup",
+    { session, expectedRevision: 3 },
+  );
+  const closed = runSessionController(
+    fixture.repository,
+    "close",
+    { session, expectedRevision: 4 },
+  );
+
+  assert.equal(committed.status, 0, committed.stderr);
+  assert.deepEqual(controllerResponse(recovered).attempts, [
+    { attempt, classification: "safe_to_delete", state: "completed" },
+  ]);
+  assert.deepEqual(controllerResponse(cleaned).deleted, [attempt]);
+  assert.deepEqual(controllerResponse(closed), {
+    command: "close",
+    deleted: true,
+    session,
+    state: "completed",
+  });
+  assert.equal(existsSync(fixture.envelopePath), false);
+  assert.equal(existsSync(fixture.globalPath), false);
+});
+
 test("session controller crea y adopta sesiones con identidad y contratos interpretables", async () => {
   const repository = await createRepository({
     ".agents/sessions/legacy.md": "# DevSession: legacy\n\nTexto humano conservado.\n",
@@ -2441,7 +2655,17 @@ test("session controller publica el lock completo o deja solo un temporal no blo
     { stdio: ["pipe", "pipe", "pipe"], windowsHide: true },
   );
   const controllerExited = once(controller, "exit");
-  controller.stdin.end(JSON.stringify({ phaseId: "feature-implement", role: "implementador" }));
+  controller.stdin.end(
+    JSON.stringify({
+      contextPaths: [],
+      findings: "No aplica",
+      objective: "Comprobar la publicación atómica del writer lock.",
+      phaseId: "feature-implement",
+      role: "implementador",
+      rules: "Aplicar las reglas efectivas del intento.",
+      tasks: "Abrir el intento writer y publicar su reserva.",
+    }),
+  );
 
   try {
     let acquisitionTimeout;

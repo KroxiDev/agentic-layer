@@ -7,14 +7,13 @@ sector de importancia.
 
 ## Entradas
 
-- Especificación, workflow y modo.
-- Sector de importancia y reglas efectivas registrados en la DevSession.
-- [Política de orquestación](../policies/orquestacion.md) aplicable a la unidad
-  y al modo registrados.
-- Lista de revisiones del Evaluador, si es retrabajo.
-- Una sola unidad de implementación, su `workUnitId`, propiedad, dependencias
-  satisfechas, permiso `writer`, revisión base, hilo y criterios asignados.
-- Estrategia y chequeo de desarrollo asignados para la unidad.
+- SubDevSession vigente como único sobre normal de despacho.
+- Rutas enumeradas en `contextPaths`: especificación aprobada y, en retrabajo,
+  únicamente el último reporte accionable del Evaluador.
+- Workflow, modo, sector, reglas, una sola unidad, `workUnitId`, ownership,
+  dependencias satisfechas, permiso, revisión base, hilo, criterios, estrategia
+  y chequeo de desarrollo materializados en el sobre conforme a la
+  [política de orquestación](../policies/orquestacion.md).
 
 ## Proceso
 

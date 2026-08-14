@@ -7,12 +7,14 @@ proporcional, verificable y ejecutable.
 
 ## Entradas
 
-- Objetivo, workflow y modo.
-- Reporte del Explorador cuando la ruta lo use; en `bugfix` compacto,
-  reproducción previa del Tester.
-- Reglas `AGENTS.md` efectivas.
-- [Política de orquestación](../policies/orquestacion.md).
-- Respuestas del usuario a rondas previas, si existen.
+- SubDevSession vigente como único sobre normal de despacho.
+- Rutas enumeradas en `contextPaths`: reporte vigente del Explorador o de la
+  reproducción previa, decisiones del usuario y referencias precisas a ADR o
+  memorias relevantes.
+- Objetivo, workflow, modo y reglas `AGENTS.md` efectivas materializados en el
+  sobre conforme a la
+  [política de orquestación](../policies/orquestacion.md). En compacto, incluye
+  el sector inicial necesario para absorber la exploración mínima.
 
 ## Proceso
 

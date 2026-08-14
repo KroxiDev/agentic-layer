@@ -344,8 +344,10 @@ el resultado final; `architecture` no repite ese cierre.
 ## Delegación aislada
 
 Cada fase se ejecuta en un subagente o contexto nativo aislado. El subagente
-recibe únicamente el objetivo, la DevSession, las reglas efectivas y los
-artefactos necesarios, y devuelve solo el contrato de salida de su rol.
+recibe únicamente la ruta de su SubDevSession vigente, la instrucción breve de
+ejecutar el contrato de su rol y acceso normal a CodeGraph y Engram. El sobre
+materializa el objetivo, las reglas, las tareas y las referencias permitidas; el
+subagente devuelve solo el contrato de salida de su rol.
 
 Los subagentes:
 
@@ -362,6 +364,47 @@ agente por shell.
 
 Evitar escrituras concurrentes sobre el mismo working tree. Implementación,
 testing y documentación se ejecutan en el orden del workflow.
+
+## Proyección mínima de contexto
+
+La DevSession global es el ledger durable y recuperable de coordinación, pero
+no es un artefacto de despacho. Para cada intento nuevo, `open` materializa una
+SubDevSession autocontenida como único sobre normal. El caller debe aportar
+`objective`, `rules` y `tasks` como strings no vacíos, `findings` como el
+hallazgo pertinente o `No aplica`, y `contextPaths` como una lista explícita de
+archivos consultables. El controlador calcula `sourceRevision` desde la
+revisión global vigente; el caller no puede imponerla.
+
+`contextPaths` conserva el orden elegido y usa rutas relativas canónicas. Se
+rechazan rutas absolutas, escapes, segmentos ambiguos, aliases por puntos o
+espacios terminales, duplicados portables a Windows, índices locales protegidos
+y directorios completos. El sobre muestra cada ruta sin copiar su contenido y
+el bloque administrado conserva las rutas canónicas y la revisión fuente.
+
+La selección mínima por rol es:
+
+- **Explorador:** pregunta concreta, rutas `AGENTS.md` conocidas y pistas
+  aprobadas; nunca historial de implementación.
+- **Planificador:** reporte vigente del Explorador cuando exista, decisiones del
+  usuario y referencias precisas a ADR o memorias relevantes. En compacto,
+  recibe objetivo, sector inicial y reglas para absorber la exploración mínima.
+- **Implementador:** especificación aprobada, una sola unidad, ownership,
+  estrategia de validación y, en retrabajo, solo el último reporte accionable
+  del Evaluador.
+- **Tester:** unidad implementada, diff o rutas modificadas, reporte vigente del
+  Implementador y contrato de validación. La reproducción previa de `bugfix`
+  compacto recibe únicamente objetivo y seam de reproducción.
+- **Evaluador:** especificación, reglas, diff y sobres vigentes de implementación
+  y testing para las unidades, generación y eje actuales. En compacto recibe
+  además la validación focalizada de la única unidad.
+- **Documentador:** decisiones, cambios, evidencia y evaluación aprobada que
+  abrieron su gate; nunca intentos fallidos ni reportes irrelevantes.
+
+El rol lee su SubDevSession y únicamente las rutas enumeradas en
+`contextPaths`. Si falta un dato indispensable, devuelve la incógnita exacta al
+orquestador sin abrir el ledger ni ampliar el contexto. Corregir la selección
+exige cerrar o fallar el intento y abrir uno nuevo con causa y sobre nuevo; un
+sobre abierto no se modifica retrospectivamente.
 
 ## Prioridad de Codex y paridad
 
@@ -419,15 +462,10 @@ subagentes y debe registrar:
 - decisión del gate de Documentador o `No aplica` con su motivo;
 - candidatos a memoria y próximos pasos.
 
-Antes de abrir cada Evaluador o el Documentador final, el orquestador debe
-seleccionar explícitamente en el índice los sobres pertinentes y pasar sus rutas,
-no el historial completo. Para el Evaluador de la ruta separada, la selección se
-limita a los intentos de implementación y testing de las unidades del fan-in y
-a la generación o eje vigente; para el Evaluador compacto, al intento vigente
-del Implementador y la evidencia focalizada de su única unidad. Para el
-Documentador, se limita a decisiones, cambios, validación y evaluaciones
-aprobadas que condicionen la documentación. Ambos consumos deben terminar antes
-de `cleanup`.
+Antes de cada `open`, el orquestador selecciona en el índice únicamente las
+referencias admitidas por la sección **Proyección mínima de contexto** y las
+registra en `contextPaths`; nunca pasa el historial completo. Los sobres que
+necesiten Evaluador o Documentador deben consumirse antes de `cleanup`.
 
 No versionar instancias reales. Los inventarios y el paquete las excluyen
 aunque existan durante la validación. Eliminarlas al cerrar correctamente la

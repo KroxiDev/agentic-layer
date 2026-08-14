@@ -7,15 +7,13 @@ efectivas sin regresiones conocidas.
 
 ## Entradas
 
-- Especificación y DevSession.
-- Diff o lista completa de archivos modificados.
-- [Política de orquestación](../policies/orquestacion.md).
-- Rutas explícitas a las SubDevSessions seleccionadas para la generación o eje
-  vigente: Implementador y Tester en la ruta separada; en compacto, solo el
-  Implementador y la validación focalizada persistida de su única unidad. Nunca
-  el historial completo de reportes.
-- Estrategia, eje y generación vigentes, permiso `read-only`, revisión base e
-  hilo.
+- SubDevSession vigente como único sobre normal de despacho.
+- Rutas enumeradas en `contextPaths`: especificación, diff y únicamente los
+  sobres vigentes de Implementador y Tester para la generación o eje actual;
+  en compacto, el Implementador y la validación focalizada de la única unidad.
+- Reglas, estrategia, eje, generación, permiso `read-only`, revisión base e hilo
+  materializados en el sobre conforme a la
+  [política de orquestación](../policies/orquestacion.md).
 
 ## Proceso
 

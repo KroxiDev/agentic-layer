@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
   link,
+  lstat,
   mkdir,
   open as openFile,
   readFile,
@@ -512,6 +513,71 @@ function canonicalOwnedPath(value) {
 
 function pathsCollide(left, right) {
   return left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
+}
+
+async function validateContextPaths(root, values) {
+  if (!Array.isArray(values)) {
+    throw new ControllerError(
+      "context_paths_required",
+      "open exige contextPaths como lista de rutas canónicas.",
+      2,
+    );
+  }
+  const seen = new Set();
+  const contextPaths = [];
+  for (const value of values) {
+    if (
+      typeof value !== "string" ||
+      !value ||
+      value.includes("\\") ||
+      value.startsWith("/") ||
+      /^[A-Za-z]:/.test(value)
+    ) {
+      throw new ControllerError(
+        "invalid_context_path",
+        "contextPaths exige rutas relativas canónicas.",
+        2,
+      );
+    }
+    const segments = value.split("/");
+    if (
+      segments.some(
+        (segment) => !segment || segment === "." || segment === ".." || /[ .]$/u.test(segment),
+      )
+    ) {
+      throw new ControllerError(
+        "invalid_context_path",
+        "contextPaths contiene segmentos ambiguos o aliases no portables.",
+        2,
+      );
+    }
+    const portablePath = segments.map((segment) => segment.toLowerCase()).join("/");
+    if (seen.has(portablePath)) {
+      throw new ControllerError(
+        "duplicate_context_path",
+        "contextPaths contiene rutas duplicadas de forma portable.",
+        2,
+      );
+    }
+    seen.add(portablePath);
+    if ([".codegraph", ".engram", ".git", "node_modules"].includes(portablePath.split("/")[0])) {
+      throw new ControllerError(
+        "protected_context_path",
+        "contextPaths no puede exponer índices o rutas locales protegidas.",
+        2,
+      );
+    }
+    const target = join(root, ...segments);
+    if (existsSync(target) && !(await lstat(target)).isFile()) {
+      throw new ControllerError(
+        "invalid_context_path",
+        "contextPaths debe seleccionar archivos, no directorios completos ni enlaces.",
+        2,
+      );
+    }
+    contextPaths.push(value);
+  }
+  return contextPaths;
 }
 
 function isCompactLight(managed) {
@@ -1560,11 +1626,23 @@ function renderSubdevTemplate(template, values) {
     .replaceAll("<wave>", String(values.wave ?? "No aplica"))
     .replaceAll("<permission>", values.permission ?? "No aplica")
     .replaceAll("<base-revision>", String(values.baseRevision ?? "No aplica"))
+    .replaceAll("<source-revision>", String(values.sourceRevision))
     .replaceAll("<thread-id>", values.threadId ?? "No aplica")
-    .replace("<objective>", values.objective ?? "Pendiente")
-    .replace("<rules>", values.rules ?? "- Según la DevSession global.")
-    .replace("<tasks>", values.tasks ?? "- Según la DevSession global.")
-    .replace("<findings>", values.findings ?? "- No aplica")
+    .replace("<objective>", values.objective)
+    .replace("<rules>", values.rules)
+    .replace("<tasks>", values.tasks)
+    .replace("<findings>", values.findings)
+    .replace(
+      "<context-paths>",
+      values.contextPaths.length
+        ? values.contextPaths
+            .map(
+              (path) =>
+                `- \`${path}\` — consulta permitida para completar las tareas y criterios asignados.`,
+            )
+            .join("\n")
+        : "- No aplica",
+    )
     .replace("<contract>", values.contract.map((label) => `- **${label}:**`).join("\n"));
   if (values.previousAttempt) {
     rendered = rendered.replace(
@@ -1582,6 +1660,23 @@ async function commandOpen(options, payload) {
   assertRevision(options.expectedRevision, session.managed.revision);
   if (session.managed.closed) throw new ControllerError("session_closed", "La DevSession ya está cerrada.");
   assertWorkUnitPlanReady(session.managed);
+  for (const field of ["objective", "rules", "tasks", "findings"]) {
+    if (typeof payload[field] !== "string" || !payload[field].trim()) {
+      throw new ControllerError(
+        "open_context_required",
+        `open exige ${field} como texto no vacío.`,
+        2,
+      );
+    }
+  }
+  if (payload.sourceRevision !== undefined) {
+    throw new ControllerError(
+      "source_revision_is_managed",
+      "sourceRevision la calcula el controlador desde la DevSession vigente.",
+      2,
+    );
+  }
+  const contextPaths = await validateContextPaths(options.root, payload.contextPaths);
 
   const identity = parseAttempt(options.attempt);
   if (payload.phaseId !== identity.phaseId || payload.role !== identity.role) {
@@ -1634,7 +1729,8 @@ async function commandOpen(options, payload) {
   }
   const permission = attemptPermission(session, identity, payload, workUnit);
   const trace = attemptTrace(session, payload, workUnit);
-  const openPayloadHash = hashText(stableJson(payload));
+  const sourceRevision = session.managed.revision;
+  const openPayloadHash = hashText(stableJson({ ...payload, contextPaths }));
   const existingLedger = session.managed.attempts[options.attempt];
   if (existingLedger) {
     const existingEnvelope = await readEnvelope(session, options);
@@ -1713,16 +1809,19 @@ async function commandOpen(options, payload) {
   const human = renderSubdevTemplate(await readUtf8(templatePath), {
     ...identity,
     ...payload,
+    contextPaths,
     ...reworkTrace,
     ...trace,
     contract,
     identity: options.attempt,
     permission,
     session: options.session,
+    sourceRevision,
     wave: workUnit?.wave,
   });
   const envelopeManaged = {
     attempt: identity.attempt,
+    contextPaths,
     contract,
     ...reworkTrace,
     kind: "subdev",
@@ -1730,6 +1829,7 @@ async function commandOpen(options, payload) {
     phaseId: identity.phaseId,
     revision: 1,
     role: identity.role,
+    sourceRevision,
     ...(permission !== undefined ? { permission } : {}),
     ...trace,
     sessionSlug: options.session,
@@ -1755,10 +1855,12 @@ async function commandOpen(options, payload) {
   if (permission === "writer") await acquireWriterReservation(options);
   session.managed.attempts[options.attempt] = {
     attempt: identity.attempt,
+    contextPaths,
     ...reworkTrace,
     openPayloadHash,
     phaseId: identity.phaseId,
     role: identity.role,
+    sourceRevision,
     ...(permission !== undefined ? { permission } : {}),
     ...trace,
     state: "active",

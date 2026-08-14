@@ -392,7 +392,21 @@ propiedad de rutas writer es exclusiva y portable: se normalizan rutas
 relativas, se rechazan escapes y se detectan colisiones exactas o de
 ancestro/descendiente, incluidas mayúsculas y aliases terminales de Windows.
 
-### Propiedad y traspaso de reportes
+### Proyección de contexto y traspaso de reportes
+
+La DevSession global es el ledger durable y recuperable. No se carga en cada
+contexto aislado: `open` proyecta una SubDevSession autocontenida con objetivo,
+reglas, tareas, hallazgos y una lista ordenada `contextPaths`. El controlador
+calcula `sourceRevision` desde la revisión global vigente, valida rutas relativas
+portables y rechaza índices protegidos, directorios, escapes, aliases y
+duplicados antes de escribir.
+
+El despacho normal contiene únicamente la ruta de la SubDevSession, la
+instrucción breve de ejecutar el contrato del rol y acceso a CodeGraph y Engram.
+El rol lee solo ese sobre y las referencias seleccionadas; no recibe cuerpos
+copiados. Ante un dato indispensable ausente devuelve la incógnita exacta. El
+orquestador puede fallar el intento y abrir otro con causa y contexto corregido,
+pero nunca reescribe retrospectivamente un sobre activo.
 
 `commit` escribe el cuerpo contractual íntegro solo en la SubDevSession. La
 parte humana global añade una referencia de tamaño acotado con identidad,
@@ -400,15 +414,13 @@ atribución, resultado, hash y ruta; el bloque administrado global sigue siendo
 dueño de revisiones, gates, evidencia y evaluación. Por eso `status` no necesita
 abrir los sobres ni cargar sus cuerpos.
 
-Antes de abrir Evaluador o Documentador, el orquestador selecciona en ese índice
-las rutas pertinentes por unidad, generación y eje y las pasa explícitamente al
-rol. Evaluador sigue siendo obligatorio. Documentador se abre después de la
-aprobación sólo si hay documentación afectada o una interfaz pública, un
-artefacto contractual, una decisión durable o memoria validada pendiente; en
-otro caso se registra `No aplica` sin crear el contexto. `cleanup` espera todos
-los consumos que realmente
-se abrieron. Las DevSessions heredadas que ya tengan consolidaciones verbosas se
-leen y preservan sin reescribir su parte humana.
+La política canónica selecciona `contextPaths` mínimos para cada rol. Evaluador
+sigue siendo obligatorio. Documentador se abre después de la aprobación sólo si
+hay documentación afectada o una interfaz pública, un artefacto contractual,
+una decisión durable o memoria validada pendiente; en otro caso se registra `No
+aplica` sin crear el contexto. `cleanup` espera todos los consumos que realmente
+se abrieron. Las DevSessions y SubDevSessions heredadas se leen y consolidan sin
+reescribir su parte humana.
 
 ### Writer lock, recuperación e idempotencia
 

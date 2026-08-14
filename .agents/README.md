@@ -133,6 +133,14 @@ consume `status`. El orquestador resuelve ese índice y entrega al Evaluador y a
 Documentador, cuando su gate se abre, solo los sobres pertinentes antes de
 permitir `cleanup`.
 
+La DevSession global es el ledger durable, no un input de despacho. Antes de
+cada fase, `open` crea el único sobre normal con objetivo, reglas, tareas,
+hallazgos, `contextPaths` ordenados y `sourceRevision` calculada desde la revisión
+vigente. El rol recibe la ruta de esa SubDevSession y consulta únicamente los
+archivos seleccionados. Si el sobre resulta insuficiente, devuelve la incógnita
+exacta; el orquestador falla o cierra el intento y abre otro, sin modificar
+retrospectivamente un sobre activo.
+
 Las estrategias de validación, su vigencia, la secuencia compacta, el cierre
 integrado, la evaluación y el gate de Documentador se definen una sola vez en la
 [política canónica](policies/orquestacion.md). El controlador conserva solo el
@@ -160,7 +168,8 @@ no se completa durante un upgrade.
 ## Invariantes
 
 1. CodeGraph, Engram y subagentes son requisitos obligatorios con fallo cerrado.
-2. Cada fase corre en un contexto aislado y devuelve solo el reporte del rol.
+2. Cada fase corre en un contexto aislado, recibe una SubDevSession mínima y
+   devuelve solo el reporte del rol.
 3. `policies/orquestacion.md` decide la activación por riesgo; dentro de la capa,
    `full` es el modo predeterminado y `light` requiere petición explícita. La
    estrategia compacta reduce contextos, no seguridad, aislamiento ni revisión

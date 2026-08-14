@@ -1,6 +1,6 @@
 # SubDevSession: <attempt-id>
 
-- DevSession global: `../<session-slug>.md`
+- Sesión: `<session-slug>`
 - Fase: `<phase-id>`
 - Rol: `<role>`
 - Intento: `<attempt-number>`
@@ -8,6 +8,7 @@
 - Oleada: `<wave>`
 - Permiso: `<permission>`
 - Revisión base: `<base-revision>`
+- Revisión fuente: `<source-revision>`
 - Hilo: `<thread-id>`
 - Estado: `active`
 
@@ -26,6 +27,10 @@
 ## Hallazgos o revisiones pendientes de intentos anteriores
 
 <findings>
+
+## Rutas de contexto seleccionadas
+
+<context-paths>
 
 ## Contrato de salida esperado
 

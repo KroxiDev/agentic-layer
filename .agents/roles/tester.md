@@ -7,15 +7,14 @@ evidencia observable.
 
 ## Entradas
 
-- Especificación, workflow y modo.
-- Archivos modificados y reporte del Implementador.
-- Reglas efectivas de validación y tests.
-- [Política de orquestación](../policies/orquestacion.md).
-- `workUnitId`, criterios y evidencia focalizada de la unidad implementada.
-- Permiso por intento, revisión base e identificador del hilo.
-- Estrategia de validación asignada y reporte reproducible del Implementador.
-- En `bugfix` compacto previo a la planificación, objetivo y seam de
-  reproducción en lugar de una unidad implementada.
+- SubDevSession vigente como único sobre normal de despacho.
+- Rutas enumeradas en `contextPaths`: especificación, diff o archivos
+  modificados, reporte vigente del Implementador y contrato de validación.
+- Workflow, modo, reglas, `workUnitId`, criterios, evidencia focalizada,
+  permiso, revisión base, hilo y estrategia de validación materializados en el
+  sobre conforme a la
+  [política de orquestación](../policies/orquestacion.md). En `bugfix` compacto
+  previo a la planificación, el sobre contiene objetivo y seam de reproducción.
 
 ## Proceso
 

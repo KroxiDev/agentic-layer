@@ -19,13 +19,18 @@ description: Orquesta tareas de desarrollo mediante roles aislados, DevSession y
    `init` y despachar únicamente fases y unidades listas a los roles indicados
    por los marcadores del workflow. En compacto, exigir una sola unidad y su
    validación focalizada antes de abrir implementación.
-5. Usar `open`, `await-input`, `resume`, `commit` y `fail` para mantener cada
+5. Antes de cada `open`, aplicar la selección mínima de la política y
+   materializar la SubDevSession vigente con objetivo, reglas, tareas,
+   hallazgos y `contextPaths`; `sourceRevision` pertenece al controlador.
+   Despachar solo la ruta de ese sobre y la instrucción breve de ejecutar el
+   contrato del rol.
+6. Usar `open`, `await-input`, `resume`, `commit` y `fail` para mantener cada
    intento atribuible; cerrar su hilo cuando el resultado ya esté consolidado.
-6. Aplicar desde la política los gates de validación, integración, evaluación y
+7. Aplicar desde la política los gates de validación, integración, evaluación y
    documentación, pasando a cada rol solo los sobres pertinentes del índice. La
    aprobación del Evaluador combinado consolida la única unidad compacta; la
    ruta separada conserva el Tester por unidad.
-7. Consolidar conocimiento durable en Engram y ejecutar `cleanup` y `close`
+8. Consolidar conocimiento durable en Engram y ejecutar `cleanup` y `close`
    únicamente cuando se satisfagan las precondiciones canónicas.
 
 En `architecture`, terminar después de registrar la decisión aprobada cuando no

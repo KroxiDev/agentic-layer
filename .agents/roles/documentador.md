@@ -7,16 +7,13 @@ conocimiento durable.
 
 ## Entradas
 
-- Especificación, decisiones y DevSession.
-- En la documentación final, archivos modificados y veredicto aprobado.
-- [Política de orquestación](../policies/orquestacion.md) y workflow vigente.
-- Rutas explícitas a las SubDevSessions seleccionadas de implementación,
-  testing y evaluación aprobada que condicionen la documentación; nunca el
-  historial completo de reportes.
-- Reglas efectivas de documentación.
-- Condición concreta que abrió el gate de Documentador según la política
-  canónica.
-- Evidencia de que la fase vigente cumple sus precondiciones canónicas.
+- SubDevSession vigente como único sobre normal de despacho.
+- Rutas enumeradas en `contextPaths`: decisiones, cambios, evidencia y
+  evaluación aprobada que abrieron el gate; nunca intentos fallidos ni reportes
+  irrelevantes.
+- Workflow, reglas de documentación, condición concreta del gate y evidencia de
+  sus precondiciones materializados en el sobre conforme a la
+  [política de orquestación](../policies/orquestacion.md).
 
 ## Proceso
 

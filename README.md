@@ -176,12 +176,19 @@ la juzga en la ruta separada y el Evaluador combinado lo hace en compacto. Las
 opciones, condiciones de reutilización y reglas de vigencia pertenecen
 exclusivamente a la política canónica.
 
+La DevSession global es el ledger durable de coordinación: conserva revisiones,
+unidades, gates, intentos y evaluación, pero no se despacha a los roles. Cada
+`open` materializa una SubDevSession autocontenida con objetivo, reglas, tareas,
+hallazgos, `contextPaths` seleccionados y `sourceRevision` calculada por el
+controlador. El contexto aislado recibe únicamente la ruta de ese sobre y lee
+solo los archivos enumerados; si falta un dato indispensable, devuelve la
+incógnita exacta para abrir un intento nuevo con una selección corregida.
+
 Cada reporte contractual íntegro vive una sola vez, en la SubDevSession de su
 intento. La parte humana de la DevSession global guarda únicamente una referencia
 compacta y el bloque administrado conserva el estado que consulta `status` sin
-leer cuerpos. Antes de `cleanup`, el orquestador pasa al Evaluador y al
-Documentador, cuando su gate se abre, solo las rutas de los sobres pertinentes
-para su fase.
+leer cuerpos. Antes de `cleanup`, los consumidores autorizados deben haber leído
+los sobres vigentes que su fase necesita.
 
 Una dependencia sólo se satisface en el segundo gate. Una unidad ya validada no
 se repite sin impacto demostrado. Cada ruta editable tiene propietario

@@ -2738,18 +2738,30 @@ async function validateTemplateDistribution() {
     if (!devSession.includes(field)) errors.push(`DevSession no contiene: ${field}`);
   }
   for (const field of [
-    "DevSession global:",
+    "Sesión:",
     "Fase:",
     "Rol:",
     "Intento:",
+    "Revisión fuente:",
+    "## Rutas de contexto seleccionadas",
     "## Contrato de salida esperado",
     "## Reporte contractual producido",
     "## Estado de consolidación en la DevSession global",
   ]) {
     if (!subdevSession.includes(field)) errors.push(`SubDevSession no contiene: ${field}`);
   }
+  if (/Según la DevSession global|^- DevSession global:/m.test(subdevSession)) {
+    errors.push("SubDevSession remite al ledger global en lugar de materializar el contexto mínimo.");
+  }
   if (!orchestration.includes(".agents/scripts/session-controller.mjs")) {
     errors.push("orquestacion.md no referencia el controlador canónico de sesiones.");
+  }
+  if (
+    !orchestration.includes("## Proyección mínima de contexto") ||
+    !orchestration.includes("`contextPaths`") ||
+    !orchestrationSkill.includes("`contextPaths`")
+  ) {
+    errors.push("La política y la skill no declaran la proyección mínima de contexto.");
   }
 
   const goldenRuleConsumers = new Set(["planificador", "implementador", "tester", "evaluador"]);
@@ -2768,6 +2780,17 @@ async function validateTemplateDistribution() {
     }
     if (!linksToCanonicalPolicy(content)) {
       errors.push(`.agents/roles/${role}.md no enlaza ${ORCHESTRATION_POLICY}.`);
+    }
+    const inputs = content.match(/^## Entradas\r?\n([\s\S]*?)(?=^## |(?![\s\S]))/m)?.[1] ?? "";
+    if (!inputs.includes("SubDevSession vigente") || !inputs.includes("`contextPaths`")) {
+      errors.push(`.agents/roles/${role}.md no consume el sobre mínimo común.`);
+    }
+    if (
+      inputs.includes("- DevSession vigente.") ||
+      inputs.includes("Especificación y DevSession") ||
+      inputs.includes("Especificación, decisiones y DevSession")
+    ) {
+      errors.push(`.agents/roles/${role}.md todavía solicita la DevSession completa.`);
     }
   }
 

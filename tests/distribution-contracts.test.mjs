@@ -329,6 +329,84 @@ test("los contratos canónicos enlazan políticas y exponen marcadores estables"
   assert.doesNotMatch(codexAdapter + claudeAdapter, /light\s*=\s*4|full\s*=\s*9/);
 });
 
+test("los contratos proyectan el contexto mínimo mediante un único sobre", async () => {
+  const [orchestration, skill, subdevSession, ...roleSources] = await Promise.all([
+    readFile(join(ROOT, ".agents", "policies", "orquestacion.md"), "utf8"),
+    readFile(join(ROOT, ".agents", "skills", "orquestar", "SKILL.md"), "utf8"),
+    readFile(join(ROOT, ".agents", "templates", "subdev-session.md"), "utf8"),
+    ...["documentador", "evaluador", "explorador", "implementador", "planificador", "tester"].map(
+      (role) => readFile(join(ROOT, ".agents", "roles", `${role}.md`), "utf8"),
+    ),
+  ]);
+  const projection = markdownSection(orchestration, "Proyección mínima de contexto") ?? "";
+
+  assert.notEqual(projection, "");
+  assert.ok(projection.includes("`contextPaths`"));
+  for (const role of [
+    "Explorador",
+    "Planificador",
+    "Implementador",
+    "Tester",
+    "Evaluador",
+    "Documentador",
+  ]) {
+    assert.ok(projection.includes(`**${role}:**`), `Falta la selección mínima de ${role}.`);
+  }
+  assert.ok(skill.includes("`contextPaths`"));
+  assert.match(skill, /SubDevSession vigente/);
+
+  for (const source of roleSources) {
+    const inputs = markdownSection(source, "Entradas") ?? "";
+    assert.ok(inputs.includes("SubDevSession vigente"));
+    assert.ok(inputs.includes("`contextPaths`"));
+    assert.equal(inputs.includes("- DevSession vigente."), false);
+    assert.equal(inputs.includes("Especificación y DevSession"), false);
+    assert.equal(inputs.includes("Especificación, decisiones y DevSession"), false);
+  }
+
+  for (const heading of [
+    "Objetivo específico",
+    "Reglas efectivas aplicables",
+    "Tareas y criterios asignados",
+    "Hallazgos o revisiones pendientes de intentos anteriores",
+    "Rutas de contexto seleccionadas",
+  ]) {
+    assert.notEqual(markdownSection(subdevSession, heading), null, `Falta ${heading}.`);
+  }
+  assert.ok(subdevSession.includes("- Revisión fuente: `<source-revision>`"));
+  assert.doesNotMatch(subdevSession, /Según la DevSession global|DevSession global:/);
+
+  const repository = await createRepository({
+    "package.json": JSON.stringify({
+      name: "contrato-contexto-minimo",
+      description: "Valida la distribución del sobre mínimo por rol.",
+    }),
+  });
+  const adoption = runInitializer(repository);
+  assert.equal(adoption.status, SIN_HERRAMIENTAS, adoption.stderr || adoption.stdout);
+});
+
+test("la documentación distingue ledger y sobre de contexto mínimo", async () => {
+  const [readme, internalReadme, context, architecture] = await Promise.all([
+    readFile(join(ROOT, "README.md"), "utf8"),
+    readFile(join(ROOT, ".agents", "README.md"), "utf8"),
+    readFile(join(ROOT, "CONTEXT.md"), "utf8"),
+    readFile(join(ROOT, "docs", "arquitectura.md"), "utf8"),
+  ]);
+
+  for (const source of [readme, internalReadme, architecture]) {
+    assert.ok(source.includes("`contextPaths`"));
+    assert.ok(source.includes("`sourceRevision`"));
+  }
+  assert.ok(context.includes("**Ledger de coordinación**:"));
+  assert.ok(context.includes("**Sobre de despacho**:"));
+  assert.notEqual(
+    markdownSection(architecture, "Proyección de contexto y traspaso de reportes"),
+    null,
+  );
+  assert.match(readme + internalReadme + architecture, /incógnita exacta/);
+});
+
 test("los workflows declaran una única secuencia estructural para light compacto", async () => {
   for (const workflow of ["architecture", "bugfix", "feature", "refactor"]) {
     const source = await readFile(

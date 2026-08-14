@@ -195,10 +195,21 @@ function runSessionController(directory, command, options = {}, payload) {
   if (options.expectedRevision !== undefined) {
     arguments_.push("--expected-revision", String(options.expectedRevision));
   }
+  const input =
+    command === "open" && payload !== undefined
+      ? {
+          contextPaths: [],
+          findings: "No aplica",
+          objective: "Ejecutar el contrato del rol para la fase asignada.",
+          rules: "Aplicar las reglas efectivas indicadas para el intento.",
+          tasks: "Completar las tareas y criterios asignados al intento.",
+          ...payload,
+        }
+      : payload;
   return spawnSync(process.execPath, arguments_, {
     cwd: ROOT,
     encoding: "utf8",
-    input: payload === undefined ? undefined : JSON.stringify(payload),
+    input: input === undefined ? undefined : JSON.stringify(input),
   });
 }
 

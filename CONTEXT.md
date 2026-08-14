@@ -144,10 +144,22 @@ Una categoría admitida por la política canónica que justifica separar los eje
 de evaluación. El glosario nombra el concepto, no reproduce su lista normativa.
 _Evitar_: riesgo residual, severidad genérica, preferencia del evaluador.
 
+**Ledger de coordinación**:
+La DevSession global como fuente durable y recuperable durante una tarea:
+conserva revisiones, unidades, intentos, gates, evidencia y evaluación, pero no
+se entrega completa a los roles.
+_Evitar_: sobre de despacho, historial inyectado, contexto del rol.
+
 **DevSession**:
-El estado efímero de una tarea en `.agents/sessions/<slug>.md`, único traspaso
-entre fases. Se elimina al cerrar y no se versiona.
+El archivo efímero `.agents/sessions/<slug>.md` que implementa el ledger de
+coordinación. Se elimina al cerrar y no se versiona.
 _Evitar_: sesión, contexto compartido, scratchpad, memoria de trabajo.
+
+**Sobre de despacho**:
+La SubDevSession autocontenida que recibe un rol para un intento. Materializa
+objetivo, reglas, tareas y hallazgos, enumera `contextPaths` y registra la
+`sourceRevision`; no copia el ledger ni el contenido de las referencias.
+_Evitar_: DevSession global, prompt completo, copia de la especificación.
 
 **Reporte contractual**:
 La instancia íntegra del contrato de salida producida por un intento. Tiene una
@@ -155,8 +167,10 @@ sola fuente mientras vive la tarea: su SubDevSession.
 _Evitar_: índice, estado administrado, resumen global.
 
 **SubDevSession**:
-El sobre efímero `.agents/sessions/<slug>/<attempt>.md` que posee el reporte
-contractual íntegro y su acuse hasta `cleanup`.
+El sobre de despacho efímero `.agents/sessions/<slug>/<attempt>.md` que además
+posee el reporte contractual íntegro y su acuse hasta `cleanup`. Si falta
+contexto indispensable, el rol devuelve la incógnita exacta y el orquestador
+abre un intento nuevo con otra selección; no amplía ni reescribe el sobre vivo.
 _Evitar_: copia del reporte, historial global, ledger.
 
 **Índice compacto de reportes**:

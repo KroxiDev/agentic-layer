@@ -7,12 +7,12 @@ condicionan la tarea.
 
 ## Entradas
 
-- Objetivo, workflow y modo.
-- DevSession vigente.
-- [Política de orquestación](../policies/orquestacion.md) y reglas efectivas del
-  repositorio.
-- Pistas o artefactos que el orquestador haya aprobado.
-- Carril asignado, fronteras y preguntas concretas que no debe duplicar.
+- SubDevSession vigente como único sobre normal de despacho.
+- Rutas enumeradas en `contextPaths`: cadena `AGENTS.md` conocida y pistas o
+  artefactos aprobados; no historial de implementación.
+- Objetivo, workflow, modo, reglas efectivas, carril, fronteras y pregunta
+  concreta materializados en el sobre conforme a la
+  [política de orquestación](../policies/orquestacion.md).
 
 La estrategia compacta no abre este rol: el Planificador absorbe su exploración
 mínima. Este contrato sigue vigente para `full` y sesiones `light` legacy.
