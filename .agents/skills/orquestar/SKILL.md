@@ -1,14 +1,15 @@
 ---
 name: orquestar
-description: Orquesta tareas de desarrollo mediante roles aislados, DevSession y workflows full o light. Usar cuando el usuario pida orquestar una tarea o cuando una tarea no trivial de feature, bugfix, refactor o arquitectura deba activar automáticamente la capa agéntica.
+description: Orquesta tareas de desarrollo mediante roles aislados, DevSession y workflows full o light. Usar cuando el usuario pida orquestar o cuando la política canónica clasifique una señal cerrada de full automático; light requiere petición explícita.
 ---
 
 # Orquestar
 
 1. Leer `AGENTS.md` y `.agents/policies/orquestacion.md`.
-2. Ejecutar el preflight obligatorio y detenerse si falla un requisito.
-3. Seleccionar workflow y modo; usar `full` por defecto y `light` solo por
-   petición explícita.
+2. Confirmar que la decisión canónica activó la capa y ejecutar el preflight
+   obligatorio; detenerse si falla un requisito.
+3. Seleccionar el workflow; dentro de la capa usar `full` por defecto y `light`
+   solo por petición explícita.
 4. Crear o adoptar la DevSession y administrar sus sobres con
    `.agents/scripts/session-controller.mjs`, usando la revisión esperada en cada
    mutación. Registrar modo y capacidades desde el primer `init`.

@@ -120,12 +120,13 @@ No trae producto, rama ni layout de código. No instala herramientas, no ejecuta
 agentes por su cuenta, no gestiona Git ni remotos y no se sincroniza sola: la
 adopción es una copia y el propietario la mantiene.
 
-## Modos de orquestación
+## Activación y modos
 
-| Modo | Activación | Profundidad | Tope de subagentes activos |
+| Ejecución | Activación | Profundidad | Tope de subagentes activos |
 | --- | --- | --- | ---: |
-| `full` | Predeterminado; automático para tareas no triviales | Workflow completo, SDD proporcional, TDD cuando corresponda y validación declarada | 9 |
+| Directa verificada | Riesgo bajo o medio, todos los límites directos y ninguna señal cerrada de `full` | Cambio acotado, tests proporcionales, validación focalizada y revisión del diff | No aplica |
 | `light` | Sólo por petición explícita | Mismos roles, workflow y DevSession; cambio y evidencia focalizados | 4 |
+| `full` | `orquestar` explícito sin `light`, o riesgo alto automático respaldado | Workflow completo, SDD proporcional, TDD cuando corresponda y validación declarada | 9 |
 
 `light` no selecciona modelo ni nivel de razonamiento. Por defecto no crea tests,
 no ejecuta la suite completa, no refactoriza y no amplía documentación. Conserva
@@ -138,8 +139,13 @@ aserciones necesarias. Después de alcanzar verde puede hacerse un refactor
 acotado que no cambie comportamiento, alcance ni interfaces aprobadas; su
 validación focalizada se repite antes de continuar.
 
-Una tarea trivial, local y evidente se resuelve sin pipeline. Si la
-clasificación es dudosa, se consulta antes de actuar.
+La matriz normativa vive una sola vez en
+`.agents/policies/orquestacion.md`. La cantidad de archivos no determina por sí
+sola el riesgo: una corrección clara de una unidad puede ser directa aunque
+ajuste varios archivos relacionados; `light` corresponde a una petición
+explícita; una modificación de seguridad de un solo archivo o un bug
+intermitente justifican `full`. Solo se consulta si falta un hecho que cambiaría
+la categoría.
 
 ### Paralelismo controlado
 
@@ -227,8 +233,9 @@ El Evaluador puede devolver trabajo al Implementador dos veces como máximo; si 
 rechazo persiste, la tarea se detiene con un diagnóstico.
 
 **Con Codex:** abrir el proyecto desde su raíz y pedir `orquestar <tarea>`, o
-describir una tarea no trivial para la activación automática. Los roles se
-descubren en `.codex/agents/*.toml`.
+describir la tarea para que la política canónica decida entre ejecución directa
+y activación automática por riesgo. Los roles se descubren en
+`.codex/agents/*.toml`.
 
 **Con Claude Code:** abrir el proyecto desde su raíz para que `CLAUDE.md` importe
 `AGENTS.md`, y ejecutar `/orquestar <tarea>`. Los roles se descubren en

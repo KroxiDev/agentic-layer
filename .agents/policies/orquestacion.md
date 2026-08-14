@@ -64,23 +64,83 @@ del archivo, la sección y el campo exactos; no inferirlos ni completarlos
 automáticamente. El usuario debe corregir `AGENTS.md` antes de continuar.
 <!-- STRICT_PROJECT_CONTRACT_RULE_END -->
 
-## Activación
+## Decisión de activación
 
-- Activar siempre cuando el usuario pida `orquestar`.
-- Activar automáticamente en `full` para tareas no triviales: cambios
-  multiarchivo, comportamiento nuevo, bugs no triviales, refactors con impacto
-  o decisiones arquitectónicas.
-- Resolver directamente una tarea trivial, local y evidente.
-- Si la clasificación es dudosa, preguntar antes de actuar.
-- No activar `light` automáticamente.
+Esta sección es la única fuente normativa de la clasificación. Aplicar la
+primera fila respaldada por hechos observables; las instrucciones explícitas del
+usuario prevalecen dentro de los límites de seguridad y de las instrucciones
+superiores.
+
+| Orden | Hecho observable | Decisión |
+| ---: | --- | --- |
+| 1 | El usuario pide trabajar `sin orquestar`. | No activar la capa y comprobar los límites de ejecución directa. Si alguno falla, detenerse y explicar el límite concreto; no sustituir la instrucción por activación silenciosa. |
+| 2 | El usuario pide `orquestar` o `full`. | Activar la capa en `full`, salvo que también elija `light` explícitamente. |
+| 3 | El usuario pide `light`. | Activar la capa en `light`; nunca elegirlo automáticamente. |
+| 4 | Sin instrucción explícita, existe al menos una categoría respaldada de `full` automático. | Activar la capa en `full`. |
+| 5 | No existe una categoría de `full` y se cumplen todos los límites de ejecución directa verificada. | Ejecutar directamente, sin DevSession ni roles aislados. |
+| 6 | Falta un hecho que cambiaría la categoría. | Consultar antes de mutar, preguntando solo por ese hecho. |
+
+La cantidad de archivos y la mera presencia de comportamiento nuevo pueden
+aportar contexto, pero nunca activan por sí solas la orquestación.
+
+### Categorías de `full` automático
+
+Activar `full` cuando exista al menos una señal respaldada de esta lista cerrada:
+
+- decisión arquitectónica durable;
+- seguridad, integridad, secretos o una acción difícil de revertir;
+- migración o compatibilidad pública;
+- varias unidades de implementación realmente independientes;
+- cambio transversal cuyo ownership o fan-in sea considerable;
+- bug incierto, intermitente, de rendimiento o con varias causas plausibles;
+- especificación ambigua que requiera decisiones del usuario;
+- concurrencia de escritores o aislamiento que la ejecución directa no pueda
+  garantizar.
+
+### Límites de ejecución directa verificada
+
+La ejecución directa es elegible únicamente para riesgo bajo o medio cuando se
+cumple todo:
+
+- objetivo y criterios claros;
+- un solo sector coherente y un solo escritor;
+- cambio pequeño o mecánicamente relacionado, aunque abarque varios archivos;
+- ninguna decisión arquitectónica, migración, seguridad ni compatibilidad
+  pública;
+- ninguna hipótesis competidora ni necesidad de fan-in;
+- validación focalizada concreta disponible;
+- impacto y diff revisables por el agente principal;
+- contrato efectivo completo y herramientas obligatorias disponibles.
+
+La ruta directa conserva Regla de Oro, CodeGraph, Engram, tests proporcionales,
+revisión del diff y todas las restricciones de Git y seguridad. La entrega
+directa debe informar por qué era elegible y qué validación focalizada ejecutó.
+Si se conoce que un límite no se cumple y ninguna categoría automática aplica,
+no mutar: explicar el límite y solicitar una instrucción explícita o un alcance
+elegible.
+
+Ejemplos de clasificación:
+
+- Una corrección clara de una unidad, con test focalizado, puede abarcar varios
+  archivos estrechamente relacionados y seguir siendo ejecución directa.
+- Una modificación de seguridad de un solo archivo activa `full`.
+- Una migración o compatibilidad pública y una decisión arquitectónica durable
+  activan `full`.
+- Un bug reproducible con causa directa puede usar ejecución directa; uno
+  intermitente o con hipótesis competidoras activa `full`.
+
+`Sin orquestar` nunca autoriza a omitir seguridad, integridad, acciones
+restringidas ni una decisión indispensable. La duda genérica no es motivo para
+preguntar: solo se consulta cuando falta un hecho que cambiaría la categoría.
 
 ## Modos
 
 ### `full`
 
-Es el modo predeterminado y el único que puede activarse automáticamente.
-Conserva exploración, especificación, implementación, testing, evaluación y
-documentación con profundidad proporcional al riesgo.
+Es el modo predeterminado dentro de una capa ya activada y el único que puede
+activarse automáticamente. Conserva exploración, especificación,
+implementación, testing, evaluación y documentación con profundidad
+proporcional al riesgo.
 
 ### `light`
 

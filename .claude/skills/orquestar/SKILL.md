@@ -1,6 +1,6 @@
 ---
 name: orquestar
-description: Activa en Claude Code el pipeline agéntico canónico para tareas solicitadas como orquestadas o clasificadas como no triviales, con modos full y light.
+description: Activa en Claude Code el pipeline agéntico para solicitudes explícitas o cuando la política canónica clasifica una señal cerrada de full automático; light requiere petición explícita.
 ---
 
 Leer `.agents/skills/orquestar/SKILL.md` y

@@ -5870,6 +5870,53 @@ test("los contratos canónicos definen cierre, validación y evaluación proporc
   assert.doesNotMatch(codexAdapter + claudeAdapter, /light\s*=\s*4|full\s*=\s*9/);
 });
 
+test("la activación canónica decide por riesgo y mantiene consumidores delgados", async () => {
+  const [agentsContract, orchestration, skill, claudeAdapter, readme] = await Promise.all([
+    readFile(join(ROOT, "AGENTS.md"), "utf8"),
+    readFile(join(ROOT, ".agents", "policies", "orquestacion.md"), "utf8"),
+    readFile(join(ROOT, ".agents", "skills", "orquestar", "SKILL.md"), "utf8"),
+    readFile(join(ROOT, ".claude", "skills", "orquestar", "SKILL.md"), "utf8"),
+    readFile(join(ROOT, "README.md"), "utf8"),
+  ]);
+  const activationSeam = agentsContract.match(
+    /## Activación y modo\n([\s\S]*?)\n## Requisitos globales/,
+  )?.[1];
+
+  assert.match(activationSeam ?? "", /fuente normativa/i);
+  assert.match(activationSeam ?? "", /sin orquestar[\s\S]*seguridad/i);
+  assert.doesNotMatch(
+    [activationSeam, skill, claudeAdapter].join("\n"),
+    /tareas? no triviales?|cambios?\s+multiarchivo|comportamiento nuevo/i,
+  );
+
+  assert.match(orchestration, /## Decisión de activación/);
+  assert.doesNotMatch(
+    orchestration,
+    /tareas? no triviales?:|cambios?\s+multiarchivo,\s*comportamiento nuevo/i,
+  );
+  assert.match(orchestration, /instrucciones explícitas[\s\S]*límites de seguridad/i);
+  assert.match(orchestration, /varios\s+archivos estrechamente relacionados[\s\S]*ejecución directa/i);
+  assert.match(orchestration, /seguridad[\s\S]*activa `full`/i);
+  assert.match(orchestration, /migración o compatibilidad pública[\s\S]*`full`/i);
+  assert.match(orchestration, /bug reproducible[\s\S]*causa directa[\s\S]*ejecución directa/i);
+  assert.match(orchestration, /intermitente[\s\S]*hipótesis competidoras[\s\S]*`full`/i);
+  assert.match(orchestration, /falta un hecho[\s\S]*cambiaría la categoría/i);
+  assert.match(orchestration, /entrega\s+directa[\s\S]*por qué era elegible[\s\S]*validación/i);
+  assert.equal(
+    orchestration.match(/^### Categorías de `full` automático$/gm)?.length,
+    1,
+  );
+  assert.doesNotMatch(
+    skill + claudeAdapter,
+    /decisión arquitectónica durable|hipótesis competidoras|concurrencia de escritores/i,
+  );
+
+  assert.match(readme, /\| Directa verificada \|/);
+  assert.match(readme, /\| `light` \|/);
+  assert.match(readme, /\| `full` \|/);
+  assert.match(readme, /cantidad de archivos[\s\S]*no determina[\s\S]*riesgo/i);
+});
+
 test("session controller se distribuye con contratos portables y excluye sesiones activas", async () => {
   const controllerPath = ".agents/scripts/session-controller.mjs";
   const subdevTemplatePath = ".agents/templates/subdev-session.md";

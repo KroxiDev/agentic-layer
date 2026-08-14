@@ -236,11 +236,25 @@ técnica de Codex; los workflows aplican después sus topes independientes de 4
 
 ## Flujo de orquestación
 
+La política canónica decide primero con hechos observables; este diagrama
+resume el enrutamiento y deja la lista cerrada de riesgos en
+`.agents/policies/orquestacion.md`.
+
 ```mermaid
 flowchart TD
-    task["tarea"] --> triv{"trivial y<br/>evidente?"}
-    triv -->|sí| direct["resolver sin pipeline"]
-    triv -->|no| pre["preflight:<br/>CodeGraph · Engram ·<br/>subagentes · contrato"]
+    task["tarea"] --> explicit{"instrucción<br/>explícita?"}
+    explicit -->|"orquestar / full"| full["modo full"]
+    explicit -->|light| light["modo light"]
+    explicit -->|sin orquestar| eligible{"¿cumple todos los<br/>límites directos?"}
+    explicit -->|ninguna| risk{"¿señal cerrada<br/>de full?"}
+    risk -->|sí| full
+    risk -->|no| eligible
+    eligible -->|sí| direct["ejecución directa<br/>verificada"]
+    eligible -->|no| missing{"¿falta un hecho que<br/>cambiaría la categoría?"}
+    missing -->|sí| ask["consultar solo<br/>ese hecho"]
+    missing -->|no| stopDirect["detenerse y explicar<br/>el límite concreto"]
+    full --> pre["preflight:<br/>CodeGraph · Engram ·<br/>subagentes · contrato"]
+    light --> pre
     pre -->|falla| stop["detenerse con<br/>diagnóstico breve"]
     pre -->|pasa| sess["init DevSession:<br/>modo + capacidades"]
     sess --> plan["explorar y planificar<br/>DAG de 1–3 unidades"]

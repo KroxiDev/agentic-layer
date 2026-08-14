@@ -139,7 +139,8 @@ por defecto.
 
 1. CodeGraph, Engram y subagentes son requisitos obligatorios con fallo cerrado.
 2. Cada fase corre en un contexto aislado y devuelve solo el reporte del rol.
-3. `full` es el modo predeterminado; `light` requiere petición explícita.
+3. `policies/orquestacion.md` decide la activación por riesgo; dentro de la capa,
+   `full` es el modo predeterminado y `light` requiere petición explícita.
 4. La DevSession es efímera y no se reemplaza con memoria durable.
 5. Engram conserva únicamente conocimiento validado, reutilizable y
    accionable.

@@ -6,14 +6,19 @@ deben duplicar sus políticas.
 
 ## Activación y modo
 
-- Leer `.agents/policies/orquestacion.md` antes de ejecutar una tarea
-  orquestada.
-- Activar la skill `orquestar` cuando el usuario lo pida o cuando la tarea sea
-  no trivial. El modo predeterminado es `full`.
+- `.agents/policies/orquestacion.md` es la fuente normativa para clasificar la
+  activación antes de mutar y para ejecutar cualquier tarea orquestada.
+- Activar la skill `orquestar` cuando el usuario lo pida o cuando esa política
+  clasifique una señal cerrada de `full` automático. Dentro de la capa, `full`
+  es el modo predeterminado.
 - Usar `light` únicamente por petición explícita del usuario. No usarlo como
   nombre de modelo ni como nivel de razonamiento.
-- Resolver cambios triviales, locales y evidentes sin pipeline. Si la
-  clasificación es dudosa, consultar antes de actuar.
+- Permitir ejecución directa verificada solo cuando cumpla todos los límites de
+  la política; la entrega debe justificar la elegibilidad y citar su validación.
+- Una instrucción explícita de trabajar `sin orquestar` no permite omitir
+  seguridad, acciones restringidas ni una decisión indispensable. Si impide una
+  ejecución directa válida, detenerse y explicar el límite concreto.
+- Consultar antes de mutar solo cuando falte un hecho que cambiaría la categoría.
 - Responder en español neutro, salvo instrucción explícita en contrario.
 
 ## Requisitos globales
