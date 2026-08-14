@@ -84,9 +84,9 @@ ligaban `full` a dos Evaluadores. Conserva D1–D4 y D6–D8: identidad de unida
 intentos, DAG, gates, capacidad, ownership, writer lock, generaciones,
 invalidación, recuperación, paridad y compatibilidad.
 
-No modifica la activación de `full` o `light`, los seis roles, el Documentador
-obligatorio, el diagnóstico de bugs con 3–5 hipótesis ni las garantías de
-seguridad e integridad.
+En el momento de esta decisión no modificó la activación de `full` o `light`,
+los seis roles, el Documentador obligatorio, la disciplina de diagnóstico de
+bugs entonces vigente ni las garantías de seguridad e integridad.
 
 ## Consecuencias
 

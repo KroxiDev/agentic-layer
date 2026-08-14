@@ -6,11 +6,11 @@ Usar para bugs, fallos y regresiones. La disciplina canónica es
 1. **Reproducir — Tester:** <!-- agentic-phase:v1 {"id":"bugfix-reproduce","role":"tester"} --> construir un bucle rojo-capaz, ejecutar la
    reproducción y minimizarla. Si no existe una señal válida, detenerse y
    devolver lo intentado.
-2. **Diagnosticar — Explorador:** <!-- agentic-phase:v1 {"id":"bugfix-diagnose","role":"explorador"} --> usar CodeGraph y la evidencia para producir
-   hipótesis falsables rankeadas y delimitar el sector. El orquestador presenta
-   las hipótesis al usuario antes de las sondas; es un checkpoint informativo y
-   no bloqueante, salvo que la instrumentación prevista requiera autorización
-   por sí misma.
+2. **Diagnosticar — Explorador:** <!-- agentic-phase:v1 {"id":"bugfix-diagnose","role":"explorador"} --> usar CodeGraph y la evidencia para aplicar la
+   clasificación de `.agents/skills/agentic-diagnostico-bugs/SKILL.md`, explicar
+   la causa o las hipótesis respaldadas y delimitar el sector. Devolver al
+   orquestador únicamente los checkpoints o bloqueos que esa clasificación
+   requiera.
 3. **Planificar — Planificador:** <!-- agentic-phase:v1 {"id":"bugfix-plan","role":"planificador"} --> especificar el comportamiento correcto, la
    causa respaldada, el seam de regresión y el cambio mínimo.
 4. **Corregir — Implementador:** <!-- agentic-phase:v1 {"id":"bugfix-implement","role":"implementador"} --> instrumentar una variable por vez si hace
@@ -23,9 +23,10 @@ Usar para bugs, fallos y regresiones. La disciplina canónica es
 7. **Documentar — Documentador (condicional):** <!-- agentic-phase:v1 {"id":"bugfix-document","role":"documentador"} --> abrir únicamente cuando el gate de la
    política de orquestación detecte documentación o memoria durable pendiente.
 
-En `light` se conserva la secuencia. La reducción de evidencia nunca permite
-hipotetizar sin un bucle rojo-capaz ni omitir una regresión necesaria para
-demostrar el arreglo.
+En `light` se conserva la secuencia y se justifica brevemente cualquier mecánica
+omitida porque no aumentaría la información. La reducción de evidencia nunca
+permite hipotetizar sin un bucle rojo-capaz o evidencia equivalente ni omitir
+una regresión necesaria para demostrar el arreglo.
 
 Un bugfix conserva normalmente una sola unidad de implementación. Si el plan
 demuestra unidades independientes, respetar sus dependencias, ownership y

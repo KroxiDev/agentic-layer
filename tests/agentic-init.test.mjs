@@ -5917,6 +5917,40 @@ test("la activación canónica decide por riesgo y mantiene consumidores delgado
   assert.match(readme, /cantidad de archivos[\s\S]*no determina[\s\S]*riesgo/i);
 });
 
+test("el diagnóstico de bugs escala con la incertidumbre y conserva sus guardrails", async () => {
+  const [diagnostic, bugfix] = await Promise.all([
+    readFile(
+      join(ROOT, ".agents", "skills", "agentic-diagnostico-bugs", "SKILL.md"),
+      "utf8",
+    ),
+    readFile(join(ROOT, ".agents", "workflows", "bugfix.md"), "utf8"),
+  ]);
+  const direct = diagnostic.match(/### Ruta directa\n([\s\S]*?)(?=\n### |\n## |$)/i)?.[1] ?? "";
+  const investigative =
+    diagnostic.match(/### Ruta investigativa\n([\s\S]*?)(?=\n### |\n## |$)/i)?.[1] ?? "";
+  const blocked = diagnostic.match(/### Bloqueo\n([\s\S]*?)(?=\n### |\n## |$)/i)?.[1] ?? "";
+
+  assert.match(
+    direct,
+    /determinista[\s\S]*(?:una|única) hipótesis[\s\S]*(?:predicción|evidencia)/i,
+  );
+  assert.match(investigative, /causas? (?:plausibles )?(?:compiten|competidoras)[\s\S]*falsable/i);
+  assert.match(diagnostic, /intermitente[\s\S]*tasa de reproducción[\s\S]*med/i);
+  assert.match(direct, /sin (?:un )?checkpoint|no (?:requiere|hay) (?:un )?checkpoint/i);
+  assert.match(
+    investigative,
+    /checkpoint[\s\S]*(?:causas? competidoras|conocimiento (?:útil )?del usuario|autorización)/i,
+  );
+  assert.match(diagnostic, /instrumentación[\s\S]*(?:sensible|persistente)[\s\S]*autorización/i);
+  assert.match(blocked, /señal intentada[\s\S]*límites? alcanzados[\s\S]*dato indispensable/i);
+  assert.match(diagnostic, /reproducción original[\s\S]*(?:regresión|test)/i);
+  assert.doesNotMatch(
+    diagnostic + bugfix,
+    /entre tres y cinco hipótesis|esfuerzo desproporcionado|agotar (?:todas )?las alternativas/i,
+  );
+  assert.match(bugfix, /clasificación[\s\S]*agentic-diagnostico-bugs/i);
+});
+
 test("la política reutiliza evidencia determinista solo mientras sigue vigente", async () => {
   const orchestration = await readFile(
     join(ROOT, ".agents", "policies", "orquestacion.md"),

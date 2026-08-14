@@ -5,8 +5,14 @@ description: Diagnostica bugs difíciles y regresiones de rendimiento mediante u
 
 # Diagnóstico agéntico de bugs
 
-Seguir las fases en orden y justificar explícitamente cualquier omisión. Leer el
+Ajustar la profundidad del diagnóstico a la incertidumbre y al riesgo. Conservar
+siempre el orden reproducir → explicar → corregir → proteger, pero omitir
+mecánica que no aumente la información con una justificación breve. Leer el
 contrato efectivo, la DevSession y el workflow `bugfix`.
+
+Una señal rojo-capaz o evidencia equivalente debe demostrar el fallo antes de
+corregir. La explicación debe separar la causa del síntoma y la corrección debe
+ser la mínima compatible con la evidencia.
 
 ## Protección de secretos
 
@@ -20,11 +26,12 @@ necesaria de una captura.
 Esta fase es el núcleo de la disciplina; las demás son mecánicas. Con una señal
 pasa/falla ajustada al bug, la bisección, la prueba de hipótesis y la
 instrumentación solo la consumen. Sin ella, ninguna cantidad de lectura de
-código sustituye la evidencia. Dedicar aquí un esfuerzo desproporcionado y
-agotar las alternativas antes de declarar el bloqueo.
+código sustituye la evidencia. Definir antes de empezar qué resultado bastará y
+qué límite de tiempo, acceso o intentos obligará a detenerse.
 
 Crear una señal pasa/falla que alcance el patrón real del bug y detecte el
-síntoma exacto informado. Intentar, según el sistema:
+síntoma exacto informado. Elegir la alternativa más pequeña adecuada al sistema
+y pasar a otra solo cuando la anterior no produzca evidencia suficiente:
 
 1. test automatizado en un seam público;
 2. invocación del entrypoint con una entrada controlada y salida conocida;
@@ -65,13 +72,57 @@ alta y medida**. Ejecutar el disparador en bucle muchas veces, paralelizar,
 añadir carga o estrés, estrechar ventanas de temporización e inyectar esperas
 en los puntos sospechosos. Un fallo que aparece la mitad de las veces es
 diagnosticable; uno que aparece una de cada cien no lo es. Seguir subiendo la
-tasa y registrarla antes de pasar a la fase siguiente.
+tasa dentro de los criterios de parada y registrarla antes de pasar a la fase
+siguiente; si no alcanza una señal útil, aplicar la ruta de bloqueo.
 
 Nombrar un comando o procedimiento que ya se haya ejecutado y registrar su
-salida redactada. Si no se puede construir el bucle, detenerse, listar lo
-intentado y pedir mediante el orquestador acceso al entorno, un artefacto
-redactado o autorización para instrumentación temporal. No formular teorías
-antes de tener una señal rojo-capaz.
+salida redactada. No formular teorías antes de tener una señal rojo-capaz o
+evidencia equivalente. Si no puede construirse dentro de los criterios de
+parada, aplicar la ruta de bloqueo.
+
+## Clasificación del diagnóstico
+
+Clasificar con la evidencia disponible antes de formular hipótesis. Revaluar la
+ruta si una prueba revela otra explicación compatible.
+
+### Ruta directa
+
+Usar cuando la señal es determinista, la causa queda aislada por el compilador,
+un test, un stack trace, una comparación o inspección dirigida, y no existe otra
+explicación compatible ni hace falta instrumentación riesgosa o acceso
+adicional.
+
+Avanzar con una hipótesis explícita, su predicción falsable y la evidencia que
+la respalda. Esta ruta no requiere un checkpoint informativo: continuar sin
+preguntar al usuario mientras no falte una decisión, información o
+autorización.
+
+### Ruta investigativa
+
+Usar cuando causas plausibles compiten, la señal reproduce solo parte del
+síntoma, el fallo depende del entorno o hace falta instrumentación para
+discriminar. Formular varias hipótesis únicamente cuando existan explicaciones
+reales respaldadas y expresar cada una como predicción falsable; no imponer un
+mínimo fijo.
+
+Abrir un checkpoint únicamente cuando existan causas competidoras sobre las que
+el conocimiento útil del usuario pueda cambiar el orden, falte información que
+el usuario pueda aportar o la instrumentación requiera autorización. Sin una de
+esas condiciones, continuar con la evidencia disponible.
+
+Los bugs intermitentes y de rendimiento siempre permanecen en esta ruta:
+registrar la tasa de reproducción o una medición base y medir de nuevo después
+del arreglo.
+
+### Bloqueo
+
+Detenerse cuando no pueda construirse una señal válida tras los intentos
+razonables definidos, falte acceso, artefacto o autorización indispensable, o
+seguir consumiendo recursos no aumente la información en proporción al riesgo.
+
+Informar la señal intentada, los límites alcanzados y el dato indispensable
+para continuar. Registrar los intentos relevantes y su resultado; no recorrer
+opciones que ya no puedan discriminar una causa.
 
 ## Fase 2 — Reproducir y minimizar
 
@@ -80,12 +131,15 @@ cercano. Repetirlo para comprobar estabilidad.
 
 Reducir entradas, configuración, callers y pasos de uno en uno, ejecutando el
 bucle después de cada reducción. Terminar cuando cada elemento restante sea
-necesario para mantener el rojo.
+necesario para mantener el rojo o la causa ya esté aislada. En la ruta directa,
+omitir reducciones adicionales que no cambien la explicación y registrar el
+motivo brevemente.
 
-## Fase 3 — Formular hipótesis
+## Fase 3 — Explicar la causa
 
-Generar entre tres y cinco hipótesis rankeadas antes de probar una. Expresar
-cada una como predicción falsable:
+Aplicar la clasificación elegida: una hipótesis respaldada en la ruta directa o
+varias hipótesis cuando compitan explicaciones reales. Expresar cada hipótesis
+como predicción falsable:
 
 ~~~text
 Si <causa> explica el bug, entonces <cambio controlado> producirá
@@ -93,15 +147,10 @@ Si <causa> explica el bug, entonces <cambio controlado> producirá
 ~~~
 
 Descartar o afilar hipótesis sin predicción. Usar CodeGraph para rutas e impacto
-y Engram para antecedentes concretos. Devolver la lista al orquestador para que
-la presente al usuario antes de instrumentar.
-
-Es un checkpoint informativo y **no bloqueante**: el usuario suele rerankear al
-instante con conocimiento que el agente no tiene, pero si no responde, continuar
-con el ranking propio y registrarlo en la DevSession. Sí bloquea, en cambio,
-toda instrumentación que requiera autorización previa por sí misma: entornos
-compartidos o productivos, cambios persistentes y cualquier acción restringida
-por el contrato efectivo.
+y Engram para antecedentes concretos. Explicar por qué la causa propuesta
+produce el síntoma observado y qué evidencia descarta las alternativas que
+realmente compitieron. Aplicar únicamente el checkpoint definido por la ruta
+investigativa.
 
 ## Fase 4 — Instrumentar
 
@@ -113,17 +162,23 @@ Etiquetar instrumentación temporal con un identificador único como
 `[DEBUG-<id>]`. Para rendimiento, establecer primero una medición base y usar
 perfilado o bisección apropiados; medir antes de corregir.
 
+La instrumentación sensible o persistente, los entornos compartidos o
+productivos y cualquier acción restringida quedan bloqueados hasta obtener la
+autorización exigida por el contrato efectivo.
+
 ## Fase 5 — Corregir y proteger la regresión
 
-Comprobar que existe un seam capaz de reproducir el patrón real del bug. Si no
-existe, registrar esa limitación arquitectónica en vez de crear un test
-superficial que dé confianza falsa.
+Comprobar que existe un seam público capaz de reproducir el patrón real del bug
+y que el riesgo justifica una regresión durable. Si el seam no existe, registrar
+esa limitación arquitectónica en vez de crear un test superficial que dé
+confianza falsa. Si el riesgo no justifica un test nuevo, conservar la señal
+rojo-capaz y registrar el motivo.
 
-Con seam correcto:
+Con seam correcto y regresión pertinente:
 
 1. convertir la reproducción mínima en test;
 2. verlo fallar por el síntoma exacto;
-3. aplicar el cambio mínimo;
+3. aplicar la corrección mínima que elimina la causa;
 4. verlo pasar;
 5. ejecutar de nuevo el bucle original sin minimizar.
 
