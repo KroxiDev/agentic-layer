@@ -332,6 +332,20 @@ propiedad de rutas writer es exclusiva y portable: se normalizan rutas
 relativas, se rechazan escapes y se detectan colisiones exactas o de
 ancestro/descendiente, incluidas mayúsculas y aliases terminales de Windows.
 
+### Propiedad y traspaso de reportes
+
+`commit` escribe el cuerpo contractual íntegro solo en la SubDevSession. La
+parte humana global añade una referencia de tamaño acotado con identidad,
+atribución, resultado, hash y ruta; el bloque administrado global sigue siendo
+dueño de revisiones, gates, evidencia y evaluación. Por eso `status` no necesita
+abrir los sobres ni cargar sus cuerpos.
+
+Antes de abrir Evaluador o Documentador, el orquestador selecciona en ese índice
+las rutas pertinentes por unidad, generación y eje y las pasa explícitamente al
+rol. `cleanup` solo ocurre después de ambos consumos. Las DevSessions heredadas
+que ya tengan consolidaciones verbosas se leen y preservan sin reescribir su
+parte humana.
+
 ### Writer lock, recuperación e idempotencia
 
 El aislamiento writer no es local a una DevSession. El controlador deriva la

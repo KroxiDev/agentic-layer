@@ -140,6 +140,27 @@ El estado efímero de una tarea en `.agents/sessions/<slug>.md`, único traspaso
 entre fases. Se elimina al cerrar y no se versiona.
 _Evitar_: sesión, contexto compartido, scratchpad, memoria de trabajo.
 
+**Reporte contractual**:
+La instancia íntegra del contrato de salida producida por un intento. Tiene una
+sola fuente mientras vive la tarea: su SubDevSession.
+_Evitar_: índice, estado administrado, resumen global.
+
+**SubDevSession**:
+El sobre efímero `.agents/sessions/<slug>/<attempt>.md` que posee el reporte
+contractual íntegro y su acuse hasta `cleanup`.
+_Evitar_: copia del reporte, historial global, ledger.
+
+**Índice compacto de reportes**:
+La parte humana de la DevSession global que atribuye cada reporte por sesión,
+intento, fase, rol, unidad o eje, estado, resultado, hash y ruta, sin copiar su
+cuerpo.
+_Evitar_: consolidación verbosa, reporte contractual, bloque administrado.
+
+**Estado administrado de DevSession**:
+El bloque JSON global que conserva revisiones, unidades, gates, intentos,
+evidencia y evaluación. `status` lo consulta sin leer los cuerpos de reportes.
+_Evitar_: índice compacto, texto humano, SubDevSession.
+
 **DevSession heredada**:
 Una DevSession v1 anterior a algún campo del modelo por unidades. `status` la
 lee sin escribir y un `init` explícito puede completar sólo la trazabilidad

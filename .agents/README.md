@@ -109,6 +109,12 @@ El controlador concentra las invariantes mecánicas detrás de su CLI:
    categoría de riesgo registrada en el plan;
 7. versiona el fan-in y acepta sólo Evaluadores de la generación vigente.
 
+`commit` deja el cuerpo contractual íntegro únicamente en la SubDevSession del
+intento. La parte humana global mantiene un índice compacto atribuible —ruta y
+hash incluidos— y el bloque administrado mantiene el estado de coordinación que
+consume `status`. El orquestador resuelve ese índice y entrega al Evaluador y al
+Documentador solo los sobres pertinentes antes de permitir `cleanup`.
+
 La validación de cada unidad es focalizada y atribuible. En `full`, la suite
 completa se ejecuta una sola vez después del fan-in y antes de la evaluación
 final; no se repite por unidad.

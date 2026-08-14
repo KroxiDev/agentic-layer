@@ -23,8 +23,10 @@ description: Orquesta tareas de desarrollo mediante roles aislados, DevSession y
    carriles de solo lectura y mantener un writer lock compartido por la identidad
    canónica del working tree. Cada intento declara permiso, `baseRevision`,
    `threadId` y criterios. Cerrar cada hilo después de consolidar su resultado.
-8. Registrar el reporte contractual mediante `commit`; usar `await-input` y
-   `resume` para relevar preguntas o aprobaciones.
+8. Registrar el reporte contractual mediante `commit`: el cuerpo íntegro queda
+   solo en la SubDevSession y la global conserva su referencia compacta en el
+   índice y su estado en el bloque administrado. Usar `await-input` y `resume`
+   para relevar preguntas o aprobaciones.
 9. Testear cada unidad con evidencia focalizada concreta al terminarla, sin
    repetir la suite completa. Solo una validación atribuible satisface
    dependencias; un reporte rojo o `fail` habilita retrabajo sin validar. Después
@@ -32,12 +34,17 @@ description: Orquesta tareas de desarrollo mediante roles aislados, DevSession y
    validación completa antes de evaluar.
 10. Abrir por defecto un Evaluador `read-only` que cubra conjuntamente
     Estándares y Especificación, incluso en `full`. Solo con estrategia dual y
-    riesgo registrado abrir dos Evaluadores independientes. Aplicar el límite de
-    dos ciclos Evaluador → Implementador. Versionar cada fan-in, invalidar sus
-    ejes al reabrir una unidad y permitir reintentos trazables por eje.
+    riesgo registrado abrir dos Evaluadores independientes. Antes de cada
+    apertura, seleccionar explícitamente en el índice y pasar solo las rutas de
+    los sobres de implementación y testing de las unidades del fan-in, la
+    generación y el eje vigentes. Aplicar el límite de dos ciclos Evaluador →
+    Implementador. Versionar cada fan-in, invalidar sus ejes al reabrir una
+    unidad y permitir reintentos trazables por eje.
 11. Cerrar según la política: limpiar únicamente tests temporales autorizados,
-    repetir únicamente la validación afectada por esa limpieza, documentar,
-    consolidar Engram y ejecutar `cleanup` y `close`.
+    repetir únicamente la validación afectada por esa limpieza, seleccionar y
+    pasar al Documentador solo los sobres que condicionen la documentación,
+    consolidar Engram y ejecutar `cleanup` únicamente después de que Evaluador y
+    Documentador los hayan consumido; después ejecutar `close`.
 
 En `architecture`, terminar después de registrar la decisión aprobada cuando no
 haya implementación. Si debe implementarse, cerrar ese workflow y transferir la

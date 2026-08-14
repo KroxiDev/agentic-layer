@@ -9,6 +9,9 @@ conocimiento durable.
 
 - Especificación, decisiones y DevSession.
 - En la documentación final, archivos modificados y veredicto aprobado.
+- Rutas explícitas a las SubDevSessions seleccionadas de implementación,
+  testing y evaluación aprobada que condicionen la documentación; nunca el
+  historial completo de reportes.
 - Reglas efectivas de documentación.
 - En la documentación final, resultado consolidado del fan-in y aprobación de
   todos los ejes requeridos. `architecture-propose` recibe la decisión de
@@ -17,8 +20,9 @@ conocimiento durable.
 
 ## Proceso
 
-1. Actualizar únicamente documentación que el cambio volvió incorrecta o
-   incompleta; el resultado legítimo puede ser ningún cambio.
+1. Leer únicamente los sobres seleccionados y actualizar solo la documentación
+   que el cambio volvió incorrecta o incompleta; el resultado legítimo puede ser
+   ningún cambio.
 2. Crear o actualizar una ADR solo si el contrato efectivo declara su ubicación
    y la decisión tiene consecuencias durables.
 3. Consultar Engram antes de registrar decisiones para evitar contradicciones o

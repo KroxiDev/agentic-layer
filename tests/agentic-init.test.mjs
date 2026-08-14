@@ -2607,6 +2607,14 @@ test("session controller separa la unidad del intento y conserva sesiones v1", a
     "compatibilidad-v1",
     "feature-implement--implementador--a01",
   );
+  await writeFile(
+    legacy.globalPath,
+    (await readFile(legacy.globalPath, "utf8")).replace(
+      "\n<!-- agentic-session:v1:start -->",
+      "\n### Implementador heredado — intento 1\n\n- **Reporte completo:** consolidación verbosa preservada.\n\n<!-- agentic-session:v1:start -->",
+    ),
+    "utf8",
+  );
   const before = await readFile(legacy.globalPath, "utf8");
   const status = runSessionController(legacy.repository, "status", {
     session: "compatibilidad-v1",
@@ -5264,6 +5272,163 @@ test("session controller repite mutaciones exitosas solo con el mismo payload l�
   );
 });
 
+test("session controller conserva el reporte íntegro solo en la SubDevSession e indexa la global", async () => {
+  const attempt = "feature-implement--implementador--a01";
+
+  async function commitReport(session, detail) {
+    const repository = await createRepository();
+    await seedSessionContracts(repository);
+    const marker = `MARCADOR_UNICO_DEL_REPORTE_${detail}`;
+    const report = [
+      `- **Archivos modificados:** ${marker}`,
+      "- **Tareas completadas y pendientes:** completadas.",
+      "- **Tests creados:** permanentes.",
+      "- **Validación ejecutada:** focalizada verde.",
+      "- **Desvíos o dudas:** No aplica.",
+      "- **Candidato a memoria:** No aplica.",
+    ].join("\n");
+    const initialized = runSessionController(
+      repository,
+      "init",
+      { session, expectedRevision: 0 },
+      {
+        isolationCapacity: 1,
+        mode: "full",
+        platformCapacity: 1,
+        workUnits: [
+          {
+            acceptanceCriteria: ["C01"],
+            dependsOn: [],
+            ownedPaths: ["src/indice.mjs"],
+            permission: "writer",
+            workUnitId: "unidad-indice",
+          },
+        ],
+        workflow: "feature",
+      },
+    );
+    assert.equal(initialized.status, 0, initialized.stderr);
+    const opened = runSessionController(
+      repository,
+      "open",
+      { session, attempt, expectedRevision: 1 },
+      {
+        baseRevision: "base",
+        criteria: ["C01"],
+        permission: "writer",
+        phaseId: "feature-implement",
+        role: "implementador",
+        threadId: `hilo-${session}`,
+        workUnitId: "unidad-indice",
+      },
+    );
+    assert.equal(opened.status, 0, opened.stderr);
+
+    const globalPath = join(repository, ".agents", "sessions", `${session}.md`);
+    const envelopePath = join(
+      repository,
+      ".agents",
+      "sessions",
+      session,
+      `${attempt}.md`,
+    );
+    const globalBefore = await readFile(globalPath, "utf8");
+    const committed = runSessionController(
+      repository,
+      "commit",
+      { session, attempt, expectedRevision: 2 },
+      { report },
+    );
+    assert.equal(committed.status, 0, committed.stderr);
+    const response = JSON.parse(committed.stdout);
+    const repeated = runSessionController(
+      repository,
+      "commit",
+      { session, attempt, expectedRevision: 3 },
+      { report },
+    );
+    assert.equal(repeated.status, 0, repeated.stderr);
+    const status = runSessionController(repository, "status", { session });
+    assert.equal(status.status, 0, status.stderr);
+
+    return {
+      envelope: await readFile(envelopePath, "utf8"),
+      global: await readFile(globalPath, "utf8"),
+      globalGrowth: (await readFile(globalPath, "utf8")).length - globalBefore.length,
+      marker,
+      reportHash: response.reportHash,
+      repeated: JSON.parse(repeated.stdout),
+      status: JSON.parse(status.stdout),
+    };
+  }
+
+  const short = await commitReport("indice-corto", "breve");
+  const long = await commitReport("indice-largo", "x".repeat(8_192));
+  const reference =
+    `- Sesión: \`indice-largo\`; intento: \`${attempt}\`; fase: \`feature-implement\`; ` +
+    `rol: \`implementador\`; unidad: \`unidad-indice\`; estado: \`completed\`; ` +
+    `resultado: \`completed\`; hash: \`${long.reportHash}\`; ` +
+    `reporte: \`.agents/sessions/indice-largo/${attempt}.md\`.`;
+
+  assert.equal(long.envelope.split(long.marker).length - 1, 1);
+  assert.equal(
+    long.global.includes(long.marker),
+    false,
+    "la DevSession global duplicó el cuerpo íntegro del reporte",
+  );
+  assert.ok(long.global.includes(reference));
+  assert.equal(long.globalGrowth, short.globalGrowth);
+  assert.equal(JSON.stringify(long.status).includes(long.marker), false);
+  assert.deepEqual(
+    {
+      idempotent: long.repeated.idempotent,
+      reportHash: long.repeated.reportHash,
+      revision: long.repeated.revision,
+      state: long.repeated.state,
+    },
+    { idempotent: true, reportHash: long.reportHash, revision: 3, state: "completed" },
+  );
+});
+
+test("session controller informa status desde el ledger sin leer el cuerpo de la SubDevSession", async () => {
+  const session = "status-sin-cuerpo";
+  const attempt = "feature-implement--implementador--a01";
+  const fixture = await createManagedAttempt(session, attempt);
+  const failed = runSessionController(
+    fixture.repository,
+    "fail",
+    { session, attempt, expectedRevision: 2 },
+    { cause: "Fallo controlado para cerrar el intento." },
+  );
+  assert.equal(failed.status, 0, failed.stderr);
+
+  const envelope = await readFile(fixture.envelopePath);
+  const managedBlock = Buffer.from("<!-- agentic-session:v1:start -->", "utf8");
+  const managedAt = envelope.indexOf(managedBlock);
+  assert.ok(managedAt > 0, "La SubDevSession debe conservar un bloque administrado válido.");
+  await writeFile(
+    fixture.envelopePath,
+    Buffer.concat([Buffer.from([0xff]), envelope.subarray(managedAt)]),
+  );
+
+  const status = runSessionController(fixture.repository, "status", { session });
+  const recovered = runSessionController(fixture.repository, "recover", { session });
+  const cleaned = runSessionController(fixture.repository, "cleanup", {
+    session,
+    expectedRevision: 3,
+  });
+
+  assert.equal(status.status, 0, status.stderr);
+  assert.deepEqual(JSON.parse(status.stdout).attempts, [
+    { attempt, classification: "safe_to_delete", state: "failed" },
+  ]);
+  assert.deepEqual(JSON.parse(recovered.stdout).attempts, [
+    { attempt, classification: "ambiguous", state: "failed" },
+  ]);
+  assert.deepEqual(JSON.parse(cleaned.stdout).deleted, []);
+  assert.equal(existsSync(fixture.envelopePath), true);
+});
+
 test("session controller reanuda con contexto nuevo y consolida un reporte una sola vez", async () => {
   const repository = await createRepository();
   await seedSessionContracts(repository);
@@ -5654,16 +5819,24 @@ test("los contratos canónicos definen cierre, validación y evaluación proporc
   assert.match(orchestration, /validación completa una sola vez[\s\S]*antes de la evaluación final/i);
   assert.match(orchestration, /un solo Evaluador[\s\S]*Estándares[\s\S]*Especificación[\s\S]*evaluationStrategy: dual/i);
   assert.match(orchestration, /evaluationRisk[\s\S]*architectural-decision[\s\S]*security-or-integrity/);
+  assert.match(
+    orchestration,
+    /cuerpo íntegro[\s\S]*SubDevSession[\s\S]*referencia compacta[\s\S]*bloque administrado/i,
+  );
+  assert.match(orchestration, /Evaluador[\s\S]*Documentador[\s\S]*pasar sus rutas[\s\S]*antes de `cleanup`/i);
   assert.match(skill, /fan-out[\s\S]*oleadas[\s\S]*fan-in/i);
   assert.match(skill, /cerrar cada hilo/i);
   assert.match(skill, /un Evaluador[\s\S]*conjuntamente[\s\S]*dos Evaluadores independientes/i);
+  assert.match(skill, /SubDevSession[\s\S]*referencia compacta[\s\S]*seleccionar explícitamente/i);
   assert.match(roles.explorador, /carril asignado/i);
   assert.match(roles.planificador, /workUnitId[\s\S]*dependsOn[\s\S]*owned_paths/);
   assert.match(roles.implementador, /una sola unidad/i);
   assert.match(roles.tester, /implementada[\s\S]*validada[\s\S]*consolidada/i);
   assert.match(roles.tester, /sin repetir la suite completa[\s\S]*después del fan-in/i);
   assert.match(roles.evaluador, /eje combinado[\s\S]*evaluación dual justificada/i);
+  assert.match(roles.evaluador, /Rutas explícitas[\s\S]*nunca el\s+historial completo/i);
   assert.match(roles.documentador, /fan-in/i);
+  assert.match(roles.documentador, /Rutas explícitas[\s\S]*nunca el\s+historial completo/i);
   assert.match(roles.documentador, /architecture-propose[^\n]*no exige fan-in/i);
   assert.match(roles.documentador, /architecture-record[\s\S]*cerrar una tarea exclusivamente arquitectónica/i);
   for (const source of [workflows.bugfix, workflows.feature, workflows.refactor]) {
@@ -5688,8 +5861,10 @@ test("los contratos canónicos definen cierre, validación y evaluación proporc
   assert.match(devSession, /## Unidades de implementación/);
   assert.match(devSession, /## Evaluación final por ejes/);
   assert.match(devSession, /evaluationStrategy[\s\S]*evaluationRisk/);
+  assert.match(devSession, /## Índice compacto de reportes[\s\S]*SubDevSession indicada/);
   assert.match(subdevSession, /- Unidad: `<work-unit-id>`/);
   assert.match(subdevSession, /- Permiso: `<permission>`/);
+  assert.match(subdevSession, /Única fuente del cuerpo íntegro[\s\S]*referencia compacta/);
   assert.match(codexAdapter, /\.agents\/roles\/implementador\.md/);
   assert.match(claudeAdapter, /\.agents\/roles\/implementador\.md/);
   assert.doesNotMatch(codexAdapter + claudeAdapter, /light\s*=\s*4|full\s*=\s*9/);

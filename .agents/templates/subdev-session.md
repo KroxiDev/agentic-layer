@@ -33,6 +33,8 @@
 
 ## Reporte contractual producido
 
+<!-- Única fuente del cuerpo íntegro; la DevSession global conserva solo su referencia compacta. -->
+
 - Pendiente.
 
 ## Estado de consolidación en la DevSession global

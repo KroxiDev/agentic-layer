@@ -1739,19 +1739,50 @@ function roleTitle(role) {
   return role[0].toUpperCase() + role.slice(1);
 }
 
-function consolidationSection(options, envelope, report) {
-  return `### ${roleTitle(envelope.managed.role)} ${envelope.managed.phaseId} — intento ${envelope.managed.attempt}\n\n${report}\n`;
+function consolidationSection(options, envelope, { hash, result, state, suffix = "" }) {
+  const scope = [
+    ...(envelope.managed.workUnitId
+      ? [`unidad: \`${envelope.managed.workUnitId}\``]
+      : []),
+    ...(envelope.managed.evaluationAxis
+      ? [`eje: \`${envelope.managed.evaluationAxis}\``]
+      : []),
+  ];
+  const reference = [
+    `Sesión: \`${options.session}\``,
+    `intento: \`${options.attempt}\``,
+    `fase: \`${envelope.managed.phaseId}\``,
+    `rol: \`${envelope.managed.role}\``,
+    ...scope,
+    `estado: \`${state}\``,
+    `resultado: \`${result}\``,
+    `hash: \`${hash}\``,
+    `reporte: \`.agents/sessions/${options.session}/${options.attempt}.md\``,
+  ].join("; ");
+  return `### ${roleTitle(envelope.managed.role)} ${envelope.managed.phaseId} — intento ${envelope.managed.attempt}${suffix}\n\n- ${reference}.\n`;
 }
 
 function insertConsolidation(human, section) {
+  const indexHeading = "## Índice compacto de reportes";
+  const indexAt = human.indexOf(indexHeading);
+  if (indexAt >= 0) {
+    const nextHeadingAt = human.indexOf("\n## ", indexAt + indexHeading.length);
+    if (nextHeadingAt < 0) return `${human.replace(/\n+$/, "")}\n\n${section}`;
+    return `${human.slice(0, nextHeadingAt).replace(/\n+$/, "")}\n\n${section}\n${human.slice(nextHeadingAt + 1)}`;
+  }
   const heading = "## Control de consolidación";
   const at = human.indexOf(heading);
   if (at >= 0) return `${human.slice(0, at).replace(/\n+$/, "")}\n\n${section}\n${human.slice(at)}`;
   return `${human.replace(/\n+$/, "")}\n\n${section}`;
 }
 
-function failureSection(options, envelope, cause) {
-  return `### ${roleTitle(envelope.managed.role)} ${envelope.managed.phaseId} — intento ${envelope.managed.attempt}, fallo sin reporte\n\n- Causa: ${cause}\n`;
+function failureSection(options, envelope, ackHash) {
+  return consolidationSection(options, envelope, {
+    hash: ackHash,
+    result: "fallo-sin-reporte",
+    state: "failed",
+    suffix: ", fallo sin reporte",
+  });
 }
 
 function insertReport(human, report) {
@@ -1830,7 +1861,23 @@ async function commandCommit(options, payload) {
   }
   assertAttemptState(ledger, envelope, ["active"]);
 
-  const section = consolidationSection(options, envelope, report);
+  const outcome =
+    ledger.role === "tester"
+      ? testerReportPassed(report)
+        ? "validated"
+        : "failed"
+      : ledger.evaluationAxis
+        ? evaluationAttemptIsCurrent(session.managed, ledger)
+          ? /^- \*\*Veredicto:\*\*\s*aprobado\.?$/m.test(report)
+            ? "approved"
+            : "changes_required"
+          : "obsolete"
+        : "completed";
+  const section = consolidationSection(options, envelope, {
+    hash: reportHash,
+    result: outcome,
+    state: "completed",
+  });
   const consolidatedHash = hashText(section);
   const ackHash = hashText(
     stableJson({ attempt: options.attempt, reportHash, session: options.session }),
@@ -1853,18 +1900,7 @@ async function commandCommit(options, payload) {
     envelopeHumanHash: envelope.managed.humanHash,
     reportHash,
     evidence: {
-      outcome:
-        ledger.role === "tester"
-          ? testerReportPassed(report)
-            ? "validated"
-            : "failed"
-          : ledger.evaluationAxis
-            ? evaluationAttemptIsCurrent(session.managed, ledger)
-              ? /^- \*\*Veredicto:\*\*\s*aprobado\.?$/m.test(report)
-                ? "approved"
-                : "changes_required"
-              : "obsolete"
-            : "completed",
+      outcome,
       reportHash,
     },
     state: "completed",
@@ -1890,11 +1926,11 @@ async function commandFail(options, payload) {
     throw new ControllerError("invalid_failure_cause", "fail exige una causa no vacía.", 2);
   }
   const cause = payload.cause.trim();
-  const section = failureSection(options, envelope, cause);
-  const consolidatedHash = hashText(section);
   const ackHash = hashText(
     stableJson({ attempt: options.attempt, cause, session: options.session }),
   );
+  const section = failureSection(options, envelope, ackHash);
+  const consolidatedHash = hashText(section);
   if (ledger.state === "failed" && envelope.managed.state === "failed") {
     if (ledger.cause !== cause || envelope.managed.cause !== cause) {
       throw new ControllerError(
@@ -2029,6 +2065,17 @@ async function classifyAttempts(session) {
     attempts.push({ attempt, classification, state: ledger.state });
   }
   return attempts;
+}
+
+function statusAttempts(session) {
+  return Object.entries(session.managed.attempts).map(([attempt, ledger]) => ({
+    attempt,
+    classification:
+      ["completed", "failed"].includes(ledger.state) && ledger.ackHash
+        ? "safe_to_delete"
+        : "recoverable",
+    state: ledger.state,
+  }));
 }
 
 async function classifyResidues(session) {
@@ -2187,7 +2234,7 @@ async function commandStatus(options) {
     };
   }
   validateGlobal(session.managed, options.session);
-  const attempts = await classifyAttempts(session);
+  const attempts = statusAttempts(session);
   const residues = await classifyResidues(session);
   const classifications = [
     ...attempts.map((attempt) => attempt.classification),

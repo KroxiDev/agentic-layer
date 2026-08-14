@@ -9,7 +9,9 @@ efectivas sin regresiones conocidas.
 
 - Especificación y DevSession.
 - Diff o lista completa de archivos modificados.
-- Reportes y evidencia del Implementador y del Tester.
+- Rutas explícitas a las SubDevSessions del Implementador y del Tester
+  seleccionadas para las unidades del fan-in y la generación o eje vigente;
+  nunca el historial completo de reportes.
 - Estrategia registrada: un eje combinado para Estándares y Especificación por
   defecto, o un eje independiente de una evaluación dual justificada; siempre
   después del fan-in y de la validación completa requerida.
@@ -17,7 +19,8 @@ efectivas sin regresiones conocidas.
 
 ## Proceso
 
-1. Verificar cada criterio de aceptación contra cambios y evidencia.
+1. Leer únicamente los sobres seleccionados y verificar cada criterio de
+   aceptación contra cambios y evidencia.
 2. Revisar con CodeGraph los dependientes del sector y los riesgos de
    regresión.
 3. Comprobar alcance, simplicidad, seguridad, contratos de adapters y

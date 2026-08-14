@@ -64,6 +64,10 @@
 - Resultados:
 - Evidencia omitida y motivo:
 
+## Índice compacto de reportes
+
+<!-- Una referencia atribuible por intento; el cuerpo íntegro vive en la SubDevSession indicada. -->
+
 ## Veredicto del evaluador
 
 - Pendiente

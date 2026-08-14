@@ -1,7 +1,7 @@
 # Política de orquestación
 
 El orquestador es el único interlocutor del usuario. Selecciona el workflow,
-mantiene el plan y la DevSession, delega cada fase y consolida los reportes. Los
+mantiene el plan y la DevSession, delega cada fase e indexa sus reportes. Los
 roles no hablan con el usuario ni se coordinan entre sí.
 
 ## Precedencia y reglas efectivas
@@ -247,6 +247,13 @@ aunque el DAG todavía no exista.
 Tras planificar unidades, repetir `init` con la revisión vigente para registrar
 atómicamente el DAG y la capacidad detectada antes de abrir sus intentos.
 
+`commit` conserva el cuerpo íntegro del reporte contractual únicamente en la
+SubDevSession. La parte humana global recibe una referencia compacta con sesión,
+intento, fase, rol, unidad o eje aplicable, estado, resultado, hash y ruta; el
+bloque administrado global continúa siendo la fuente del estado de coordinación.
+`status` usa ese bloque y no carga cuerpos de reportes. Las consolidaciones
+verbosas heredadas permanecen legibles y no se reescriben.
+
 Actualizarla al cerrar cada fase. Es el único traspaso de estado entre
 subagentes y debe registrar:
 
@@ -266,6 +273,14 @@ subagentes y debe registrar:
 - comandos y resultados de validación;
 - veredicto del evaluador;
 - candidatos a memoria y próximos pasos.
+
+Antes de abrir cada Evaluador o el Documentador final, el orquestador debe
+seleccionar explícitamente en el índice los sobres pertinentes y pasar sus rutas,
+no el historial completo. Para el Evaluador, la selección se limita a los
+intentos de implementación y testing de las unidades del fan-in y a la generación
+o eje vigente. Para el Documentador, se limita a decisiones, cambios, validación
+y evaluaciones aprobadas que condicionen la documentación. Ambos consumos deben
+terminar antes de `cleanup`.
 
 No versionar instancias reales. Los inventarios y el paquete las excluyen
 aunque existan durante la validación. Eliminarlas al cerrar correctamente la
@@ -314,7 +329,10 @@ y presentar el diagnóstico al usuario.
    tests preexistentes.
 3. Repetir únicamente la validación afectada por la limpieza. Repetir la suite
    completa solo ante evidencia concreta de impacto transversal.
-4. Ejecutar la fase de Documentador, aunque concluya sin cambios.
-5. Consolidar en Engram los candidatos durables.
-6. Eliminar la DevSession.
-7. Informar cambios, evidencia, límites y próximos pasos al usuario.
+4. Ejecutar la fase de Documentador, aunque concluya sin cambios, con la
+   selección explícita de sobres pertinente.
+5. Confirmar que Evaluador y Documentador ya consumieron sus sobres y ejecutar
+   `cleanup`.
+6. Consolidar en Engram los candidatos durables.
+7. Ejecutar `close` para eliminar la DevSession.
+8. Informar cambios, evidencia, límites y próximos pasos al usuario.

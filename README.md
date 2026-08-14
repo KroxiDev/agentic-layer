@@ -160,7 +160,14 @@ Cada unidad atraviesa tres gates:
 
 1. el Implementador la deja `implemented`;
 2. un Tester le atribuye evidencia y la deja `validated`;
-3. el resultado se consolida en la DevSession global.
+3. el bloque administrado global la deja `consolidated` y su índice enlaza la
+   evidencia atribuible.
+
+Cada reporte contractual íntegro vive una sola vez, en la SubDevSession de su
+intento. La parte humana de la DevSession global guarda únicamente una referencia
+compacta y el bloque administrado conserva el estado que consulta `status` sin
+leer cuerpos. Antes de `cleanup`, el orquestador pasa al Evaluador y al
+Documentador solo las rutas de los sobres pertinentes para su fase.
 
 Una dependencia sólo se satisface en el segundo gate. Una unidad ya validada no
 se repite sin impacto demostrado. Cada ruta editable tiene propietario
