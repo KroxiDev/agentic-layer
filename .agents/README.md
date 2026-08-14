@@ -116,7 +116,8 @@ El controlador concentra las invariantes mecánicas detrás de su CLI:
 
 1. valida DAG, ciclos, dependencias y ownership portable antes de despachar;
 2. abre sólo unidades listas y hace cumplir los gates `implemented` →
-   `validated` → `consolidated`;
+   `validated` → `consolidated`; en compacto, el Evaluador combinado realiza
+   los dos últimos de forma atómica;
 3. reserva un único writer por identidad canónica del working tree, incluso
    entre DevSessions distintas;
 4. calcula por separado capacidad total, carriles `read-only` y aislamiento de
@@ -132,8 +133,8 @@ consume `status`. El orquestador resuelve ese índice y entrega al Evaluador y a
 Documentador, cuando su gate se abre, solo los sobres pertinentes antes de
 permitir `cleanup`.
 
-Las estrategias de validación, su vigencia, el cierre integrado, la evaluación
-y el gate de Documentador se definen una sola vez en la
+Las estrategias de validación, su vigencia, la secuencia compacta, el cierre
+integrado, la evaluación y el gate de Documentador se definen una sola vez en la
 [política canónica](policies/orquestacion.md). El controlador conserva solo el
 estado y los gates ejecutables; Planificador, Tester, Evaluador y Documentador
 aplican sus contratos de rol mediante esa referencia.
@@ -152,14 +153,18 @@ campos ausentes —criterios, capacidades separadas, estrategia de evaluación y
 generación inicial—, preserva estado e intentos y es byte-idempotente al
 repetirse. Una sesión `full` creada antes de `evaluationStrategy` conserva el
 esquema dual implícito como compatibilidad; las sesiones nuevas usan `combined`
-por defecto.
+por defecto. Del mismo modo, solo una sesión `light` nueva persiste
+`lightStrategy: "compact"`; su ausencia conserva la secuencia separada legacy y
+no se completa durante un upgrade.
 
 ## Invariantes
 
 1. CodeGraph, Engram y subagentes son requisitos obligatorios con fallo cerrado.
 2. Cada fase corre en un contexto aislado y devuelve solo el reporte del rol.
 3. `policies/orquestacion.md` decide la activación por riesgo; dentro de la capa,
-   `full` es el modo predeterminado y `light` requiere petición explícita.
+   `full` es el modo predeterminado y `light` requiere petición explícita. La
+   estrategia compacta reduce contextos, no seguridad, aislamiento ni revisión
+   independiente.
 4. La DevSession es efímera y no se reemplaza con memoria durable.
 5. Engram conserva únicamente conocimiento validado, reutilizable y
    accionable.

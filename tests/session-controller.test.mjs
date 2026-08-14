@@ -1410,9 +1410,27 @@ test("session controller limita el fan-out por modo, plataforma, ready y aislami
       repository,
       "init",
       { session, expectedRevision: 0 },
-      { isolationCapacity, mode, platformCapacity, workUnits, workflow: "feature" },
+      {
+        isolationCapacity,
+        mode: mode === "light" ? "full" : mode,
+        platformCapacity,
+        workUnits,
+        workflow: "feature",
+      },
     );
     assert.equal(initialized.status, 0, initialized.stderr);
+    if (mode === "light") {
+      const globalPath = join(repository, ".agents", "sessions", `${session}.md`);
+      const source = await readFile(globalPath, "utf8");
+      const managed = parseManagedState(source);
+      managed.mode = "light";
+      delete managed.lightStrategy;
+      await writeFile(
+        globalPath,
+        replaceManagedState(source.replace("- Modo: full", "- Modo: light"), managed),
+        "utf8",
+      );
+    }
     return { repository, session };
   }
 
@@ -3472,4 +3490,1179 @@ test("session controller conserva residuos de sobres interrumpidos y bloquea el 
       status: "recoverable",
     },
   );
+});
+
+test("session controller completa feature y refactor en light compacto", async () => {
+  const reports = {
+    evaluador: [
+      "- **Veredicto:** aprobado.",
+      "- **Criterios verificados:** C01.",
+      "- **Hallazgos:** Ninguno.",
+      "- **Riesgo residual y evidencia faltante:** No aplica.",
+      "- **Memoria guardada o candidata:** No aplica.",
+    ].join("\n"),
+    implementador: [
+      "- **Archivos modificados:** cambio mínimo.",
+      "- **Tareas completadas y pendientes:** completada.",
+      "- **Tests creados:** permanentes.",
+      "- **Validación ejecutada:** focalizada verde.",
+      "- **Desvíos o dudas:** No aplica.",
+      "- **Candidato a memoria:** No aplica.",
+    ].join("\n"),
+    planificador: [
+      "- **Objetivo y comportamiento esperado:** cambio acotado.",
+      "- **Criterios de aceptación verificables:** C01.",
+      "- **No-objetivos y restricciones:** una unidad.",
+      "- **Puntos de integración y seams acordados:** CLI pública.",
+      "- **Tareas ordenadas:** implementar y evaluar.",
+      "- **Validación:** comando focalizado reproducible.",
+      "- **Documentación esperada:** No aplica.",
+      "- **Decisiones pendientes:** Ninguna.",
+      "- **Candidato a memoria:** No aplica.",
+    ].join("\n"),
+  };
+
+  for (const workflow of ["feature", "refactor"]) {
+    const repository = await createRepository();
+    await seedSessionContracts(repository);
+    const session = `${workflow}-light-compacto`;
+    const plan = `${workflow}-plan--planificador--a01`;
+    const implementation = `${workflow}-implement--implementador--a01`;
+    const testing = `${workflow}-test--tester--a01`;
+    const evaluation = `${workflow}-evaluate--evaluador--a01`;
+    const tracedPayload = (phaseId, role, extra = {}) => ({
+      baseRevision: "base",
+      criteria: ["C01"],
+      permission: role === "implementador" ? "writer" : "read-only",
+      phaseId,
+      role,
+      threadId: `${role}-${workflow}`,
+      ...extra,
+    });
+
+    const initialized = runSessionController(
+      repository,
+      "init",
+      { session, expectedRevision: 0 },
+      { mode: "light", workflow },
+    );
+    assert.equal(initialized.status, 0, initialized.stderr);
+    assert.equal(
+      controllerResponse(runSessionController(repository, "status", { session })).lightStrategy,
+      "compact",
+    );
+
+    const omittedExplorer = runSessionController(
+      repository,
+      "open",
+      {
+        session,
+        attempt: `${workflow}-explore--explorador--a01`,
+        expectedRevision: 1,
+      },
+      tracedPayload(`${workflow}-explore`, "explorador"),
+    );
+    assert.deepEqual(controllerOutcome(omittedExplorer), {
+      code: 1,
+      error: "phase_not_in_light_sequence",
+    });
+
+    assert.equal(
+      runSessionController(
+        repository,
+        "open",
+        { session, attempt: plan, expectedRevision: 1 },
+        tracedPayload(`${workflow}-plan`, "planificador"),
+      ).status,
+      0,
+    );
+    assert.equal(
+      runSessionController(
+        repository,
+        "commit",
+        { session, attempt: plan, expectedRevision: 2 },
+        { report: reports.planificador },
+      ).status,
+      0,
+    );
+    const configured = runSessionController(
+      repository,
+      "init",
+      { session, expectedRevision: 3 },
+      {
+        mode: "light",
+        workUnits: [
+          {
+            acceptanceCriteria: ["C01"],
+            dependsOn: [],
+            focusedValidation: 'node --test --test-name-pattern="light compacto"',
+            ownedPaths: ["src/unidad.mjs"],
+            permission: "writer",
+            workUnitId: "unidad",
+          },
+        ],
+        workflow,
+      },
+    );
+    assert.equal(configured.status, 0, configured.stderr);
+    assert.equal(
+      runSessionController(
+        repository,
+        "open",
+        { session, attempt: implementation, expectedRevision: 4 },
+        tracedPayload(`${workflow}-implement`, "implementador", { workUnitId: "unidad" }),
+      ).status,
+      0,
+    );
+    assert.equal(
+      runSessionController(
+        repository,
+        "commit",
+        { session, attempt: implementation, expectedRevision: 5 },
+        { report: reports.implementador },
+      ).status,
+      0,
+    );
+
+    const omittedTester = runSessionController(
+      repository,
+      "open",
+      { session, attempt: testing, expectedRevision: 6 },
+      tracedPayload(`${workflow}-test`, "tester", { workUnitId: "unidad" }),
+    );
+    assert.deepEqual(controllerOutcome(omittedTester), {
+      code: 1,
+      error: "phase_not_in_light_sequence",
+    });
+    const evaluated = runSessionController(
+      repository,
+      "open",
+      { session, attempt: evaluation, expectedRevision: 6 },
+      tracedPayload(`${workflow}-evaluate`, "evaluador", {
+        evaluationAxis: "combined",
+        evaluationGeneration: 1,
+        workUnitId: "unidad",
+      }),
+    );
+    assert.equal(evaluated.status, 0, evaluated.stderr);
+    assert.equal(
+      runSessionController(
+        repository,
+        "commit",
+        { session, attempt: evaluation, expectedRevision: 7 },
+        { report: reports.evaluador },
+      ).status,
+      0,
+    );
+
+    const status = controllerResponse(runSessionController(repository, "status", { session }));
+    assert.equal(status.fanInReady, true);
+    assert.equal(status.finalEvaluation.approved, true);
+    assert.deepEqual(
+      status.workUnits.map(({ state, validated, workUnitId }) => ({
+        state,
+        validated,
+        workUnitId,
+      })),
+      [{ state: "consolidated", validated: true, workUnitId: "unidad" }],
+    );
+    const cleaned = runSessionController(repository, "cleanup", {
+      session,
+      expectedRevision: 8,
+    });
+    assert.equal(cleaned.status, 0, cleaned.stderr);
+    const closed = runSessionController(repository, "close", {
+      session,
+      expectedRevision: 9,
+    });
+    assert.equal(closed.status, 0, closed.stderr);
+    assert.equal(existsSync(join(repository, ".agents", "sessions", `${session}.md`)), false);
+  }
+});
+
+test("session controller exige reproducción previa en bugfix light compacto", async () => {
+  const repository = await createRepository();
+  await seedSessionContracts(repository);
+  const session = "bugfix-light-compacto";
+  const reproduce = "bugfix-reproduce--tester--a01";
+  const plan = "bugfix-plan--planificador--a01";
+  const implementation = "bugfix-implement--implementador--a01";
+  const evaluation = "bugfix-evaluate--evaluador--a01";
+  const tracedPayload = (phaseId, role, extra = {}) => ({
+    baseRevision: "base",
+    criteria: ["C03"],
+    permission: role === "implementador" ? "writer" : "read-only",
+    phaseId,
+    role,
+    threadId: `${role}-bugfix`,
+    ...extra,
+  });
+  const reports = {
+    evaluador: [
+      "- **Veredicto:** aprobado.",
+      "- **Criterios verificados:** C03.",
+      "- **Hallazgos:** Ninguno.",
+      "- **Riesgo residual y evidencia faltante:** No aplica.",
+      "- **Memoria guardada o candidata:** No aplica.",
+    ].join("\n"),
+    implementador: [
+      "- **Archivos modificados:** corrección mínima.",
+      "- **Tareas completadas y pendientes:** completada.",
+      "- **Tests creados:** regresión permanente.",
+      "- **Validación ejecutada:** reproducción verde.",
+      "- **Desvíos o dudas:** No aplica.",
+      "- **Candidato a memoria:** No aplica.",
+    ].join("\n"),
+    planificador: [
+      "- **Objetivo y comportamiento esperado:** corregir la causa reproducida.",
+      "- **Criterios de aceptación verificables:** C03.",
+      "- **No-objetivos y restricciones:** una unidad determinista.",
+      "- **Puntos de integración y seams acordados:** reproducción pública.",
+      "- **Tareas ordenadas:** corregir y evaluar.",
+      "- **Validación:** repetir la reproducción.",
+      "- **Documentación esperada:** No aplica.",
+      "- **Decisiones pendientes:** Ninguna.",
+      "- **Candidato a memoria:** No aplica.",
+    ].join("\n"),
+    tester: [
+      "- **Evidencia:** reproducción mínima determinista.",
+      "- **Tests creados:** regresión permanente.",
+      "- **Fallos:** Ninguno.",
+      "- **Omisiones:** Ninguna.",
+      "- **Candidato a memoria:** No aplica.",
+    ].join("\n"),
+  };
+
+  assert.equal(
+    runSessionController(
+      repository,
+      "init",
+      { session, expectedRevision: 0 },
+      { mode: "light", workflow: "bugfix" },
+    ).status,
+    0,
+  );
+  const planBeforeReproduction = runSessionController(
+    repository,
+    "open",
+    { session, attempt: plan, expectedRevision: 1 },
+    tracedPayload("bugfix-plan", "planificador"),
+  );
+  assert.deepEqual(controllerOutcome(planBeforeReproduction), {
+    code: 1,
+    error: "compact_phase_pending",
+  });
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session, attempt: reproduce, expectedRevision: 1 },
+      tracedPayload("bugfix-reproduce", "tester"),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: reproduce, expectedRevision: 2 },
+      { report: reports.tester },
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session, attempt: plan, expectedRevision: 3 },
+      tracedPayload("bugfix-plan", "planificador"),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: plan, expectedRevision: 4 },
+      { report: reports.planificador },
+    ).status,
+    0,
+  );
+  const configured = runSessionController(
+    repository,
+    "init",
+    { session, expectedRevision: 5 },
+    {
+      mode: "light",
+      workUnits: [
+        {
+          acceptanceCriteria: ["C03"],
+          dependsOn: [],
+          focusedValidation: "node --test --test-name-pattern=bugfix-light-compacto",
+          ownedPaths: ["src/bug.mjs"],
+          permission: "writer",
+          workUnitId: "correccion",
+        },
+      ],
+      workflow: "bugfix",
+    },
+  );
+  assert.equal(configured.status, 0, configured.stderr);
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session, attempt: implementation, expectedRevision: 6 },
+      tracedPayload("bugfix-implement", "implementador", { workUnitId: "correccion" }),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: implementation, expectedRevision: 7 },
+      { report: reports.implementador },
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session, attempt: evaluation, expectedRevision: 8 },
+      tracedPayload("bugfix-evaluate", "evaluador", {
+        evaluationAxis: "combined",
+        workUnitId: "correccion",
+      }),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: evaluation, expectedRevision: 9 },
+      { report: reports.evaluador },
+    ).status,
+    0,
+  );
+
+  const status = controllerResponse(runSessionController(repository, "status", { session }));
+  assert.equal(status.fanInReady, true);
+  assert.deepEqual(
+    new Set(status.attempts.map(({ attempt }) => attempt)),
+    new Set([reproduce, plan, implementation, evaluation]),
+  );
+});
+
+test("session controller hace fallar cerrado los contratos de light compacto", async () => {
+  const planReport = (decisions = "Ninguna.") =>
+    [
+      "- **Objetivo y comportamiento esperado:** cambio acotado.",
+      "- **Criterios de aceptación verificables:** C04 y C05.",
+      "- **No-objetivos y restricciones:** una unidad sin riesgos excluidos.",
+      "- **Puntos de integración y seams acordados:** CLI pública.",
+      "- **Tareas ordenadas:** implementar y evaluar.",
+      "- **Validación:** comando focalizado reproducible.",
+      "- **Documentación esperada:** No aplica.",
+      `- **Decisiones pendientes:** ${decisions}`,
+      "- **Candidato a memoria:** No aplica.",
+    ].join("\n");
+  const implementationReport = [
+    "- **Archivos modificados:** cambio mínimo.",
+    "- **Tareas completadas y pendientes:** completada.",
+    "- **Tests creados:** permanentes.",
+    "- **Validación ejecutada:** focalizada verde.",
+    "- **Desvíos o dudas:** No aplica.",
+    "- **Candidato a memoria:** No aplica.",
+  ].join("\n");
+  const trace = (phaseId, role, extra = {}) => ({
+    baseRevision: "base",
+    criteria: ["C04", "C05"],
+    permission: role === "implementador" ? "writer" : "read-only",
+    phaseId,
+    role,
+    threadId: `${role}-contrato`,
+    ...extra,
+  });
+  const unit = (overrides = {}) => ({
+    acceptanceCriteria: ["C04", "C05"],
+    dependsOn: [],
+    focusedValidation: "node --test --test-name-pattern=light-compacto",
+    ownedPaths: ["src/unidad.mjs"],
+    permission: "writer",
+    workUnitId: "unidad",
+    ...overrides,
+  });
+
+  async function createPlannedSession(session) {
+    const repository = await createRepository();
+    await seedSessionContracts(repository);
+    assert.equal(
+      runSessionController(
+        repository,
+        "init",
+        { session, expectedRevision: 0 },
+        { mode: "light", workflow: "feature" },
+      ).status,
+      0,
+    );
+    assert.equal(
+      runSessionController(
+        repository,
+        "open",
+        { session, attempt: "feature-plan--planificador--a01", expectedRevision: 1 },
+        trace("feature-plan", "planificador"),
+      ).status,
+      0,
+    );
+    assert.equal(
+      runSessionController(
+        repository,
+        "commit",
+        { session, attempt: "feature-plan--planificador--a01", expectedRevision: 2 },
+        { report: planReport() },
+      ).status,
+      0,
+    );
+    return repository;
+  }
+
+  const pendingRepository = await createRepository();
+  await seedSessionContracts(pendingRepository);
+  const pendingSession = "light-compacto-decision-pendiente";
+  assert.equal(
+    runSessionController(
+      pendingRepository,
+      "init",
+      { session: pendingSession, expectedRevision: 0 },
+      { mode: "light", workflow: "feature" },
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      pendingRepository,
+      "open",
+      {
+        session: pendingSession,
+        attempt: "feature-plan--planificador--a01",
+        expectedRevision: 1,
+      },
+      trace("feature-plan", "planificador"),
+    ).status,
+    0,
+  );
+  const pendingCommit = runSessionController(
+    pendingRepository,
+    "commit",
+    {
+      session: pendingSession,
+      attempt: "feature-plan--planificador--a01",
+      expectedRevision: 2,
+    },
+    { report: planReport("Elegir un seam.") },
+  );
+  assert.deepEqual(controllerOutcome(pendingCommit), {
+    code: 1,
+    error: "compact_light_ineligible",
+  });
+
+  const invalidPlans = [
+    { error: "invalid_compact_work_units", name: "cero", workUnits: [] },
+    {
+      error: "invalid_compact_work_units",
+      name: "multiples",
+      workUnits: [unit(), unit({ ownedPaths: ["src/otra.mjs"], workUnitId: "otra" })],
+    },
+    {
+      error: "ownership_collision",
+      name: "ownership",
+      workUnits: [unit({ ownedPaths: ["src/unidad.mjs", "SRC/unidad.mjs. "] })],
+    },
+    {
+      error: "invalid_compact_work_unit",
+      name: "sin-validacion",
+      workUnits: [unit({ focusedValidation: undefined })],
+    },
+    {
+      error: "invalid_compact_work_unit",
+      name: "sin-writer",
+      workUnits: [unit({ permission: "read-only" })],
+    },
+    {
+      error: "invalid_compact_work_unit",
+      name: "sin-ownership",
+      workUnits: [unit({ ownedPaths: [] })],
+    },
+  ];
+  for (const fixture of invalidPlans) {
+    const session = `light-compacto-${fixture.name}`;
+    const repository = await createPlannedSession(session);
+    const configured = runSessionController(
+      repository,
+      "init",
+      { session, expectedRevision: 3 },
+      { mode: "light", workUnits: fixture.workUnits, workflow: "feature" },
+    );
+    assert.deepEqual(controllerOutcome(configured), { code: 2, error: fixture.error });
+  }
+
+  const unconfiguredSession = "light-compacto-sin-unidad";
+  const unconfiguredRepository = await createPlannedSession(unconfiguredSession);
+  const implementationWithoutUnit = runSessionController(
+    unconfiguredRepository,
+    "open",
+    {
+      session: unconfiguredSession,
+      attempt: "feature-implement--implementador--a01",
+      expectedRevision: 3,
+    },
+    trace("feature-implement", "implementador"),
+  );
+  assert.deepEqual(controllerOutcome(implementationWithoutUnit), {
+    code: 2,
+    error: "work_unit_required",
+  });
+
+  const markerSession = "light-compacto-marker-invalido";
+  const markerRepository = await createPlannedSession(markerSession);
+  assert.equal(
+    runSessionController(
+      markerRepository,
+      "init",
+      { session: markerSession, expectedRevision: 3 },
+      { mode: "light", workUnits: [unit()], workflow: "feature" },
+    ).status,
+    0,
+  );
+  const workflowPath = join(markerRepository, ".agents", "workflows", "feature.md");
+  await writeFile(
+    workflowPath,
+    (await readFile(workflowPath, "utf8")).replace(
+      /<!-- agentic-light-sequence:v1 \{[^\n]+\} -->/,
+      '<!-- agentic-light-sequence:v1 {"phases":["fase-inexistente"]} -->',
+    ),
+    "utf8",
+  );
+  const invalidMarker = runSessionController(
+    markerRepository,
+    "open",
+    {
+      session: markerSession,
+      attempt: "feature-implement--implementador--a01",
+      expectedRevision: 4,
+    },
+    trace("feature-implement", "implementador", { workUnitId: "unidad" }),
+  );
+  assert.deepEqual(controllerOutcome(invalidMarker), {
+    code: 1,
+    error: "invalid_light_sequence",
+  });
+
+  const architectureRepository = await createRepository();
+  await seedSessionContracts(architectureRepository);
+  const architecture = runSessionController(
+    architectureRepository,
+    "init",
+    { session: "architecture-light", expectedRevision: 0 },
+    { mode: "light", workflow: "architecture" },
+  );
+  assert.deepEqual(controllerOutcome(architecture), {
+    code: 2,
+    error: "compact_light_unsupported_workflow",
+  });
+
+  const fullRepository = await createRepository();
+  await seedSessionContracts(fullRepository);
+  const full = runSessionController(
+    fullRepository,
+    "init",
+    { session: "full-sin-cambios", expectedRevision: 0 },
+    {
+      mode: "full",
+      workUnits: [
+        {
+          acceptanceCriteria: ["C08"],
+          dependsOn: [],
+          ownedPaths: ["src/uno.mjs"],
+          permission: "writer",
+          workUnitId: "uno",
+        },
+        {
+          acceptanceCriteria: ["C08"],
+          dependsOn: [],
+          ownedPaths: ["src/dos.mjs"],
+          permission: "writer",
+          workUnitId: "dos",
+        },
+      ],
+      workflow: "feature",
+    },
+  );
+  assert.equal(full.status, 0, full.stderr);
+  assert.equal(
+    controllerResponse(
+      runSessionController(fullRepository, "status", { session: "full-sin-cambios" }),
+    ).lightStrategy,
+    undefined,
+  );
+
+  const evaluationSession = "light-compacto-evaluador";
+  const evaluationRepository = await createPlannedSession(evaluationSession);
+  const configured = runSessionController(
+    evaluationRepository,
+    "init",
+    { session: evaluationSession, expectedRevision: 3 },
+    { mode: "light", workUnits: [unit()], workflow: "feature" },
+  );
+  assert.equal(configured.status, 0, configured.stderr);
+  const evaluationAttempt = "feature-evaluate--evaluador--a01";
+  const beforeImplementation = runSessionController(
+    evaluationRepository,
+    "open",
+    { session: evaluationSession, attempt: evaluationAttempt, expectedRevision: 4 },
+    trace("feature-evaluate", "evaluador", {
+      evaluationAxis: "combined",
+      workUnitId: "unidad",
+    }),
+  );
+  assert.deepEqual(controllerOutcome(beforeImplementation), {
+    code: 1,
+    error: "compact_phase_pending",
+  });
+  const implementation = "feature-implement--implementador--a01";
+  assert.equal(
+    runSessionController(
+      evaluationRepository,
+      "open",
+      { session: evaluationSession, attempt: implementation, expectedRevision: 4 },
+      trace("feature-implement", "implementador", { workUnitId: "unidad" }),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      evaluationRepository,
+      "commit",
+      { session: evaluationSession, attempt: implementation, expectedRevision: 5 },
+      { report: implementationReport },
+    ).status,
+    0,
+  );
+  const invalidEvaluations = [
+    {
+      error: "work_unit_required",
+      payload: trace("feature-evaluate", "evaluador", { evaluationAxis: "combined" }),
+    },
+    {
+      error: "invalid_attempt_permission",
+      payload: trace("feature-evaluate", "evaluador", {
+        evaluationAxis: "combined",
+        permission: "writer",
+        workUnitId: "unidad",
+      }),
+    },
+    {
+      error: "invalid_evaluation_axis",
+      payload: trace("feature-evaluate", "evaluador", {
+        evaluationAxis: "standards",
+        workUnitId: "unidad",
+      }),
+    },
+    {
+      error: "stale_evaluation_generation",
+      payload: trace("feature-evaluate", "evaluador", {
+        evaluationAxis: "combined",
+        evaluationGeneration: 0,
+        workUnitId: "unidad",
+      }),
+    },
+  ];
+  for (const fixture of invalidEvaluations) {
+    const opened = runSessionController(
+      evaluationRepository,
+      "open",
+      { session: evaluationSession, attempt: evaluationAttempt, expectedRevision: 6 },
+      fixture.payload,
+    );
+    assert.deepEqual(controllerOutcome(opened), { code: 2, error: fixture.error });
+  }
+  const validEvaluation = runSessionController(
+    evaluationRepository,
+    "open",
+    { session: evaluationSession, attempt: evaluationAttempt, expectedRevision: 6 },
+    trace("feature-evaluate", "evaluador", {
+      evaluationAxis: "combined",
+      evaluationGeneration: 1,
+      workUnitId: "unidad",
+    }),
+  );
+  assert.equal(validEvaluation.status, 0, validEvaluation.stderr);
+});
+
+test("session controller retrabaja light compacto y conserva sesiones light legacy", async () => {
+  const reports = {
+    approved: [
+      "- **Veredicto:** aprobado.",
+      "- **Criterios verificados:** C07.",
+      "- **Hallazgos:** Ninguno.",
+      "- **Riesgo residual y evidencia faltante:** No aplica.",
+      "- **Memoria guardada o candidata:** No aplica.",
+    ].join("\n"),
+    changesRequired: [
+      "- **Veredicto:** cambios requeridos.",
+      "- **Criterios verificados:** C07 incompleto.",
+      "- **Hallazgos:** falta ajustar el resultado.",
+      "- **Riesgo residual y evidencia faltante:** evidencia focalizada incompleta.",
+      "- **Memoria guardada o candidata:** No aplica.",
+    ].join("\n"),
+    implementador: [
+      "- **Archivos modificados:** cambio mínimo.",
+      "- **Tareas completadas y pendientes:** completada.",
+      "- **Tests creados:** permanentes.",
+      "- **Validación ejecutada:** focalizada verde.",
+      "- **Desvíos o dudas:** No aplica.",
+      "- **Candidato a memoria:** No aplica.",
+    ].join("\n"),
+    planificador: [
+      "- **Objetivo y comportamiento esperado:** cambio acotado.",
+      "- **Criterios de aceptación verificables:** C07.",
+      "- **No-objetivos y restricciones:** una unidad.",
+      "- **Puntos de integración y seams acordados:** CLI pública.",
+      "- **Tareas ordenadas:** implementar y evaluar.",
+      "- **Validación:** comando focalizado reproducible.",
+      "- **Documentación esperada:** No aplica.",
+      "- **Decisiones pendientes:** Ninguna.",
+      "- **Candidato a memoria:** No aplica.",
+    ].join("\n"),
+    tester: [
+      "- **Evidencia:** focalizada verde.",
+      "- **Tests creados:** permanentes.",
+      "- **Fallos:** Ninguno.",
+      "- **Omisiones:** Ninguna.",
+      "- **Candidato a memoria:** No aplica.",
+    ].join("\n"),
+  };
+  const trace = (phaseId, role, criteria, extra = {}) => ({
+    baseRevision: "base",
+    criteria,
+    permission: role === "implementador" ? "writer" : "read-only",
+    phaseId,
+    role,
+    threadId: `${role}-${phaseId}`,
+    ...extra,
+  });
+
+  const repository = await createRepository();
+  await seedSessionContracts(repository);
+  const session = "light-compacto-retrabajo";
+  const plan = "feature-plan--planificador--a01";
+  const implementation = "feature-implement--implementador--a01";
+  const evaluation = "feature-evaluate--evaluador--a01";
+  assert.equal(
+    runSessionController(
+      repository,
+      "init",
+      { session, expectedRevision: 0 },
+      { mode: "light", workflow: "feature" },
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session, attempt: plan, expectedRevision: 1 },
+      trace("feature-plan", "planificador", ["C07"]),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: plan, expectedRevision: 2 },
+      { report: reports.planificador },
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "init",
+      { session, expectedRevision: 3 },
+      {
+        mode: "light",
+        workUnits: [
+          {
+            acceptanceCriteria: ["C07"],
+            dependsOn: [],
+            focusedValidation: "node --test --test-name-pattern=retrabajo-light-compacto",
+            ownedPaths: ["src/unidad.mjs"],
+            permission: "writer",
+            workUnitId: "unidad",
+          },
+        ],
+        workflow: "feature",
+      },
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session, attempt: implementation, expectedRevision: 4 },
+      trace("feature-implement", "implementador", ["C07"], { workUnitId: "unidad" }),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: implementation, expectedRevision: 5 },
+      { report: reports.implementador },
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session, attempt: evaluation, expectedRevision: 6 },
+      trace("feature-evaluate", "evaluador", ["C07"], {
+        evaluationAxis: "combined",
+        workUnitId: "unidad",
+      }),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: evaluation, expectedRevision: 7 },
+      { report: reports.changesRequired },
+    ).status,
+    0,
+  );
+  let status = controllerResponse(runSessionController(repository, "status", { session }));
+  assert.equal(status.fanInReady, false);
+  assert.equal(status.finalEvaluation.axes.combined, "changes_required");
+  assert.equal(status.workUnits[0].state, "failed");
+
+  const rework = "feature-implement--implementador--a02";
+  const reopened = runSessionController(
+    repository,
+    "open",
+    { session, attempt: rework, expectedRevision: 8 },
+    trace("feature-implement", "implementador", ["C07"], {
+      cause: "El Evaluador pidió ajustar el resultado.",
+      previousAttempt: implementation,
+      workUnitId: "unidad",
+    }),
+  );
+  assert.equal(reopened.status, 0, reopened.stderr);
+  status = controllerResponse(runSessionController(repository, "status", { session }));
+  assert.equal(status.finalEvaluation.generation, 2);
+  assert.equal(status.finalEvaluation.axes.combined, "pending");
+  assert.equal(
+    runSessionController(
+      repository,
+      "commit",
+      { session, attempt: rework, expectedRevision: 9 },
+      { report: reports.implementador },
+    ).status,
+    0,
+  );
+  const evaluationRetry = "feature-evaluate--evaluador--a02";
+  assert.equal(
+    runSessionController(
+      repository,
+      "open",
+      { session, attempt: evaluationRetry, expectedRevision: 10 },
+      trace("feature-evaluate", "evaluador", ["C07"], {
+        cause: "Se evalúa el retrabajo.",
+        evaluationAxis: "combined",
+        evaluationGeneration: 2,
+        previousAttempt: evaluation,
+        workUnitId: "unidad",
+      }),
+    ).status,
+    0,
+  );
+  const approved = runSessionController(
+    repository,
+    "commit",
+    { session, attempt: evaluationRetry, expectedRevision: 11 },
+    { report: reports.approved },
+  );
+  assert.equal(approved.status, 0, approved.stderr);
+  const repeated = runSessionController(
+    repository,
+    "commit",
+    { session, attempt: evaluationRetry, expectedRevision: 12 },
+    { report: reports.approved },
+  );
+  assert.equal(controllerResponse(repeated).idempotent, true);
+  status = controllerResponse(runSessionController(repository, "status", { session }));
+  assert.equal(status.fanInReady, true);
+  assert.equal(status.finalEvaluation.approved, true);
+  assert.equal(status.finalEvaluation.generation, 2);
+
+  const legacyRepository = await createRepository();
+  await seedSessionContracts(legacyRepository);
+  const legacySession = "light-legacy-separado";
+  assert.equal(
+    runSessionController(
+      legacyRepository,
+      "init",
+      { session: legacySession, expectedRevision: 0 },
+      { mode: "light", workflow: "feature" },
+    ).status,
+    0,
+  );
+  const legacyPath = join(legacyRepository, ".agents", "sessions", `${legacySession}.md`);
+  const legacySource = await readFile(legacyPath, "utf8");
+  const legacyManaged = parseManagedState(legacySource);
+  delete legacyManaged.lightStrategy;
+  await writeFile(legacyPath, replaceManagedState(legacySource, legacyManaged), "utf8");
+  assert.equal(
+    runSessionController(
+      legacyRepository,
+      "init",
+      { session: legacySession, expectedRevision: 1 },
+      {
+        mode: "light",
+        workUnits: [
+          {
+            acceptanceCriteria: ["C09"],
+            dependsOn: [],
+            ownedPaths: ["src/legacy.mjs"],
+            permission: "writer",
+            workUnitId: "legacy",
+          },
+        ],
+        workflow: "feature",
+      },
+    ).status,
+    0,
+  );
+  const legacyImplementation = "feature-implement--implementador--a01";
+  const legacyTesting = "feature-test--tester--a01";
+  const legacyEvaluation = "feature-evaluate--evaluador--a01";
+  assert.equal(
+    runSessionController(
+      legacyRepository,
+      "open",
+      { session: legacySession, attempt: legacyImplementation, expectedRevision: 2 },
+      trace("feature-implement", "implementador", ["C09"], { workUnitId: "legacy" }),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      legacyRepository,
+      "commit",
+      { session: legacySession, attempt: legacyImplementation, expectedRevision: 3 },
+      { report: reports.implementador },
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      legacyRepository,
+      "open",
+      { session: legacySession, attempt: legacyTesting, expectedRevision: 4 },
+      trace("feature-test", "tester", ["C09"], { workUnitId: "legacy" }),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      legacyRepository,
+      "commit",
+      { session: legacySession, attempt: legacyTesting, expectedRevision: 5 },
+      { report: reports.tester },
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      legacyRepository,
+      "open",
+      { session: legacySession, attempt: legacyEvaluation, expectedRevision: 6 },
+      trace("feature-evaluate", "evaluador", ["C09"], { evaluationAxis: "combined" }),
+    ).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(
+      legacyRepository,
+      "commit",
+      { session: legacySession, attempt: legacyEvaluation, expectedRevision: 7 },
+      { report: reports.approved },
+    ).status,
+    0,
+  );
+  const legacyStatus = controllerResponse(
+    runSessionController(legacyRepository, "status", { session: legacySession }),
+  );
+  assert.equal(legacyStatus.lightStrategy, undefined);
+  assert.equal(legacyStatus.fanInReady, true);
+  assert.equal(legacyStatus.finalEvaluation.approved, true);
+  assert.equal(
+    controllerResponse(
+      runSessionController(legacyRepository, "recover", { session: legacySession }),
+    ).attempts.length,
+    3,
+  );
+  assert.equal(
+    runSessionController(legacyRepository, "cleanup", {
+      session: legacySession,
+      expectedRevision: 8,
+    }).status,
+    0,
+  );
+  assert.equal(
+    runSessionController(legacyRepository, "close", {
+      session: legacySession,
+      expectedRevision: 9,
+    }).status,
+    0,
+  );
+});
+
+test("session controller limita a dos ciclos el retrabajo de light compacto", async () => {
+  const repository = await createRepository();
+  await seedSessionContracts(repository);
+  const session = "light-compacto-dos-ciclos";
+  const reports = {
+    changesRequired: [
+      "- **Veredicto:** cambios requeridos.",
+      "- **Criterios verificados:** C07 incompleto.",
+      "- **Hallazgos:** persiste el mismo hallazgo.",
+      "- **Riesgo residual y evidencia faltante:** falta evidencia.",
+      "- **Memoria guardada o candidata:** No aplica.",
+    ].join("\n"),
+    implementador: [
+      "- **Archivos modificados:** retrabajo mínimo.",
+      "- **Tareas completadas y pendientes:** completada.",
+      "- **Tests creados:** permanentes.",
+      "- **Validación ejecutada:** focalizada verde.",
+      "- **Desvíos o dudas:** No aplica.",
+      "- **Candidato a memoria:** No aplica.",
+    ].join("\n"),
+    planificador: [
+      "- **Objetivo y comportamiento esperado:** cambio acotado.",
+      "- **Criterios de aceptación verificables:** C07.",
+      "- **No-objetivos y restricciones:** dos ciclos como máximo.",
+      "- **Puntos de integración y seams acordados:** CLI pública.",
+      "- **Tareas ordenadas:** implementar y evaluar.",
+      "- **Validación:** comando focalizado reproducible.",
+      "- **Documentación esperada:** No aplica.",
+      "- **Decisiones pendientes:** Ninguna.",
+      "- **Candidato a memoria:** No aplica.",
+    ].join("\n"),
+  };
+  const trace = (phaseId, role, extra = {}) => ({
+    baseRevision: "base",
+    criteria: ["C07"],
+    permission: role === "implementador" ? "writer" : "read-only",
+    phaseId,
+    role,
+    threadId: `${role}-${phaseId}`,
+    ...extra,
+  });
+  let revision = 0;
+  function succeed(command, attempt, payload) {
+    const result = runSessionController(
+      repository,
+      command,
+      { session, ...(attempt ? { attempt } : {}), expectedRevision: revision },
+      payload,
+    );
+    assert.equal(result.status, 0, result.stderr);
+    revision = controllerResponse(result).revision;
+  }
+
+  succeed("init", undefined, { mode: "light", workflow: "feature" });
+  const plan = "feature-plan--planificador--a01";
+  succeed("open", plan, trace("feature-plan", "planificador"));
+  succeed("commit", plan, { report: reports.planificador });
+  succeed("init", undefined, {
+    mode: "light",
+    workUnits: [
+      {
+        acceptanceCriteria: ["C07"],
+        dependsOn: [],
+        focusedValidation: "node --test --test-name-pattern=dos-ciclos",
+        ownedPaths: ["src/unidad.mjs"],
+        permission: "writer",
+        workUnitId: "unidad",
+      },
+    ],
+    workflow: "feature",
+  });
+  let implementation = "feature-implement--implementador--a01";
+  succeed(
+    "open",
+    implementation,
+    trace("feature-implement", "implementador", { workUnitId: "unidad" }),
+  );
+  succeed("commit", implementation, { report: reports.implementador });
+
+  let evaluation;
+  for (let cycle = 1; cycle <= 3; cycle += 1) {
+    const previousEvaluation = evaluation;
+    evaluation = `feature-evaluate--evaluador--a0${cycle}`;
+    succeed(
+      "open",
+      evaluation,
+      trace("feature-evaluate", "evaluador", {
+        ...(previousEvaluation
+          ? { cause: "Se evalúa el retrabajo.", previousAttempt: previousEvaluation }
+          : {}),
+        evaluationAxis: "combined",
+        evaluationGeneration: cycle,
+        workUnitId: "unidad",
+      }),
+    );
+    succeed("commit", evaluation, { report: reports.changesRequired });
+    if (cycle === 3) break;
+    const previousImplementation = implementation;
+    implementation = `feature-implement--implementador--a0${cycle + 1}`;
+    succeed(
+      "open",
+      implementation,
+      trace("feature-implement", "implementador", {
+        cause: "El Evaluador solicitó cambios.",
+        previousAttempt: previousImplementation,
+        workUnitId: "unidad",
+      }),
+    );
+    succeed("commit", implementation, { report: reports.implementador });
+  }
+
+  const blocked = runSessionController(
+    repository,
+    "open",
+    {
+      session,
+      attempt: "feature-implement--implementador--a04",
+      expectedRevision: revision,
+    },
+    trace("feature-implement", "implementador", {
+      cause: "Persisten cambios requeridos.",
+      previousAttempt: implementation,
+      workUnitId: "unidad",
+    }),
+  );
+  assert.deepEqual(controllerOutcome(blocked), {
+    code: 1,
+    error: "compact_rework_limit",
+  });
 });

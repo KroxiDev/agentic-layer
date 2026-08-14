@@ -14,6 +14,9 @@ condicionan la tarea.
 - Pistas o artefactos que el orquestador haya aprobado.
 - Carril asignado, fronteras y preguntas concretas que no debe duplicar.
 
+La estrategia compacta no abre este rol: el Planificador absorbe su exploración
+mínima. Este contrato sigue vigente para `full` y sesiones `light` legacy.
+
 ## Proceso
 
 1. Usar CodeGraph antes de búsquedas o lecturas exploratorias para localizar

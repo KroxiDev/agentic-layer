@@ -145,39 +145,45 @@ proporcional al riesgo.
 ### `light`
 
 Activar únicamente cuando el usuario lo pida de forma explícita. No es un
-workflow separado ni una selección de modelo: modifica la intensidad de
-implementación y testing en feature, bugfix y refactor. En architecture solo
-puede modificar el workflow posterior que implemente una decisión aprobada.
+workflow separado ni una selección de modelo. Una DevSession `light` nueva de
+`feature`, `bugfix` o `refactor` persiste `lightStrategy: "compact"`; una
+DevSession `light` existente sin ese campo conserva su secuencia legacy y no se
+migra implícitamente. `architecture` no admite la estrategia compacta: la
+petición `light` solo puede aplicarse al workflow posterior que implemente una
+decisión ya aprobada.
 
-Conservar en `light` los mismos roles, workflow, contextos aislados,
-DevSession, revisión del diff, evidencia de validación y restricciones de
-seguridad e integridad. Reducir:
+La estrategia compacta es elegible únicamente después de una planificación
+mínima que confirme todos los límites de ejecución directa verificada y,
+además:
 
-- el cambio al mínimo estrictamente acotado;
-- TDD y tests nuevos, que no se usan por defecto;
-- la suite completa, que no se ejecuta por defecto;
-- refactors, abstracciones y documentación no imprescindibles;
-- la validación a evidencia focalizada y proporcional.
+1. un único sector coherente, un solo writer y exactamente una unidad;
+2. un cambio pequeño o mecánicamente relacionado;
+3. una validación focalizada concreta, local y reproducible;
+4. ninguna decisión pendiente del usuario;
+5. ningún riesgo que active `full`, acción difícil de revertir ni cambio de
+   arquitectura durable;
+6. para `bugfix`, una reproducción determinista sin hipótesis competidoras.
 
-El Tester debe indicar qué validó, cómo lo validó y qué omitió por tratarse de
-`light`. Puede usar inspección del diff, una validación estática focalizada, un
-test existente relacionado, un smoke test o inspección visual, de accesibilidad
-y responsividad cuando el cambio lo requiera.
+Si una condición falla, detenerse antes de implementar y ofrecer únicamente
+cambiar a `full` o reducir el alcance. Pedir `light` no autoriza a degradar
+seguridad, integridad, compatibilidad, aislamiento ni evidencia.
 
-Si el impacto parece considerable, el orquestador debe advertir:
+Cada workflow elegible declara una única secuencia ejecutable mediante
+`agentic-light-sequence:v1`. El controlador interpreta ese marcador solo para
+sesiones `lightStrategy: "compact"`; las fases canónicas generales siguen
+vigentes para `full` y para `light` legacy. El Planificador absorbe la
+exploración mínima con CodeGraph, Engram y la cadena efectiva de `AGENTS.md`;
+en `bugfix` consume antes la reproducción del Tester. Después intervienen el
+Implementador y un Evaluador combinado independiente `read-only`. No se abre
+un Tester posterior a la implementación.
 
-~~~text
-Esta tarea podría exceder el alcance recomendado para `light`:
-
-1. <razón real>
-2. <razón real adicional, si existe>
-
-Recomiendo usar `full`. ¿Quieres cambiar a `full` o continuar en `light` con
-validación reducida?
-~~~
-
-La decisión del usuario no permite ignorar seguridad, integridad, acciones
-destructivas, reglas obligatorias ni instrucciones superiores.
+El Evaluador combinado revisa el diff, comprueba Estándares y Especificación y
+ejecuta o juzga la validación focalizada vigente. Su aprobación marca
+atómicamente la única unidad como validada y consolidada y aprueba el eje
+`combined`; `cambios requeridos` deja la unidad fallida y habilita retrabajo
+atribuible. El Documentador conserva su gate condicional. No se ejecuta la
+suite completa por defecto salvo que el contrato efectivo o evidencia concreta
+del impacto la exijan.
 
 ## Presupuesto y paralelismo controlado
 
@@ -191,21 +197,26 @@ destructivas, reglas obligatorias ni instrucciones superiores.
   `read-only`. Con menor capacidad, reducir el fan-out usando agentes reales;
   no simular agentes ni sustituirlos por procesos auxiliares.
 - Topes por rol: en `light`, Explorador 2 y los demás roles 1; en `full`,
-  Explorador 3, Tester 2, Evaluador 2 y los demás roles 1.
+  Explorador 3, Tester 2, Evaluador 2 y los demás roles 1. Son límites de
+  capacidad, no fases obligatorias; la estrategia compacta abre solo lo
+  declarado por su marcador y el Documentador condicional.
 - Formar oleadas deterministas únicamente con unidades listas. Cerrar cada hilo
   después de consolidar su resultado para liberar capacidad.
 
-La planificación puede declarar entre una y tres unidades de implementación,
-cada una con `workUnitId`, `dependsOn`, `owned_paths`, permiso y orden. Las
-dependencias solo quedan satisfechas por validación atribuible del Tester. No
+La planificación `full` o `light` legacy puede declarar entre una y tres
+unidades de implementación, cada una con `workUnitId`, `dependsOn`,
+`owned_paths`, permiso y orden. Sus dependencias solo quedan satisfechas por
+validación atribuible del Tester. La estrategia compacta exige una sola unidad
+writer, sin dependencias, con su validación focalizada concreta persistida. No
 repetir una unidad validada salvo impacto demostrado.
 
 Cada unidad recibe validación focalizada atribuible mediante un caso, patrón o
-procedimiento concreto. El Implementador conserva una comprobación proporcional
-y el Tester no repite la suite completa por unidad. En `full`, después de
-consolidar todas las unidades y ejecutar el fan-in, un Tester ejecuta la
-validación completa una sola vez antes de la evaluación final. En `light`, la
-suite completa continúa sin ejecutarse por defecto.
+procedimiento concreto. El Implementador conserva una comprobación
+proporcional. En `full` y `light` legacy, el Tester juzga la evidencia de cada
+unidad; en `full`, después del fan-in, ejecuta además la validación completa una
+sola vez antes de la evaluación final. En la estrategia compacta, el Evaluador
+combinado independiente juzga o ejecuta la señal focalizada y la suite completa
+continúa sin ejecutarse por defecto.
 
 Cada intento declara su propio permiso `read-only` o `writer`; un Tester
 `read-only` puede validar una unidad `writer` sin consumir aislamiento de
@@ -221,11 +232,14 @@ rechazar rutas no canónicas, escapes y colisiones exactas o de
 ancestro/descendiente antes de despachar. La comparación es portable a Windows:
 ignora mayúsculas y aliases por puntos o espacios terminales en cada segmento.
 
-Después de que todas las unidades estén implementadas, validadas y consolidadas,
-ejecutar el fan-in. La evaluación final usa por defecto un solo Evaluador
-`read-only` y un eje combinado que cubre Estándares y Especificación, también en
-`full`. El Planificador solo puede registrar `evaluationStrategy: dual` antes
-del fan-in cuando `evaluationRisk` sea una de estas categorías deterministas:
+En `full` y `light` legacy, ejecutar el fan-in después de que todas las unidades
+estén implementadas, validadas y consolidadas. En estrategia compacta, el
+Evaluador abre sobre la única unidad `implemented` y su veredicto consolida en
+una sola mutación el gate de unidad y el eje `combined`. Fuera de esa excepción,
+la evaluación final usa por defecto un solo Evaluador `read-only` y un eje
+combinado que cubre Estándares y Especificación, también en `full`. El
+Planificador solo puede registrar `evaluationStrategy: dual` antes del fan-in
+cuando `evaluationRisk` sea una de estas categorías deterministas:
 
 - `architectural-decision`;
 - `security-or-integrity`;
@@ -239,20 +253,23 @@ exige conformidad de todos los ejes requeridos por la estrategia registrada.
 
 Cada fan-in tiene una generación. Reabrir una unidad invalida todos los ejes e
 incrementa la generación; cada eje puede reintentarse de forma monotónica y
-trazable. Un reporte rojo o `fail` del Tester deja la unidad no validada y
-habilita retrabajo del Implementador.
+trazable. Un reporte rojo o `fail` del Tester en la ruta separada, o un veredicto
+negativo del Evaluador compacto, deja la unidad no validada y habilita
+retrabajo del Implementador.
 
 ## Estrategias de validación por unidad
 
 El Planificador selecciona y registra en la especificación una estrategia para
-cada unidad antes de implementar. Las estrategias admitidas son:
+cada unidad antes de implementar. La verifica un Tester en la ruta separada o
+el Evaluador combinado en la estrategia compacta. Las estrategias admitidas
+son:
 
-1. `independent-rerun`: el Tester vuelve a ejecutar la señal. Es la opción
-   segura por defecto.
+1. `independent-rerun`: el verificador independiente vuelve a ejecutar la
+   señal. Es la opción segura por defecto.
 2. `distinct-acceptance-check`: el Implementador usa su chequeo de desarrollo y
-   el Tester ejecuta una señal observable distinta de aceptación; así ejercitan
-   responsabilidades distintas.
-3. `verified-evidence-reuse`: el Tester puede aceptar la evidencia del
+   el verificador ejecuta una señal observable distinta de aceptación; así
+   ejercitan responsabilidades distintas.
+3. `verified-evidence-reuse`: el verificador puede aceptar la evidencia del
    Implementador sin repetir el mismo comando únicamente cuando la
    especificación autorizó esa reutilización antes de implementar y se cumplen
    todas estas condiciones:
@@ -260,7 +277,7 @@ cada unidad antes de implementar. Las estrategias admitidas son:
    - el reporte registra revisión base, comando o procedimiento, resultado
      exacto y criterio cubierto;
    - se conserva la misma revisión base y no hubo ningún cambio posterior en las
-     rutas afectadas; el Tester revisa el diff para confirmarlo;
+     rutas afectadas; el verificador revisa el diff para confirmarlo;
    - el riesgo es bajo o medio;
    - no intervienen red, tiempo real, aleatoriedad, inspección visual ni un
      entorno compartido.
@@ -272,10 +289,10 @@ ausente o si la estrategia no quedó autorizada, aplicar `independent-rerun`.
 Todo cambio posterior relevante invalida la reutilización. Esto incluye una
 modificación en las rutas afectadas, un reintento de implementación o testing,
 una dependencia reabierta o una nueva generación de fan-in: la evidencia queda
-obsoleta y el Tester debe producir validación vigente. La evidencia del
-Implementador nunca satisface automáticamente una dependencia; solo el Tester
-revisa el diff, juzga la cobertura y marca la unidad como validada mediante su
-reporte atribuible.
+obsoleta y el verificador debe producir validación vigente. La evidencia del
+Implementador nunca valida por sí sola: el Tester en la ruta separada o el
+Evaluador combinado en compacto revisa el diff, juzga la cobertura y produce el
+reporte atribuible que puede marcar la unidad.
 
 Estas estrategias afectan únicamente la validación focalizada de una unidad.
 En `full`, la validación completa sigue ejecutándose una sola vez después del
@@ -300,8 +317,10 @@ Este gate es condicional por evidencia y riesgo, no opcional por comodidad.
 No altera `architecture-propose` ni `architecture-record`, cuyas fases registran
 una propuesta o decisión durable según su workflow específico.
 
-El orden de cierre se conserva: fan-in, validación completa única en `full`,
-evaluación y Documentador condicional.
+En la ruta separada, el orden de cierre se conserva: fan-in, validación completa
+única en `full`, evaluación y Documentador condicional. En compacto, la
+aprobación combinada produce fan-in y evaluación atómicos antes del mismo gate
+documental.
 
 ## Selección de workflow
 
@@ -364,7 +383,9 @@ El orquestador administra el ciclo con
 revisión esperada en cada mutación. Usa `init`, `open`, `await-input`, `resume`,
 `commit`, `fail`, `recover`, `cleanup` y `close` según la transición requerida.
 El primer `init` persiste modo y capacidades y aplica desde entonces los topes,
-aunque el DAG todavía no exista.
+aunque el DAG todavía no exista. Para una sesión `light` nueva también persiste
+`lightStrategy: "compact"`; la ausencia del campo en una sesión existente se
+interpreta como legacy y nunca se completa por inferencia.
 Tras planificar unidades, repetir `init` con la revisión vigente para registrar
 atómicamente el DAG y la capacidad detectada antes de abrir sus intentos.
 
@@ -378,7 +399,7 @@ verbosas heredadas permanecen legibles y no se reescriben.
 Actualizarla al cerrar cada fase. Es el único traspaso de estado entre
 subagentes y debe registrar:
 
-- objetivo, workflow, modo y fase actual;
+- objetivo, workflow, modo, estrategia light cuando aplique y fase actual;
 - presupuesto del modo, capacidad `read-only`, aislamiento de escritores y oleada;
 - unidades, dependencias, ownership, permiso por intento, hilos y revisión base;
 - estrategia de validación por unidad y, si se reutiliza evidencia, revisión,
@@ -400,11 +421,13 @@ subagentes y debe registrar:
 
 Antes de abrir cada Evaluador o el Documentador final, el orquestador debe
 seleccionar explícitamente en el índice los sobres pertinentes y pasar sus rutas,
-no el historial completo. Para el Evaluador, la selección se limita a los
-intentos de implementación y testing de las unidades del fan-in y a la generación
-o eje vigente. Para el Documentador, se limita a decisiones, cambios, validación
-y evaluaciones aprobadas que condicionen la documentación. Ambos consumos deben
-terminar antes de `cleanup`.
+no el historial completo. Para el Evaluador de la ruta separada, la selección se
+limita a los intentos de implementación y testing de las unidades del fan-in y
+a la generación o eje vigente; para el Evaluador compacto, al intento vigente
+del Implementador y la evidencia focalizada de su única unidad. Para el
+Documentador, se limita a decisiones, cambios, validación y evaluaciones
+aprobadas que condicionen la documentación. Ambos consumos deben terminar antes
+de `cleanup`.
 
 No versionar instancias reales. Los inventarios y el paquete las excluyen
 aunque existan durante la validación. Eliminarlas al cerrar correctamente la
@@ -425,9 +448,10 @@ Solo el orquestador conversa con el usuario.
 ## Ciclo Evaluador → Implementador
 
 Si el Evaluador devuelve `cambios requeridos`, iniciar un nuevo subagente
-Implementador con la lista accionable y luego repetir testing y evaluación.
-Permitir como máximo dos ciclos de retrabajo. Si persiste el rechazo, detenerse
-y presentar el diagnóstico al usuario.
+Implementador con la lista accionable y luego repetir la validación independiente
+y la evaluación que correspondan a la ruta. Permitir como máximo dos ciclos de
+retrabajo. Si persiste el rechazo, detenerse y presentar el diagnóstico al
+usuario.
 
 ## Engram
 
@@ -435,7 +459,8 @@ y presentar el diagnóstico al usuario.
 - Usar ámbito de proyecto por defecto. El ámbito personal o global requiere
   autorización explícita.
 - Explorador y Planificador consultan historial relevante con una pregunta
-  concreta. Otros roles consultan solo cuando una decisión previa condiciona
+  concreta; en estrategia compacta esa responsabilidad recae en el
+  Planificador. Otros roles consultan solo cuando una decisión previa condiciona
   su fase.
 - Cualquier rol puede devolver un candidato a memoria.
 - El Evaluador puede guardar directamente un error, riesgo o hallazgo crítico

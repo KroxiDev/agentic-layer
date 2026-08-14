@@ -2721,6 +2721,7 @@ async function validateTemplateDistribution() {
     "Objetivo:",
     "Workflow:",
     "Modo:",
+    "Estrategia light:",
     "Fase actual:",
     "## Sector de importancia",
     "## Reglas `AGENTS.md` efectivas por sector",
@@ -2800,6 +2801,46 @@ async function validateTemplateDistribution() {
       phaseIds.add(phase.id);
       if (!roleNames.has(normalizeLabel(phase.role))) {
         errors.push(`El workflow ${workflow} referencia un rol inexistente: ${phase.role}.`);
+      }
+    }
+    const lightMarkers = [
+      ...content.matchAll(/<!-- agentic-light-sequence:v1 (\{[^\n]+\}) -->/g),
+    ];
+    const expectedLightMarkers = workflow === "architecture" ? 0 : 1;
+    if (lightMarkers.length !== expectedLightMarkers) {
+      errors.push(
+        workflow === "architecture"
+          ? "El workflow architecture no admite una secuencia light compacta."
+          : `El workflow ${workflow} debe declarar una única secuencia light compacta.`,
+      );
+    }
+    if (lightMarkers.length === 1) {
+      let contract;
+      try {
+        contract = JSON.parse(lightMarkers[0][1]);
+      } catch {
+        errors.push(`El workflow ${workflow} contiene una secuencia light inválida.`);
+        continue;
+      }
+      if (
+        !contract ||
+        typeof contract !== "object" ||
+        Array.isArray(contract) ||
+        Object.keys(contract).length !== 1 ||
+        !Array.isArray(contract.phases) ||
+        !contract.phases.length ||
+        contract.phases.some((phaseId) => typeof phaseId !== "string") ||
+        new Set(contract.phases).size !== contract.phases.length
+      ) {
+        errors.push(`El workflow ${workflow} contiene una secuencia light ambigua.`);
+        continue;
+      }
+      for (const phaseId of contract.phases) {
+        if (!phaseIds.has(phaseId)) {
+          errors.push(
+            `El workflow ${workflow} referencia una fase light inexistente: ${phaseId}.`,
+          );
+        }
       }
     }
   }

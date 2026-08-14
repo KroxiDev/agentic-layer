@@ -64,7 +64,8 @@ _Evitar_: unidad, reintento sobreescrito, ejecución (a secas).
 
 **DAG de unidades**:
 El grafo acíclico dirigido que relaciona unidades mediante `dependsOn`. Una
-arista sólo queda satisfecha por validación atribuible del Tester.
+arista sólo queda satisfecha por validación atribuible del Tester; la estrategia
+compacta no crea aristas porque exige una única unidad.
 _Evitar_: lista de tareas, orden manual, pipeline.
 
 **Oleada**:
@@ -81,14 +82,22 @@ _Evitar_: sector de importancia, permiso general, scope.
 
 **Gate de unidad**:
 Una condición mecánica del ciclo `implemented` → `validated` → `consolidated`.
-Sólo `validated`, con evidencia del Tester, satisface dependencias.
+En la ruta separada, `validated` exige evidencia del Tester y puede satisfacer
+dependencias. En compacto, el Evaluador combinado produce `validated` y
+`consolidated` atómicamente sobre la única unidad.
 _Evitar_: estado (a secas), aprobación final, check.
 
 **Modo de orquestación**:
 La profundidad con la que se ejecuta un workflow: `full` o `light`. Es
-intensidad de implementación y verificación, nunca elección de modelo ni de
-nivel de razonamiento.
+topología e intensidad de implementación y verificación, nunca elección de
+modelo ni de nivel de razonamiento.
 _Evitar_: modo (a secas), nivel, perfil de ejecución.
+
+**Estrategia light**:
+La semántica persistida de una DevSession `light`. `compact` usa la secuencia
+estructural reducida del workflow; la ausencia de `lightStrategy` identifica
+una sesión legacy con fases separadas y no se migra implícitamente.
+_Evitar_: modo light, estrategia de evaluación, nivel de razonamiento.
 
 **Presupuesto del modo**:
 El máximo de subagentes activos que el workflow puede usar: 4 en `light` y 9 en
@@ -120,7 +129,9 @@ _Evitar_: paralelismo sin límites, llenar cupos, oleada.
 **Fan-in**:
 La barrera de integración posterior a las unidades exigidas por el plan. Sus
 precondiciones y la validación de cierre pertenecen a la
-[política de orquestación](.agents/policies/orquestacion.md).
+[política de orquestación](.agents/policies/orquestacion.md). En compacto, la
+aprobación combinada consolida la única unidad y produce el fan-in en la misma
+mutación.
 _Evitar_: merge de Git, consolidación de una unidad, suite por unidad.
 
 **Estrategia de evaluación**:
@@ -162,7 +173,8 @@ _Evitar_: índice compacto, texto humano, SubDevSession.
 **DevSession heredada**:
 Una DevSession v1 anterior a algún campo del modelo por unidades. `status` la
 lee sin escribir y un `init` explícito puede completar sólo la trazabilidad
-ausente de forma monotónica e idempotente.
+ausente de forma monotónica e idempotente. La ausencia de `lightStrategy` no es
+un campo incompleto: conserva semántica legacy.
 _Evitar_: sesión inválida, migración masiva, legacy (a secas).
 
 **Reserva de escritor**:

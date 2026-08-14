@@ -269,8 +269,18 @@ flowchart TD
     full --> pre["preflight:<br/>CodeGraph · Engram ·<br/>subagentes · contrato"]
     light --> pre
     pre -->|falla| stop["detenerse con<br/>diagnóstico breve"]
-    pre -->|pasa| sess["init DevSession:<br/>modo + capacidades"]
-    sess --> plan["explorar y planificar<br/>DAG de 1–3 unidades"]
+    pre -->|pasa| sess["init DevSession:<br/>modo + capacidades +<br/>estrategia light"]
+    sess --> topology{"¿light compacto?"}
+    topology -->|no| plan["explorar y planificar<br/>DAG de 1–3 unidades"]
+    topology -->|sí| bugcompact{"¿bugfix?"}
+    bugcompact -->|sí| reproduce["Tester reproduce<br/>antes de planificar"]
+    bugcompact -->|no| compactplan["Planificador absorbe exploración<br/>y declara 1 unidad writer"]
+    reproduce --> compactplan
+    compactplan --> compactimpl["Implementador:<br/>implemented + evidencia"]
+    compactimpl --> compacteval["Evaluador combinado read-only:<br/>diff + criterios + validación focalizada"]
+    compacteval --> compactapproved{"¿aprobado?"}
+    compactapproved -->|no, máximo 2 ciclos| compactimpl
+    compactapproved -->|sí: validated + consolidated<br/>+ fan-in + eje combined| docgate
     plan --> ready["seleccionar unidades listas<br/>y formar oleada"]
     ready --> open["open intento trazable:<br/>unidad · permiso · revisión · hilo"]
     open --> perm{"permiso"}
@@ -339,12 +349,19 @@ lector no ocupa aislamiento de escritura. Con menos capacidad se reduce el
 fan-out usando agentes reales; no se simulan agentes ni se sustituyen por
 procesos auxiliares.
 
+El presupuesto `light` sigue siendo un techo de capacidad. La estrategia
+compacta reduce la topología real y normalmente abre un solo contexto por fase;
+no intenta ocupar cuatro carriles ni crea Explorador o Tester posterior cuando
+su marcador no los declara.
+
 ### Unidades, intentos, DAG y gates
 
-El Planificador registra de una a tres unidades verticales. Cada unidad guarda
-`workUnitId`, `acceptanceCriteria`, `dependsOn`, `ownedPaths`, `permission` y
-`wave`. El controlador rechaza contratos incompletos, IDs duplicados,
-dependencias ausentes, ciclos y colisiones antes de crear la DevSession.
+El Planificador registra de una a tres unidades verticales en `full` y `light`
+legacy. En compacto registra exactamente una unidad writer, sin dependencias y
+con `focusedValidation`. Cada unidad guarda `workUnitId`,
+`acceptanceCriteria`, `dependsOn`, `ownedPaths`, `permission` y `wave`. El
+controlador rechaza contratos incompletos, IDs duplicados, dependencias
+ausentes, ciclos y colisiones antes de crear la DevSession.
 
 La unidad y el intento son identidades distintas. La primera representa el
 trabajo a través de sus retrabajos; el segundo es una ejecución monotónica de
@@ -352,7 +369,7 @@ fase y rol con `baseRevision`, `threadId`, criterios, permiso, causa e intento
 anterior. Un intento terminal es inmutable. Una unidad validada sólo se reabre
 con impacto demostrado.
 
-Los gates son mecánicos:
+En la ruta separada los gates son mecánicos:
 
 1. el Implementador consolida evidencia y deja la unidad `implemented`;
 2. el Tester sólo puede abrir sobre ese estado y la deja `validated` o
@@ -361,8 +378,10 @@ Los gates son mecánicos:
    `dependsOn`.
 
 La evidencia focalizada pertenece a la unidad y el reporte del Tester conserva
-la autoridad exclusiva del gate. La selección de estrategia, su vigencia y el
-momento de la validación integrada pertenecen a la
+la autoridad del gate. En compacto, el Evaluador combinado abre directamente
+sobre `implemented` y su veredicto actualiza de forma atómica unidad, fan-in y
+eje `combined`; no existe un Tester posterior. La selección de estrategia, su
+vigencia y el momento de la validación integrada pertenecen a la
 [política de orquestación](../.agents/policies/orquestacion.md), no a este
 documento. El controlador persiste únicamente el estado necesario para rechazar
 transiciones o evidencia obsoletas; no añade otra máquina para reinterpretar la
@@ -413,12 +432,15 @@ edad. `cleanup` continúa limitado a sobres acusados y `safe_to_delete`.
 
 ### Fan-in, generaciones y sesiones heredadas
 
-El controlador sólo marca la integración lista cuando todas las unidades están
-validadas y consolidadas. Persiste estrategia, riesgo y generación, valida sus
-valores ejecutables y, al reabrir una unidad, incrementa la generación e
-invalida resultados anteriores. La política canónica es la única propietaria de
-la elegibilidad humana de cada estrategia y de las categorías admitidas; esta
-sección documenta únicamente el estado y las transiciones del controlador.
+En la ruta separada, el controlador sólo marca la integración lista cuando todas
+las unidades están validadas y consolidadas. En compacto, el Evaluador combinado
+puede abrir sobre la única unidad implementada y una aprobación produce
+simultáneamente consolidación y fan-in. El controlador persiste estrategia,
+riesgo y generación, valida sus valores ejecutables y, al reabrir una unidad,
+incrementa la generación e invalida resultados anteriores. La política canónica
+es la única propietaria de la elegibilidad humana de cada estrategia y de las
+categorías admitidas; esta sección documenta únicamente el estado y las
+transiciones del controlador.
 
 Las DevSessions v1 sin unidades conservan su comportamiento. Una sesión por
 unidades creada antes de que existieran criterios, capacidades separadas,
@@ -426,7 +448,9 @@ estrategia o generación falla cerradamente antes de `open` cuando le falta la
 trazabilidad exigida. Repetir `init` con el plan aprobado completa únicamente
 esos campos ausentes, preserva intentos, estados, ownership y evidencia, y es
 byte-idempotente al volver a ejecutarse. Una sesión `full` heredada sin estrategia
-conserva dual implícito. El modelo base está en
+conserva dual implícito. Una sesión `light` sin `lightStrategy` conserva la ruta
+separada legacy; solo las nuevas registran `compact`, sin migración implícita. El
+modelo base está en
 [ADR 0009](adr/0009-paralelismo-controlado-por-unidades.md) y la simplificación
 vigente en [ADR 0010](adr/0010-cierre-y-evaluacion-proporcionales-al-riesgo.md);
 ambas extienden el controlador portable de

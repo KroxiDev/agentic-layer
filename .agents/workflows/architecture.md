@@ -17,8 +17,10 @@ fases y el límite propio de una decisión arquitectónica.
 5. **Registrar decisión — Documentador:** <!-- agentic-phase:v1 {"id":"architecture-record","role":"documentador"} --> marcar la ADR como aceptada o registrar
    la decisión aprobada en la ubicación autorizada y consolidar memoria durable.
 
-`Light` solo puede aplicarse al workflow posterior de implementación y requiere
-una petición explícita; no reduce exploración, comparación ni aprobación.
+`architecture` no declara `agentic-light-sequence:v1` y no admite estrategia
+compacta. `Light` solo puede aplicarse al workflow posterior de implementación
+y requiere una petición explícita; no reduce exploración, comparación ni
+aprobación.
 
 Una tarea exclusivamente arquitectónica termina después de
 `architecture-record`; no exige unidades de implementación, fan-in ni

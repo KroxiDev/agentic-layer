@@ -32,8 +32,9 @@ sector de importancia.
    detenerse y devolver la necesidad al orquestador.
 7. Ejecutar antes de entregar el chequeo de desarrollo asignado. Registrar
    revisión base, comando o procedimiento, resultado exacto y criterio cubierto
-   para que el Tester pueda reproducirlo o juzgar su vigencia; esta evidencia no
-   valida por sí sola la unidad.
+   para que el Tester en la ruta separada o el Evaluador combinado en compacto
+   pueda reproducirlo o juzgar su vigencia; esta evidencia no valida por sí sola
+   la unidad.
 8. Respetar ownership, aislamiento de escritor y retrabajo según el contrato
    canónico; no iniciar trabajo fuera de la unidad asignada.
 

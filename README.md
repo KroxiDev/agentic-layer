@@ -125,7 +125,7 @@ adopción es una copia y el propietario la mantiene.
 | Ejecución | Uso |
 | --- | --- |
 | Directa verificada | Trabajo elegible para los límites directos de la política. |
-| `light` | Capa activada con intensidad reducida por petición explícita. |
+| `light` | Capa activada por petición explícita con una secuencia compacta y límites duros. |
 | `full` | Capa activada con el workflow completo exigido por su clasificación. |
 
 La matriz normativa vive una sola vez en
@@ -135,6 +135,13 @@ TDD se derivan a la [política SDD/TDD](.agents/policies/sdd-tdd.md) y su
 [skill canónica](.agents/skills/agentic-tdd/SKILL.md). Este README describe la
 interface sin volver a enumerar categorías, límites o excepciones.
 
+Una DevSession `light` nueva de `feature`, `bugfix` o `refactor` persiste
+`lightStrategy: "compact"`: reduce contextos, exige una sola unidad writer y
+delega la validación independiente al Evaluador combinado. Una sesión `light`
+anterior sin ese campo conserva la secuencia separada legacy. `architecture` no
+admite la estrategia compacta. Si el alcance no cumple sus condiciones, solo
+puede reducirse o cambiarse a `full`.
+
 ### Paralelismo controlado
 
 El orquestador no cuenta dentro de los topes del modo. La capacidad efectiva es
@@ -143,23 +150,31 @@ trabajo listo. Los carriles `read-only` y el aislamiento de escritores se
 calculan por separado: un writer no consume por sí mismo el cupo de lectura, y
 la capacidad técnica 12 de Codex nunca obliga a llenar 12 hilos.
 
-Una planificación puede declarar entre una y tres **unidades de
-implementación** verticales. La unidad es el trabajo durable (`workUnitId`,
-criterios, `dependsOn`, oleada y rutas propias); cada ejecución o retrabajo es
-un **intento** nuevo con permiso, revisión base e hilo trazables. El DAG sólo
-habilita unidades cuyas dependencias ya fueron validadas y forma oleadas
-deterministas con el trabajo listo.
+Una planificación `full` o `light` legacy puede declarar entre una y tres
+**unidades de implementación** verticales; `light` compacto exige exactamente
+una, sin dependencias y con validación focalizada concreta. La unidad es el
+trabajo durable (`workUnitId`, criterios, `dependsOn`, oleada y rutas propias);
+cada ejecución o retrabajo es un **intento** nuevo con permiso, revisión base e
+hilo trazables. El DAG sólo habilita unidades cuyas dependencias ya fueron
+validadas y forma oleadas deterministas con el trabajo listo.
 
-Cada unidad atraviesa tres gates:
+En la ruta separada cada unidad atraviesa tres gates:
 
 1. el Implementador la deja `implemented`;
 2. un Tester juzga la evidencia, le atribuye validación y la deja `validated`;
 3. el bloque administrado global la deja `consolidated` y su índice enlaza la
    evidencia atribuible.
 
-El Planificador registra la estrategia de validación de cada unidad y el Tester
-juzga su evidencia. Las opciones, condiciones de reutilización y reglas de
-vigencia pertenecen exclusivamente a la política canónica.
+En `light` compacto no se abre ese Tester posterior: el Evaluador combinado,
+en un contexto independiente `read-only`, revisa el diff y la señal focalizada;
+su aprobación produce a la vez `validated`, `consolidated`, fan-in y evaluación
+aprobada. Un rechazo deja la unidad fallida, invalida la generación al
+retrabajar y conserva como máximo dos ciclos.
+
+El Planificador registra la estrategia de validación de cada unidad. El Tester
+la juzga en la ruta separada y el Evaluador combinado lo hace en compacto. Las
+opciones, condiciones de reutilización y reglas de vigencia pertenecen
+exclusivamente a la política canónica.
 
 Cada reporte contractual íntegro vive una sola vez, en la SubDevSession de su
 intento. La parte humana de la DevSession global guarda únicamente una referencia
@@ -181,7 +196,8 @@ evidencia exige el cierre. Un reintento terminal idéntico de `commit` o `fail`
 es idempotente y sólo libera la reserva de writer si todavía pertenece
 exactamente a su sesión e intento; nunca toca la de un sucesor.
 
-Las DevSessions anteriores al modelo por unidades siguen siendo compatibles.
+Las DevSessions anteriores al modelo por unidades y las sesiones `light` sin
+`lightStrategy` siguen siendo compatibles.
 `status` no escribe y `init` puede completar de forma explícita, monotónica e
 idempotente la trazabilidad que falte antes de abrir nuevos intentos. `recover`
 expone checkpoints y residuos sin decidir por antigüedad; cuando una
@@ -199,8 +215,8 @@ usuario ni entre sí: el orquestador es el único interlocutor.
 | **Explorador** | Delimita el sector de importancia y las reglas efectivas | Nada |
 | **Planificador** | Convierte el objetivo en especificación verificable y elige la estrategia por unidad | Nada |
 | **Implementador** | Aplica el cambio mínimo y entrega evidencia reproducible | Código y tests |
-| **Tester** | Juzga los criterios y es el único que valida la unidad | Sólo tests autorizados |
-| **Evaluador** | Aprueba o devuelve cambios concretos | Nada |
+| **Tester** | Valida unidades en la ruta separada y reproduce bugfix compactos | Sólo tests autorizados |
+| **Evaluador** | Aprueba o devuelve cambios; en compacto valida y consolida la unidad | Nada |
 | **Documentador** | Si su gate se abre, deja la documentación consistente o consolida memoria durable | Documentación |
 
 | Workflow | Secuencia |
@@ -209,6 +225,12 @@ usuario ni entre sí: el orquestador es el único interlocutor.
 | `bugfix` | reproducir → diagnosticar → planificar → corregir → verificar → evaluar → documentar si aplica |
 | `refactor` | explorar → definir invariantes → implementar → testear → evaluar → documentar si aplica |
 | `architecture` | explorar → comparar → proponer decisión → **aprobación del usuario** → registrar; si debe implementarse, transferir una vez a `feature` o `refactor` |
+
+La tabla muestra la secuencia general. Cada workflow elegible contiene un único
+marcador `agentic-light-sequence:v1` para la ruta compacta; el Planificador
+absorbe la exploración mínima, `bugfix` conserva su reproducción previa y el
+Evaluador combinado sustituye el testing posterior. El marcador, no esta prosa,
+es la fuente ejecutable de esas fases.
 
 Una tarea exclusivamente arquitectónica termina al registrar la decisión
 aprobada. Si hay implementación, el workflow posterior es el único responsable

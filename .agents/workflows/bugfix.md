@@ -6,6 +6,8 @@ Las mecánicas comunes de modo, unidades, validación, evaluación y cierre
 pertenecen a la [política de orquestación](../policies/orquestacion.md); este
 archivo fija únicamente el orden y la intención de las fases de `bugfix`.
 
+<!-- agentic-light-sequence:v1 {"phases":["bugfix-reproduce","bugfix-plan","bugfix-implement","bugfix-evaluate"]} -->
+
 1. **Reproducir — Tester:** <!-- agentic-phase:v1 {"id":"bugfix-reproduce","role":"tester"} --> construir un bucle rojo-capaz, ejecutar la
    reproducción y minimizarla. Si no existe una señal válida, detenerse y
    devolver lo intentado.
@@ -26,10 +28,12 @@ archivo fija únicamente el orden y la intención de las fases de `bugfix`.
 7. **Documentar — Documentador (condicional):** <!-- agentic-phase:v1 {"id":"bugfix-document","role":"documentador"} --> ejecutar solo cuando el gate canónico
    autorice trabajo documental o de memoria durable.
 
-En `light` se conserva la secuencia y se justifica brevemente cualquier mecánica
-omitida porque no aumentaría la información. La reducción de evidencia nunca
-permite hipotetizar sin un bucle rojo-capaz o evidencia equivalente ni omitir
-una regresión necesaria para demostrar el arreglo.
+En `light` compacto, el marcador estructural anterior sustituye la secuencia
+general para bugs deterministas: conserva la reproducción previa, el
+Planificador absorbe el diagnóstico mínimo y el Evaluador combinado realiza la
+validación independiente. La reducción de evidencia nunca permite hipotetizar
+sin un bucle rojo-capaz o evidencia equivalente ni omitir una regresión
+necesaria para demostrar el arreglo.
 
 Un bugfix conserva normalmente una sola unidad de implementación. Dividirlo
 solo cuando el diagnóstico demuestre unidades independientes; su contrato y sus

@@ -321,11 +321,51 @@ test("los contratos canónicos enlazan políticas y exponen marcadores estables"
   }
   assert.ok(devSession.includes("evaluationStrategy"));
   assert.ok(devSession.includes("evaluationRisk"));
+  assert.ok(devSession.includes("Estrategia light:"));
   assert.ok(subdevSession.includes("- Unidad: `<work-unit-id>`"));
   assert.ok(subdevSession.includes("- Permiso: `<permission>`"));
   assert.ok(codexAdapter.includes(".agents/roles/implementador.md"));
   assert.ok(claudeAdapter.includes(".agents/roles/implementador.md"));
   assert.doesNotMatch(codexAdapter + claudeAdapter, /light\s*=\s*4|full\s*=\s*9/);
+});
+
+test("los workflows declaran una única secuencia estructural para light compacto", async () => {
+  for (const workflow of ["architecture", "bugfix", "feature", "refactor"]) {
+    const source = await readFile(
+      join(ROOT, ".agents", "workflows", `${workflow}.md`),
+      "utf8",
+    );
+    const phases = new Map(
+      [...source.matchAll(/<!-- agentic-phase:v1 (\{[^\n]+\}) -->/g)].map((match) => {
+        const phase = JSON.parse(match[1]);
+        return [phase.id, phase.role];
+      }),
+    );
+    const markers = [
+      ...source.matchAll(/<!-- agentic-light-sequence:v1 (\{[^\n]+\}) -->/g),
+    ];
+    if (workflow === "architecture") {
+      assert.equal(markers.length, 0);
+      continue;
+    }
+    assert.equal(markers.length, 1, `${workflow} debe declarar una sola secuencia compacta.`);
+    const contract = JSON.parse(markers[0][1]);
+    assert.deepEqual(Object.keys(contract), ["phases"]);
+    assert.ok(Array.isArray(contract.phases));
+    assert.equal(new Set(contract.phases).size, contract.phases.length);
+    assert.equal(contract.phases.every((phaseId) => phases.has(phaseId)), true);
+    const roles = contract.phases.map((phaseId) => phases.get(phaseId));
+    assert.equal(roles.at(-1), "evaluador");
+    assert.equal(roles.filter((role) => role === "implementador").length, 1);
+    assert.equal(roles.includes("explorador"), false);
+    if (workflow === "bugfix") {
+      assert.equal(roles[0], "tester");
+      assert.equal(contract.phases[0], "bugfix-reproduce");
+    } else {
+      assert.equal(roles[0], "planificador");
+      assert.equal(roles.includes("tester"), false);
+    }
+  }
 });
 
 test("la activación canónica decide por riesgo y mantiene consumidores delgados", async () => {

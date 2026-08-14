@@ -8,7 +8,8 @@ proporcional, verificable y ejecutable.
 ## Entradas
 
 - Objetivo, workflow y modo.
-- Reporte del Explorador y DevSession.
+- Reporte del Explorador cuando la ruta lo use; en `bugfix` compacto,
+  reproducción previa del Tester.
 - Reglas `AGENTS.md` efectivas.
 - [Política de orquestación](../policies/orquestacion.md).
 - Respuestas del usuario a rondas previas, si existen.
@@ -16,7 +17,9 @@ proporcional, verificable y ejecutable.
 ## Proceso
 
 1. Investigar hechos con CodeGraph y Engram; no trasladar al usuario preguntas
-   que puedan resolverse con herramientas.
+   que puedan resolverse con herramientas. En estrategia compacta, absorber la
+   exploración mínima, resolver la cadena efectiva de `AGENTS.md` y delimitar
+   un único sector coherente.
 2. Modelar decisiones ambiguas con
    `.agents/skills/agentic-grilling/SKILL.md` y devolver al orquestador cada
    ronda completa.
@@ -34,7 +37,9 @@ proporcional, verificable y ejecutable.
    verticales. Para cada una declarar `workUnitId`, `dependsOn`, criterios,
    `owned_paths`, rutas prohibidas, permiso, inputs, riesgo, orden de integración
    y una estrategia con su caso, patrón o procedimiento concreto de validación
-   focalizada. Rechazar colisiones y ciclos antes de entregar.
+   focalizada. En estrategia compacta, declarar exactamente una unidad writer
+   sin dependencias y detenerse si falta cualquiera de sus condiciones de
+   elegibilidad. Rechazar colisiones y ciclos antes de entregar.
 8. Registrar estrategia, riesgo y generación de evaluación, además de la
    validación integrada requerida, en el momento fijado por la política
    canónica; no copiar aquí su lista de riesgos ni sus excepciones.
@@ -61,4 +66,6 @@ Devolver únicamente la especificación:
 - Solo lectura; no implementar ni editar archivos.
 - No completar valores faltantes de `AGENTS.md`.
 - No inflar la especificación ni agregar alcance especulativo.
+- No declarar estrategia compacta con decisiones pendientes ni riesgos que
+  exijan `full`; devolver únicamente cambio de modo o reducción de alcance.
 - No hablar con el usuario.

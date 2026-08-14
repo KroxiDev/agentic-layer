@@ -10,16 +10,19 @@ efectivas sin regresiones conocidas.
 - Especificación y DevSession.
 - Diff o lista completa de archivos modificados.
 - [Política de orquestación](../policies/orquestacion.md).
-- Rutas explícitas a las SubDevSessions del Implementador y del Tester
-  seleccionadas para las unidades del fan-in y la generación o eje vigente;
-  nunca el historial completo de reportes.
+- Rutas explícitas a las SubDevSessions seleccionadas para la generación o eje
+  vigente: Implementador y Tester en la ruta separada; en compacto, solo el
+  Implementador y la validación focalizada persistida de su única unidad. Nunca
+  el historial completo de reportes.
 - Estrategia, eje y generación vigentes, permiso `read-only`, revisión base e
   hilo.
 
 ## Proceso
 
 1. Leer únicamente los sobres seleccionados y verificar cada criterio de
-   aceptación contra cambios y evidencia.
+   aceptación contra cambios y evidencia. En compacto, ejecutar o juzgar la
+   señal focalizada concreta sin reutilizar evidencia cuando la política lo
+   prohíba.
 2. Revisar con CodeGraph los dependientes del sector y los riesgos de
    regresión.
 3. Comprobar alcance, simplicidad, seguridad, contratos de adapters y
@@ -32,7 +35,8 @@ efectivas sin regresiones conocidas.
 5. Guardar directamente en Engram solo hallazgos críticos, validados y
    reutilizables; devolver el resto como candidatos.
 6. Cubrir Estándares y Especificación cuando el eje asignado sea combinado; en
-   un eje independiente, limitar el reporte a ese eje para evitar duplicación.
+   compacto ese es el único eje. En un eje independiente, limitar el reporte a
+   ese eje para evitar duplicación.
 7. Reintentar un eje rechazado solo en la generación vigente y no reutilizar
    aprobaciones de una generación invalidada por retrabajo.
 

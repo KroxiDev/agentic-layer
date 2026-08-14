@@ -3,6 +3,7 @@
 - Objetivo:
 - Workflow: feature | bugfix | refactor | architecture
 - Modo: full | light
+- Estrategia light: compact | legacy | No aplica
 - Fase actual:
 
 ## Presupuesto y capacidad
@@ -16,12 +17,12 @@
 
 ## Unidades de implementación
 
-- `workUnitId`, criterios, dependencias, oleada y ownership: Pendiente
+- `workUnitId`, criterios, dependencias, oleada, ownership y validación focalizada: Pendiente
 - Intentos con permiso, revisión base, hilo, fase y evidencia: Pendiente
-- Gates implementada, validada y consolidada: Pendiente
+- Gates implementada, validada y consolidada; validador Tester o Evaluador compacto: Pendiente
 - Fallos, retrabajo e impacto: No aplica
 - Resultado de fan-in: Pendiente
-- Validación completa posterior al fan-in: Pendiente
+- Validación completa posterior al fan-in (`full`) o `No aplica`: Pendiente
 
 ## Sector de importancia
 

@@ -43,6 +43,7 @@ const MUTATING_COMMANDS = new Set([
 const ATTEMPT_PATTERN = /^([a-z][a-z0-9-]*)--([a-z][a-z0-9-]*)--a(\d{2,})$/;
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const WORK_UNIT_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const LIGHT_STRATEGY = "compact";
 const DUAL_EVALUATION_RISKS = new Set([
   "architectural-decision",
   "considerable-fan-in",
@@ -413,6 +414,42 @@ function validateGlobal(managed, session) {
   if (managed.kind !== "global" || managed.sessionSlug !== session) {
     throw new ControllerError("session_identity_conflict", "La identidad del bloque global contradice la ruta.");
   }
+  if (
+    managed.lightStrategy !== undefined &&
+    (managed.lightStrategy !== LIGHT_STRATEGY ||
+      managed.mode !== "light" ||
+      managed.workflow === "architecture")
+  ) {
+    throw new ControllerError(
+      "invalid_managed_light_strategy",
+      "La estrategia light persistida no es válida para la DevSession.",
+    );
+  }
+  if (isCompactLight(managed)) {
+    if (managed.evaluationStrategy !== undefined && managed.evaluationStrategy !== "combined") {
+      throw new ControllerError(
+        "invalid_managed_light_strategy",
+        "La estrategia light compacta exige evaluación combinada.",
+      );
+    }
+    if (managed.workUnits) {
+      const units = Object.values(managed.workUnits);
+      if (
+        units.length !== 1 ||
+        units[0].permission !== "writer" ||
+        units[0].dependsOn?.length !== 0 ||
+        !Array.isArray(units[0].ownedPaths) ||
+        units[0].ownedPaths.length === 0 ||
+        typeof units[0].focusedValidation !== "string" ||
+        !units[0].focusedValidation.trim()
+      ) {
+        throw new ControllerError(
+          "invalid_managed_light_strategy",
+          "La unidad compacta persistida no cumple su contrato.",
+        );
+      }
+    }
+  }
   if (managed.evaluationStrategy !== undefined) {
     if (!["combined", "dual"].includes(managed.evaluationStrategy)) {
       throw new ControllerError(
@@ -439,12 +476,16 @@ function validateGlobal(managed, session) {
   }
 }
 
-function renderGlobalTemplate(template, { mode, objective, session, workflow }) {
+function renderGlobalTemplate(template, { lightStrategy, mode, objective, session, workflow }) {
   return template
     .replace("<slug>", session)
     .replace("- Objetivo:", `- Objetivo: ${objective ?? "Pendiente"}`)
     .replace("- Workflow: feature | bugfix | refactor | architecture", `- Workflow: ${workflow}`)
     .replace("- Modo: full | light", `- Modo: ${mode ?? "full"}`)
+    .replace(
+      "- Estrategia light: compact | legacy | No aplica",
+      `- Estrategia light: ${lightStrategy ?? (mode === "light" ? "legacy" : "No aplica")}`,
+    )
     .replace("- Fase actual:", "- Fase actual: Pendiente");
 }
 
@@ -471,6 +512,22 @@ function canonicalOwnedPath(value) {
 
 function pathsCollide(left, right) {
   return left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
+}
+
+function isCompactLight(managed) {
+  return managed.mode === "light" && managed.lightStrategy === LIGHT_STRATEGY;
+}
+
+function newLightStrategy(workflow, mode) {
+  if (mode !== "light") return {};
+  if (workflow === "architecture") {
+    throw new ControllerError(
+      "compact_light_unsupported_workflow",
+      "architecture no admite la estrategia light compacta.",
+      2,
+    );
+  }
+  return { lightStrategy: LIGHT_STRATEGY };
 }
 
 function capacityConfig(payload, existing = {}) {
@@ -573,18 +630,43 @@ function evaluationConfig(payload, existing = {}) {
 
 function parseWorkUnits(payload, existing = {}) {
   if (payload.workUnits === undefined) return {};
-  if (!Array.isArray(payload.workUnits) || !payload.workUnits.length || payload.workUnits.length > 3) {
+  const compact = isCompactLight(existing);
+  if (!Array.isArray(payload.workUnits)) {
+    throw new ControllerError("invalid_work_units", "workUnits debe contener entre una y tres unidades.", 2);
+  }
+  if (compact && payload.workUnits.length !== 1) {
+    throw new ControllerError(
+      "invalid_compact_work_units",
+      "La estrategia light compacta exige exactamente una unidad.",
+      2,
+    );
+  }
+  if (!compact && (!payload.workUnits.length || payload.workUnits.length > 3)) {
     throw new ControllerError("invalid_work_units", "workUnits debe contener entre una y tres unidades.", 2);
   }
   const capacity = capacityConfig(payload, existing);
   const evaluation = evaluationConfig(payload, existing);
+  if (compact && evaluation.evaluationStrategy !== "combined") {
+    throw new ControllerError(
+      "invalid_compact_evaluation",
+      "La estrategia light compacta exige evaluación combinada.",
+      2,
+    );
+  }
 
   const workUnits = {};
   for (const candidate of payload.workUnits) {
     if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
       throw new ControllerError("invalid_work_units", "Cada unidad debe ser un objeto.", 2);
     }
-    const { acceptanceCriteria, workUnitId, dependsOn, ownedPaths, permission } = candidate;
+    const {
+      acceptanceCriteria,
+      workUnitId,
+      dependsOn,
+      focusedValidation,
+      ownedPaths,
+      permission,
+    } = candidate;
     if (!WORK_UNIT_PATTERN.test(workUnitId ?? "") || workUnits[workUnitId]) {
       throw new ControllerError("invalid_work_unit_id", "workUnitId debe ser único y canónico.", 2);
     }
@@ -605,6 +687,20 @@ function parseWorkUnits(payload, existing = {}) {
         2,
       );
     }
+    if (
+      compact &&
+      (permission !== "writer" ||
+        dependsOn.length !== 0 ||
+        ownedPaths.length === 0 ||
+        typeof focusedValidation !== "string" ||
+        !focusedValidation.trim())
+    ) {
+      throw new ControllerError(
+        "invalid_compact_work_unit",
+        "La unidad compacta exige writer, cero dependencias y validación focalizada concreta.",
+        2,
+      );
+    }
     const canonicalPaths = ownedPaths.map(canonicalOwnedPath);
     if (new Set(canonicalPaths).size !== canonicalPaths.length) {
       throw new ControllerError("ownership_collision", "Una unidad repite rutas de propiedad.", 2);
@@ -612,6 +708,7 @@ function parseWorkUnits(payload, existing = {}) {
     workUnits[workUnitId] = {
       acceptanceCriteria: acceptanceCriteria.map((criterion) => criterion.trim()),
       dependsOn: [...dependsOn],
+      ...(compact ? { focusedValidation: focusedValidation.trim() } : {}),
       ownedPaths: canonicalPaths,
       permission,
       state: "planned",
@@ -674,6 +771,7 @@ function parseWorkUnits(payload, existing = {}) {
     ),
     ...capacity,
     ...evaluation,
+    ...(compact ? { lightStrategy: LIGHT_STRATEGY } : {}),
     evaluationGeneration: existing.evaluationGeneration ?? 1,
     evaluations: existing.evaluations ?? {},
     workUnits,
@@ -694,6 +792,7 @@ function workUnitPlanDefinition(managed, missingFrom) {
     evaluationRisk: managed.evaluationRisk,
     evaluationStrategy: managed.evaluationStrategy,
     isolationCapacity: managed.isolationCapacity,
+    lightStrategy: managed.lightStrategy,
     mode: managed.mode,
     platformCapacity: managed.platformCapacity,
     readOnlyCapacity: managed.readOnlyCapacity,
@@ -704,6 +803,7 @@ function workUnitPlanDefinition(managed, missingFrom) {
         {
           acceptanceCriteria: unit.acceptanceCriteria,
           dependsOn: unit.dependsOn,
+          focusedValidation: unit.focusedValidation,
           ownedPaths: comparableOwnedPaths(unit.ownedPaths),
           permission: unit.permission,
           wave: unit.wave,
@@ -761,7 +861,11 @@ function assertWorkUnitPlanReady(managed) {
     (Object.hasOwn(managed, "readOnlyCapacity") &&
       Object.hasOwn(managed, "writerIsolationCapacity") &&
       Object.hasOwn(managed, "evaluationGeneration") &&
-      Object.values(managed.workUnits).every((unit) => Object.hasOwn(unit, "acceptanceCriteria")))
+      Object.values(managed.workUnits).every(
+        (unit) =>
+          Object.hasOwn(unit, "acceptanceCriteria") &&
+          (!isCompactLight(managed) || Object.hasOwn(unit, "focusedValidation")),
+      ))
   ) {
     return;
   }
@@ -853,6 +957,9 @@ function attemptTrace(session, payload, workUnit) {
   return {
     baseRevision: payload.baseRevision.trim(),
     criteria,
+    ...(workUnit?.focusedValidation
+      ? { focusedValidation: workUnit.focusedValidation }
+      : {}),
     threadId: payload.threadId.trim(),
     ...(workUnit ? { wave: workUnit.wave } : {}),
   };
@@ -906,6 +1013,20 @@ function assertWorkUnitCanOpen(session, identity, payload, workUnit, permission)
     }
   }
   if (identity.role === "implementador") {
+    if (isCompactLight(session.managed) && workUnit.state === "failed") {
+      const rejectedEvaluations = Object.values(session.managed.attempts).filter(
+        (attempt) =>
+          attempt.role === "evaluador" &&
+          attempt.workUnitId === workUnit.workUnitId &&
+          (attempt.evidence?.outcome === "changes_required" || attempt.state === "failed"),
+      ).length;
+      if (rejectedEvaluations > 2) {
+        throw new ControllerError(
+          "compact_rework_limit",
+          "La estrategia light compacta agotó sus dos ciclos de retrabajo.",
+        );
+      }
+    }
     if (workUnit.validated && (typeof payload.impact !== "string" || !payload.impact.trim())) {
       throw new ControllerError(
         "work_unit_already_validated",
@@ -955,9 +1076,40 @@ function currentEvaluation(managed, axis) {
     : undefined;
 }
 
-function assertEvaluationCanOpen(session, identity, payload) {
+function assertEvaluationCanOpen(session, identity, payload, workUnit, permission) {
   if (identity.role !== "evaluador" || !session.managed.workUnits) return;
-  if (!workUnitStatus(session.managed).fanInReady) {
+  if (isCompactLight(session.managed)) {
+    if (!workUnit || Object.keys(session.managed.workUnits).length !== 1) {
+      throw new ControllerError(
+        "work_unit_required",
+        "El Evaluador compacto exige la única workUnitId de la DevSession.",
+        2,
+      );
+    }
+    if (workUnit.state !== "implemented") {
+      throw new ControllerError(
+        "work_unit_not_implemented",
+        "El Evaluador compacto solo puede abrir sobre la unidad implementada.",
+      );
+    }
+    if (permission !== "read-only") {
+      throw new ControllerError(
+        "invalid_attempt_permission",
+        "El Evaluador compacto debe ser read-only.",
+        2,
+      );
+    }
+    if (
+      payload.evaluationGeneration !== undefined &&
+      payload.evaluationGeneration !== currentEvaluationGeneration(session.managed)
+    ) {
+      throw new ControllerError(
+        "stale_evaluation_generation",
+        "La generación solicitada no es la vigente.",
+        2,
+      );
+    }
+  } else if (!workUnitStatus(session.managed).fanInReady) {
     throw new ControllerError("fan_in_pending", "La evaluación final exige fan-in de unidades validadas.");
   }
   if (!requiredEvaluationAxes(session.managed).includes(payload.evaluationAxis)) {
@@ -987,9 +1139,15 @@ function assertEvaluationCanOpen(session, identity, payload) {
 function advanceWorkUnitOnOpen(session, identity, workUnit, payload, attempt) {
   if (!workUnit) return;
   if (identity.role === "implementador") {
-    if (workUnit.validated) {
+    const wasValidated = workUnit.validated;
+    const invalidatesCompactEvaluation =
+      isCompactLight(session.managed) &&
+      requiredEvaluationAxes(session.managed).some((axis) => currentEvaluation(session.managed, axis));
+    if (wasValidated || invalidatesCompactEvaluation) {
       workUnit.validated = false;
-      workUnit.impact = payload.impact.trim();
+      if (wasValidated || typeof payload.impact === "string") {
+        workUnit.impact = payload.impact.trim();
+      }
       session.managed.evaluationGeneration = currentEvaluationGeneration(session.managed) + 1;
       session.managed.evaluations = {};
     }
@@ -999,6 +1157,9 @@ function advanceWorkUnitOnOpen(session, identity, workUnit, payload, attempt) {
   if (identity.role === "tester") {
     workUnit.state = "validating";
     workUnit.testingAttempt = attempt;
+  }
+  if (identity.role === "evaluador" && isCompactLight(session.managed)) {
+    workUnit.state = "evaluating";
   }
 }
 
@@ -1045,6 +1206,25 @@ function advanceEvaluationOnCommit(session, ledger, attempt, report) {
     generation: ledger.evaluationGeneration ?? currentEvaluationGeneration(session.managed),
     state: approved ? "approved" : "changes_required",
   };
+  if (isCompactLight(session.managed)) {
+    const workUnit = session.managed.workUnits?.[ledger.workUnitId];
+    if (!workUnit) return;
+    if (approved) {
+      workUnit.consolidatedAttempt = attempt;
+      workUnit.state = "consolidated";
+      workUnit.validated = true;
+      workUnit.validationAttempt = attempt;
+      workUnit.validationEvidence = ledger.evidence;
+    } else {
+      workUnit.failureAttempt = attempt;
+      workUnit.failureCause =
+        report.match(/^- \*\*Hallazgos:\*\*\s*(.+)$/m)?.[1].trim() ??
+        "El Evaluador solicitó cambios.";
+      workUnit.failureEvidence = ledger.evidence;
+      workUnit.state = "failed";
+      workUnit.validated = false;
+    }
+  }
 }
 
 function advanceUnitOnFail(session, ledger, attempt, cause) {
@@ -1065,6 +1245,13 @@ function advanceUnitOnFail(session, ledger, attempt, cause) {
       generation: ledger.evaluationGeneration ?? currentEvaluationGeneration(session.managed),
       state: "changes_required",
     };
+    if (isCompactLight(session.managed) && workUnit) {
+      workUnit.failureAttempt = attempt;
+      workUnit.failureCause = cause;
+      workUnit.failureEvidence = { outcome: "failed" };
+      workUnit.state = "failed";
+      workUnit.validated = false;
+    }
   }
 }
 
@@ -1220,11 +1407,14 @@ async function commandInit(options, payload) {
   if (!["architecture", "bugfix", "feature", "refactor"].includes(workflow)) {
     throw new ControllerError("invalid_workflow", "init exige un workflow canónico.", 2);
   }
+  const capacity = capacityConfig(payload);
+  const lightStrategy = newLightStrategy(workflow, capacity.mode);
   let human = session.human;
   if (!session.exists) {
     const templatePath = join(options.root, ".agents", "templates", "dev-session.md");
     human = renderGlobalTemplate(await readUtf8(templatePath), {
       ...payload,
+      ...lightStrategy,
       session: options.session,
       workflow,
     });
@@ -1237,8 +1427,9 @@ async function commandInit(options, payload) {
     sessionSlug: options.session,
     version: 1,
     workflow,
-    ...capacityConfig(payload),
-    ...parseWorkUnits(payload),
+    ...capacity,
+    ...lightStrategy,
+    ...parseWorkUnits(payload, { ...capacity, ...lightStrategy }),
   };
   await mkdir(session.sessions, { recursive: true });
   await atomicWrite(session.global, withManaged(human, managed));
@@ -1261,6 +1452,83 @@ function parsePhases(source) {
   }
   if (!phases.size) throw new ControllerError("invalid_phase_contract", "El workflow no declara fases.");
   return phases;
+}
+
+function parseLightSequence(source, phases) {
+  const markers = [...source.matchAll(/<!-- agentic-light-sequence:v1 (\{[^\n]+\}) -->/g)];
+  if (markers.length !== 1) {
+    throw new ControllerError(
+      "invalid_light_sequence",
+      "El workflow compacto debe declarar una única secuencia light.",
+    );
+  }
+  let contract;
+  try {
+    contract = JSON.parse(markers[0][1]);
+  } catch {
+    throw new ControllerError(
+      "invalid_light_sequence",
+      "El workflow contiene una secuencia light inválida.",
+    );
+  }
+  if (
+    !contract ||
+    typeof contract !== "object" ||
+    Array.isArray(contract) ||
+    Object.keys(contract).length !== 1 ||
+    !Array.isArray(contract.phases) ||
+    !contract.phases.length ||
+    contract.phases.some((phase) => typeof phase !== "string" || !phases.has(phase)) ||
+    new Set(contract.phases).size !== contract.phases.length
+  ) {
+    throw new ControllerError(
+      "invalid_light_sequence",
+      "La secuencia light debe referenciar fases canónicas únicas.",
+    );
+  }
+  return contract.phases;
+}
+
+function assertCompactPhaseCanOpen(session, identity, sequence) {
+  if (!isCompactLight(session.managed)) return;
+  if (identity.role === "documentador") {
+    if (!finalEvaluationStatus(session.managed).finalEvaluation?.approved) {
+      throw new ControllerError(
+        "compact_phase_pending",
+        "El Documentador compacto exige evaluación aprobada.",
+      );
+    }
+    return;
+  }
+  const position = sequence.indexOf(identity.phaseId);
+  if (position === -1) {
+    throw new ControllerError(
+      "phase_not_in_light_sequence",
+      "La fase no pertenece a la secuencia light compacta.",
+    );
+  }
+  const attempts = Object.values(session.managed.attempts);
+  const pendingPredecessor = sequence
+    .slice(0, position)
+    .find(
+      (phaseId) =>
+        !attempts.some((attempt) => attempt.phaseId === phaseId && attempt.state === "completed"),
+    );
+  if (pendingPredecessor) {
+    throw new ControllerError(
+      "compact_phase_pending",
+      `La fase ${pendingPredecessor} todavía no se completó.`,
+    );
+  }
+  const laterAttempt = attempts.find(
+    (attempt) => sequence.indexOf(attempt.phaseId) > position,
+  );
+  if (laterAttempt && identity.role !== "implementador") {
+    throw new ControllerError(
+      "compact_phase_already_advanced",
+      "La secuencia light compacta ya avanzó a una fase posterior.",
+    );
+  }
 }
 
 function parseRoleContract(source) {
@@ -1320,12 +1588,32 @@ async function commandOpen(options, payload) {
     throw new ControllerError("attempt_identity_conflict", "El payload contradice la identidad del intento.");
   }
   const workflowPath = join(options.root, ".agents", "workflows", `${session.managed.workflow}.md`);
-  const phases = parsePhases(await readUtf8(workflowPath));
+  const workflowSource = await readUtf8(workflowPath);
+  const phases = parsePhases(workflowSource);
   if (phases.get(identity.phaseId) !== identity.role) {
     throw new ControllerError("attempt_identity_conflict", "La fase y el rol contradicen el workflow.");
   }
+  const lightSequence = isCompactLight(session.managed)
+    ? parseLightSequence(workflowSource, phases)
+    : undefined;
+  assertCompactPhaseCanOpen(session, identity, lightSequence);
+  if (
+    isCompactLight(session.managed) &&
+    ["implementador", "evaluador"].includes(identity.role) &&
+    !session.managed.workUnits
+  ) {
+    throw new ControllerError(
+      "work_unit_required",
+      "La estrategia light compacta exige registrar su única unidad antes de implementar.",
+      2,
+    );
+  }
   let workUnit;
-  if (session.managed.workUnits && ["implementador", "tester"].includes(identity.role)) {
+  if (
+    session.managed.workUnits &&
+    (["implementador", "tester"].includes(identity.role) ||
+      (isCompactLight(session.managed) && identity.role === "evaluador"))
+  ) {
     if (!WORK_UNIT_PATTERN.test(payload.workUnitId ?? "")) {
       throw new ControllerError("work_unit_required", "open exige workUnitId para una sesión por unidades.", 2);
     }
@@ -1365,7 +1653,7 @@ async function commandOpen(options, payload) {
       state: "active",
     };
   }
-  assertEvaluationCanOpen(session, identity, payload);
+  assertEvaluationCanOpen(session, identity, payload, workUnit, permission);
   assertWorkUnitCanOpen(session, identity, payload, workUnit, permission);
   const phasePrior = Object.values(session.managed.attempts).filter(
     (attempt) => attempt.phaseId === identity.phaseId,
@@ -1735,6 +2023,17 @@ function parseReport(report, contract) {
   return normalizedText(report);
 }
 
+function assertCompactReportEligible(session, ledger, report) {
+  if (!isCompactLight(session.managed) || ledger.role !== "planificador") return;
+  const decisions = report.match(/^- \*\*Decisiones pendientes:\*\*\s*(.+)$/m)?.[1].trim();
+  if (!/^(?:Ninguna|No aplica)\.?$/i.test(decisions ?? "")) {
+    throw new ControllerError(
+      "compact_light_ineligible",
+      "La estrategia light compacta no admite decisiones pendientes.",
+    );
+  }
+}
+
 function roleTitle(role) {
   return role[0].toUpperCase() + role.slice(1);
 }
@@ -1822,6 +2121,7 @@ async function commandCommit(options, payload) {
   const envelope = await readEnvelope(session, options);
   const ledger = ledgerAttempt(session, options);
   const report = parseReport(payload.report, envelope.managed.contract);
+  assertCompactReportEligible(session, ledger, report);
   const reportHash = hashText(report);
   if (ledger.state === "completed") {
     if (ledger.reportHash !== reportHash) {
@@ -2250,6 +2550,9 @@ async function commandStatus(options) {
     classification,
     command: "status",
     legacy: false,
+    ...(session.managed.lightStrategy !== undefined
+      ? { lightStrategy: session.managed.lightStrategy }
+      : {}),
     residues,
     revision: session.managed.revision,
     session: options.session,

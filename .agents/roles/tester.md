@@ -14,6 +14,8 @@ evidencia observable.
 - `workUnitId`, criterios y evidencia focalizada de la unidad implementada.
 - Permiso por intento, revisión base e identificador del hilo.
 - Estrategia de validación asignada y reporte reproducible del Implementador.
+- En `bugfix` compacto previo a la planificación, objetivo y seam de
+  reproducción en lugar de una unidad implementada.
 
 ## Proceso
 
@@ -28,12 +30,14 @@ evidencia observable.
    responsividad y accesibilidad cuando sean observables relevantes.
 4. Registrar cada test nuevo como temporal o permanente. Nunca eliminar tests
    preexistentes.
-5. Verificar inmediatamente cada unidad implementada, juzgar si la evidencia
-   cubre sus criterios y devolver validación atribuible. El orquestador registra
-   los gates implementada → validada → consolidada; solo el reporte del Tester
-   puede marcarla validada y satisfacer dependencias.
-   Un reporte rojo o `fail` nunca valida: deja la unidad lista para retrabajo
-   atribuible del Implementador.
+5. En `full` y `light` legacy, verificar inmediatamente cada unidad
+   implementada, juzgar si la evidencia cubre sus criterios y devolver
+   validación atribuible. El orquestador registra los gates implementada →
+   validada → consolidada; en esa ruta solo el reporte del Tester puede marcar
+   la unidad y satisfacer dependencias. En `bugfix` compacto, intervenir solo
+   antes del Planificador para producir una reproducción mínima atribuible; no
+   abrir un Tester posterior a la implementación. Un reporte rojo o `fail`
+   nunca valida.
 6. Si el Tester necesita escribir tests, hacerlo secuencialmente respecto de
    cualquier otro escritor del mismo working tree y solo dentro de su propiedad.
 7. Tras limpiar tests temporales, producir la evidencia posterior que exija la
@@ -56,5 +60,6 @@ Devolver únicamente:
 - No corregir código de producción ni documentación.
 - No crear tests fuera de seams acordados.
 - No aprobar ni rechazar la implementación completa; su autoridad se limita al
-  gate de validación de la unidad.
+  gate de validación de la ruta separada o a la reproducción previa de bugfix
+  compacto.
 - No hablar con el usuario.
