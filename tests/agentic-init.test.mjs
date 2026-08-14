@@ -589,13 +589,19 @@ test("simula la adopción completa dentro de un directorio temporal", async () =
   );
 });
 
-test("distribuye la Regla de Oro y conecta sus consumidores obligatorios", async () => {
+test("distribuye la Regla de Oro y alinea sus consumidores con el refactor TDD", async () => {
   const policyReference = ".agents/policies/regla-de-oro.md";
   const consumers = ["planificador", "implementador", "tester", "evaluador"];
   const manifest = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8"));
   const rootAgents = await readFile(join(ROOT, "AGENTS.md"), "utf8");
+  const goldenRule = await readFile(join(ROOT, ...policyReference.split("/")), "utf8");
   const orchestration = await readFile(
     join(ROOT, ".agents", "policies", "orquestacion.md"),
+    "utf8",
+  );
+  const sddTdd = await readFile(join(ROOT, ".agents", "policies", "sdd-tdd.md"), "utf8");
+  const tddSkill = await readFile(
+    join(ROOT, ".agents", "skills", "agentic-tdd", "SKILL.md"),
     "utf8",
   );
   const roleContents = await Promise.all(
@@ -628,6 +634,38 @@ test("distribuye la Regla de Oro y conecta sus consumidores obligatorios", async
         evaluador: true,
       },
     },
+  );
+
+  assert.match(goldenRule, /refactor local habilitante[\s\S]*refactor oportunista/i);
+  assert.match(
+    goldenRule,
+    /tres repeticiones[\s\S]{0,160}revisi[oó]n[\s\S]{0,160}no una extracci[oó]n autom[aá]tica/i,
+  );
+  assert.match(
+    goldenRule,
+    /invariante compartida estable[\s\S]*reduce (?:la )?interface o el conocimiento[\s\S]*(?:leverage|localidad)/i,
+  );
+  assert.match(goldenRule, /un solo (?:caller|adapter)[\s\S]*no justifica/i);
+  assert.match(goldenRule, /dos adapters[\s\S]*seam real/i);
+  assert.match(
+    sddTdd,
+    /refactor local habilitante[\s\S]*mismo ciclo[\s\S]*validaci[oó]n focalizada/i,
+  );
+  assert.match(
+    tddSkill,
+    /refactor local habilitante[\s\S]*rutas autorizadas[\s\S]*volver a ejecutar la validaci[oó]n focalizada/i,
+  );
+  assert.match(
+    roleContents[1],
+    /refactor local habilitante[\s\S]*reportar[\s\S]*validaci[oó]n focalizada posterior/i,
+  );
+  assert.match(
+    roleContents[3],
+    /duplicaci[oó]n incidental[\s\S]*un solo (?:caller|adapter)[\s\S]*abstracci[oó]n gratuita/i,
+  );
+  assert.doesNotMatch(
+    [goldenRule, sddTdd, tddSkill, ...roleContents].join("\n"),
+    /no borrar ni refactorizar c[oó]digo\s+existente|a la tercera repetici[oó]n del mismo bloque, extraer/i,
   );
 });
 

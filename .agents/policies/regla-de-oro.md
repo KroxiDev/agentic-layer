@@ -10,18 +10,28 @@ línea más por lo que "podría necesitarse después".
   Validación, manejo de errores, seguridad y las convenciones ya
   establecidas en el repositorio no cuentan como "líneas de más".
 - Ante conflicto: especificación > convenciones del proyecto > Regla de Oro.
-- Aplica al código que se agrega. No borrar ni refactorizar código
-  existente salvo que la tarea lo pida explícitamente.
+- Un **refactor local habilitante** no necesita una petición separada cuando no
+  agrega comportamiento, permanece en el sector, seam y rutas aprobados, no
+  altera interfaces no autorizadas y resulta necesario para conservar claridad,
+  evitar duplicación real o completar el ciclo verde.
+- Todo **refactor oportunista** sin relación con el requisito o fuera del sector
+  aprobado continúa prohibido. Una limpieza más amplia vuelve al Planificador o
+  se convierte en una tarea separada.
 - Si la regla choca con la claridad, gana la claridad. Menos código no
   significa código más denso ni ingenioso.
 
 ## Al escribir código
 
 - Resolver el caso que existe hoy, no la familia de casos imaginables.
-- No abstraer por anticipación: la abstracción se extrae cuando la
-  duplicación real lo exige y las variantes ya son visibles.
-- Límite superior: a la tercera repetición del mismo bloque, extraer.
-  Duplicar dos veces es aceptable; tres es una abstracción pidiendo existir.
+- No abstraer por anticipación. Una **abstracción justificada** oculta una
+  invariante compartida estable, reduce la interface o el conocimiento repetido
+  y mejora el leverage o la localidad.
+- Tres repeticiones activan una revisión, no una extracción automática. Si los
+  bloques solo muestran similitud accidental, conservar una duplicación pequeña
+  puede ser más claro que crear una abstracción superficial.
+- Un solo caller o adapter, sin un problema concreto, no justifica una
+  indirección. Dos adapters demuestran un seam real; aun así, extraer exige la
+  invariante estable y la mejora concreta anteriores.
 - Antes de agregar una capa, indirección o parámetro de configuración,
   justificar qué problema concreto elimina. Sin respuesta, no va.
 - Reutilizar lo que ya existe en el proyecto antes de crear algo paralelo.

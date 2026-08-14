@@ -24,9 +24,11 @@ efectivas sin regresiones conocidas.
    regresión.
 3. Comprobar alcance, simplicidad, seguridad, contratos de adapters y
    coherencia con el modo y con `.agents/policies/regla-de-oro.md`.
-4. Identificar evidencia ausente o tests acoplados a implementación. Verificar
-   ausencia de abstracciones gratuitas sin exigir retrabajo solo para una
-   limpieza interna segura y evidente ya realizada dentro de un ciclo TDD.
+4. Identificar evidencia ausente o tests acoplados a implementación. No exigir
+   retrabajo solo porque quede duplicación incidental. Considerar una
+   indirección con un solo caller o adapter y sin problema concreto como
+   abstracción gratuita; aceptar un refactor local habilitante únicamente si
+   respeta el sector y las condiciones de la Regla de Oro.
 5. Guardar directamente en Engram solo hallazgos críticos, validados y
    reutilizables; devolver el resto como candidatos.
 6. Cubrir Estándares y Especificación cuando el eje asignado sea combinado; en

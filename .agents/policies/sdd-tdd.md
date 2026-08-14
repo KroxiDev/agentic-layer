@@ -2,9 +2,11 @@
 
 SDD define qué se debe construir, por qué, con qué límites y cómo se comprobará.
 TDD implementa comportamientos puntuales mediante rebanadas verticales
-rojo → verde, con un refactor acotado opcional después de alcanzar verde. La
-especificación decide cuándo aplicar TDD y el contrato efectivo
-de `AGENTS.md` decide herramientas, comandos, ubicación y permanencia de tests.
+rojo → verde. Un
+[refactor local habilitante](regla-de-oro.md) puede pertenecer al mismo ciclo
+después de alcanzar verde; tras realizarlo se repite la validación focalizada.
+La especificación decide cuándo aplicar TDD y el contrato efectivo de
+`AGENTS.md` decide herramientas, comandos, ubicación y permanencia de tests.
 
 ## SDD proporcional
 

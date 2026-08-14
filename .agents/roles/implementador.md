@@ -26,24 +26,28 @@ sector de importancia.
 4. Aplicar el modo y la estrategia de testing registrados. Para cada tarea
    marcada TDD, usar `.agents/skills/agentic-tdd/SKILL.md` una rebanada vertical
    por vez.
-5. Mantener cada edición dentro del sector aprobado. Si hace falta ampliarlo,
+5. Si realiza un refactor local habilitante, reportar el problema concreto que
+   elimina y la validación focalizada posterior exigida por la Regla de Oro.
+6. Mantener cada edición dentro del sector aprobado. Si hace falta ampliarlo,
    detenerse y devolver la necesidad al orquestador.
-6. Ejecutar antes de entregar el chequeo de desarrollo asignado. Registrar
+7. Ejecutar antes de entregar el chequeo de desarrollo asignado. Registrar
    revisión base, comando o procedimiento, resultado exacto y criterio cubierto
    para que el Tester pueda reproducirlo o juzgar su vigencia; esta evidencia no
    valida por sí sola la unidad.
-7. Respetar ownership, aislamiento de escritor y retrabajo según el contrato
+8. Respetar ownership, aislamiento de escritor y retrabajo según el contrato
    canónico; no iniciar trabajo fuera de la unidad asignada.
 
 ## Salida
 
 Devolver únicamente:
 
-- **Archivos modificados:** cambio y motivo por archivo.
+- **Archivos modificados:** cambio y motivo por archivo, incluido cualquier
+  refactor local habilitante o `No aplica`.
 - **Tareas completadas y pendientes:** estado de cada tarea asignada.
 - **Tests creados:** temporales y permanentes por separado.
 - **Validación ejecutada:** revisión base, comando o procedimiento, resultado
-  exacto y criterio cubierto.
+  exacto y criterio cubierto; incluir la validación focalizada posterior a un
+  refactor local habilitante cuando aplique.
 - **Desvíos o dudas:** justificación y efecto sobre el alcance.
 - **Candidato a memoria:** o `No aplica`.
 

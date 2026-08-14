@@ -112,16 +112,18 @@ escenario "el total suma las líneas":
    no por setup o infraestructura.
 3. Implementar únicamente lo necesario para ponerlo en verde.
 4. Ejecutar de nuevo y registrar la evidencia.
-5. Si mejora de forma evidente la solución, realizar un refactor acotado sin
-   introducir comportamiento, ampliar alcance ni alterar interfaces no
-   aprobadas.
+5. Si mejora de forma evidente la solución, realizar un refactor acotado que
+   sea un **refactor local habilitante** conforme a la
+   [Regla de Oro](../../policies/regla-de-oro.md), sin introducir comportamiento,
+   ampliar alcance, alterar interfaces no aprobadas ni salir del sector, seam y
+   rutas autorizadas.
 6. Después del refactor, volver a ejecutar la validación focalizada y registrar
    la evidencia.
 7. Repetir con la siguiente rebanada a partir de lo aprendido.
 
-El refactor posterior a verde pertenece al mismo ciclo y no necesita esperar un
-rechazo del Evaluador. Debe conservar el comportamiento ya demostrado y no
-anticipar funcionalidad ni abstracciones.
+El refactor local habilitante posterior a verde pertenece al mismo ciclo y no
+necesita esperar un rechazo del Evaluador. Debe conservar el comportamiento ya
+demostrado y no anticipar funcionalidad ni abstracciones.
 
 ## Cierre
 
