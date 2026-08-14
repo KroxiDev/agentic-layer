@@ -13,8 +13,8 @@ recuperable. Una elección interactiva explícita durante `update` también pued
 mover una entrada desconocida fuera del contrato, a la sección efectiva
 `## Reglas adicionales del proyecto`. `bin/agentic.mjs` es el ejecutable distribuible y solo
 despacha `init` y `update` hacia esa implementación. Su comportamiento público
-se verifica en `tests/agentic-init.test.mjs` con `node:test`, directorios
-temporales y `CODEX_HOME` aislado.
+se verifica en `tests/*.test.mjs` con `node:test`, archivos cohesionados por
+interfaz, directorios raíz temporales exclusivos y `CODEX_HOME` aislado.
 
 `init` no interroga por hechos del contrato. Escribe lo que infiere —incluidos
 los valores recomendados del perfil de ecosistema detectado— y deja
@@ -70,8 +70,9 @@ antes de la mutación final.
   inventario canónico se elimina como residuo. `sessions/` y esta raíz no.
 - `../bin/agentic.mjs`: ejecutable `agentic` con `init` y `update`.
 - `../scripts/agentic-init.mjs`: inicializador y actualizador sin dependencias externas.
-- `../tests/agentic-init.test.mjs`: pruebas de adopción, seguridad,
-  idempotencia y contenido del paquete.
+- `../tests/*.test.mjs`: pruebas por interfaz de adopción, `update`, Codex,
+  session-controller y distribución/contratos; `agentic-test-helpers.mjs`
+  concentra fixtures sin estado global mutable.
 
 ## Mapa de propietarios
 

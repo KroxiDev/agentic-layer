@@ -79,11 +79,11 @@ validaciones compatibles y consultar cualquier conflicto real.
 <!-- agentic-contract-field:v1 focusedValidation -->
 - Focalizada: ejecutar `node --check scripts/agentic-init.mjs`,
   `node --check bin/agentic.mjs` y el caso relacionado de
-  `node --test --test-name-pattern="<patrón concreto del caso relacionado>"
-  tests/agentic-init.test.mjs`; sustituir el placeholder por el nombre o patrón
-  exacto antes de ejecutar el comando.
+  `node --test --test-name-pattern="<patrón concreto del caso relacionado>"`;
+  sustituir el placeholder por el nombre o patrón exacto antes de ejecutar el
+  comando.
 <!-- agentic-contract-field:v1 completeValidation -->
-- Completa: ejecutar `node --test tests/agentic-init.test.mjs`,
+- Completa: ejecutar `node --test`,
   `node scripts/agentic-init.mjs --dry-run --yes` y `npm pack --dry-run`; la
   suite incluye la validación estructural, el inventario exacto del paquete y
   simulaciones completas en directorios temporales. Toda verificación del
@@ -95,11 +95,12 @@ validaciones compatibles y consultar cualquier conflicto real.
 <!-- agentic-contract-field:v1 testFramework -->
 - Framework: `node:test`, sin dependencias externas.
 <!-- agentic-contract-field:v1 testLocation -->
-- Ubicación: `tests/agentic-init.test.mjs`.
+- Ubicación: `tests/*.test.mjs`, por interfaz pública, con helpers compartidos
+  en `tests/agentic-test-helpers.mjs`.
 <!-- agentic-contract-field:v1 testLifecycle -->
 - Ciclo de vida: conservar casos permanentes para el comportamiento público del
-  inicializador y usar únicamente directorios temporales autolimpiables para
-  fixtures y simulaciones.
+  inicializador, `update`, Codex, el controlador y la distribución; cada archivo
+  usa un directorio raíz temporal exclusivo y autolimpiable para fixtures y simulaciones.
 
 ## Git
 

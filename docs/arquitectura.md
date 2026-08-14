@@ -60,7 +60,12 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 ├── scripts/
 │   └── agentic-init.mjs         # única implementación de init/update
 ├── tests/
-│   └── agentic-init.test.mjs    # especificación ejecutable de la CLI
+│   ├── agentic-init.test.mjs    # inicialización y adopción
+│   ├── agentic-update.test.mjs  # update y rollback
+│   ├── codex-config.test.mjs    # configuración Codex
+│   ├── session-controller.test.mjs
+│   ├── distribution-contracts.test.mjs
+│   └── agentic-test-helpers.mjs # fixtures aislados compartidos
 ├── docs/                        # documentación interna (no se distribuye)
 │   ├── arquitectura.md
 │   └── adr/
@@ -121,7 +126,8 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 | `CLAUDE.md` | `@AGENTS.md` y nada más | Delgado por diseño |
 | `bin/agentic.mjs` | Despacho de `init`, `update` y ayuda | Delgado: no reimplementa nada |
 | `scripts/agentic-init.mjs` | Detección, plan, copia/actualización recuperable, contrato, configuración opcional de Codex y comprobaciones | Profundo: toda la adopción y actualización |
-| `tests/agentic-init.test.mjs` | Comportamiento público de la CLI en directorios temporales | Especificación ejecutable |
+| `tests/*.test.mjs` | Comportamiento público por interfaz, en procesos paralelos con directorios raíz temporales exclusivos | Especificación ejecutable |
+| `tests/agentic-test-helpers.mjs` | Fixtures de filesystem, CLI y session-controller sin estado global mutable | Helper profundo de tests |
 
 Este mapa expresa ownership, no una obligación de repetir reglas. El inventario
 operativo de propietarios y la responsabilidad exacta de cada consumidor se

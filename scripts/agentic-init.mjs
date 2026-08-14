@@ -92,7 +92,15 @@ const DISTRIBUTION_SUPPORT_FILES = [
 ];
 // npm renombra a `.npmignore` cualquier `.gitignore` empaquetado, así que la
 // higiene de este repositorio no puede formar parte de la distribución.
-const DEVELOPMENT_FILES = [".gitignore", "tests/agentic-init.test.mjs"];
+const DEVELOPMENT_FILES = [
+  ".gitignore",
+  "tests/agentic-init.test.mjs",
+  "tests/agentic-test-helpers.mjs",
+  "tests/agentic-update.test.mjs",
+  "tests/codex-config.test.mjs",
+  "tests/distribution-contracts.test.mjs",
+  "tests/session-controller.test.mjs",
+];
 const PACKAGE_FILES = [
   ...TEMPLATE_FILES.map((relativePath) => TEMPLATE_ASSET_SOURCES.get(relativePath) ?? relativePath),
   ...DISTRIBUTION_SUPPORT_FILES,

@@ -298,13 +298,14 @@ en el paquete.
 ~~~text
 node --check scripts/agentic-init.mjs
 node --check bin/agentic.mjs
-node --test tests/agentic-init.test.mjs
+node --test
 node scripts/agentic-init.mjs --dry-run --yes
 npm pack --dry-run
 ~~~
 
-La suite crea y elimina sus propios directorios temporales, y nunca toca el
-registro de npm.
+`node:test` descubre los archivos por interfaz y los ejecuta en paralelo. Cada
+archivo usa un directorio raíz temporal exclusivo y autolimpiable; la suite
+nunca toca el registro de npm.
 
 ## Licencia
 
