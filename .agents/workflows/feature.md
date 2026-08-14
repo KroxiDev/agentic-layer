@@ -10,8 +10,8 @@ Usar para funcionalidades nuevas o cambios de comportamiento observables.
 4. **Testear — Tester:** <!-- agentic-phase:v1 {"id":"feature-test","role":"tester"} --> verificar criterios y registrar evidencia exacta.
 5. **Evaluar — Evaluador:** <!-- agentic-phase:v1 {"id":"feature-evaluate","role":"evaluador"} --> aprobar o devolver cambios concretos; máximo dos
    ciclos hacia Implementador.
-6. **Documentar — Documentador:** <!-- agentic-phase:v1 {"id":"feature-document","role":"documentador"} --> actualizar solo lo que el cambio vuelva
-   incorrecto y consolidar memoria durable.
+6. **Documentar — Documentador (condicional):** <!-- agentic-phase:v1 {"id":"feature-document","role":"documentador"} --> abrir únicamente cuando el gate de la
+   política de orquestación detecte documentación o memoria durable pendiente.
 
 En `light` se conserva la secuencia completa, con implementación y testing
 reducidos según la política de orquestación.
@@ -30,3 +30,6 @@ dual.
 
 Un Tester rojo o fallido reabre retrabajo sin validar. Cada nuevo fan-in
 invalida la generación anterior y exige reevaluar sus ejes.
+
+La validación por unidad y la fase Documentador aplican los gates canónicos de
+la política de orquestación; los roles no reinterpretan sus excepciones.

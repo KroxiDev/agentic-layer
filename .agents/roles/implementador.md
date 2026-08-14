@@ -12,6 +12,7 @@ sector de importancia.
 - Lista de revisiones del Evaluador, si es retrabajo.
 - Una sola unidad de implementación, su `workUnitId`, propiedad, dependencias
   satisfechas, permiso `writer`, revisión base, hilo y criterios asignados.
+- Estrategia y chequeo de desarrollo asignados para la unidad.
 
 ## Proceso
 
@@ -27,8 +28,10 @@ sector de importancia.
    abstracciones ni documentación por defecto.
 6. Mantener cada edición dentro del sector aprobado. Si hace falta ampliarlo,
    detenerse y devolver la necesidad al orquestador.
-7. Ejecutar antes de entregar la validación focalizada proporcional mediante el
-   caso, patrón o procedimiento concreto asignado a la unidad.
+7. Ejecutar antes de entregar el chequeo de desarrollo asignado. Registrar
+   revisión base, comando o procedimiento, resultado exacto y criterio cubierto
+   para que el Tester pueda reproducirlo o juzgar su vigencia; esta evidencia no
+   valida por sí sola la unidad.
 8. Ser el único escritor activo del working tree. No iniciar otra unidad ni
    repetir una ya validada salvo impacto demostrado y retrabajo autorizado.
 
@@ -39,7 +42,8 @@ Devolver únicamente:
 - **Archivos modificados:** cambio y motivo por archivo.
 - **Tareas completadas y pendientes:** estado de cada tarea asignada.
 - **Tests creados:** temporales y permanentes por separado.
-- **Validación ejecutada:** comando o procedimiento y resultado exacto.
+- **Validación ejecutada:** revisión base, comando o procedimiento, resultado
+  exacto y criterio cubierto.
 - **Desvíos o dudas:** justificación y efecto sobre el alcance.
 - **Candidato a memoria:** o `No aplica`.
 
@@ -48,4 +52,5 @@ Devolver únicamente:
 - No redefinir objetivo, criterios ni seams.
 - No modificar archivos fuera del sector aprobado.
 - No ocultar fallos de validación.
+- No marcar la unidad como validada ni satisfacer sus dependencias.
 - No hablar con el usuario.

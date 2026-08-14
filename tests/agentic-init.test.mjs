@@ -5917,6 +5917,78 @@ test("la activación canónica decide por riesgo y mantiene consumidores delgado
   assert.match(readme, /cantidad de archivos[\s\S]*no determina[\s\S]*riesgo/i);
 });
 
+test("la política reutiliza evidencia determinista solo mientras sigue vigente", async () => {
+  const orchestration = await readFile(
+    join(ROOT, ".agents", "policies", "orquestacion.md"),
+    "utf8",
+  );
+
+  assert.match(orchestration, /## Estrategias de validación por unidad/);
+  assert.match(orchestration, /`independent-rerun`[\s\S]*opción\s+segura por defecto/i);
+  assert.match(orchestration, /`distinct-acceptance-check`[\s\S]*señal observable\s+distinta/i);
+  assert.match(orchestration, /`verified-evidence-reuse`[\s\S]*autoriz\w*[\s\S]*antes de implementar/i);
+  assert.match(orchestration, /señal (?:es )?rápida, determinista y local/i);
+  assert.match(orchestration, /misma revisión base[\s\S]*ningún cambio posterior[\s\S]*rutas afectadas/i);
+  assert.match(
+    orchestration,
+    /seguridad[\s\S]*integridad[\s\S]*migración[\s\S]*compatibilidad pública[\s\S]*concurrencia[\s\S]*no (?:se )?reutiliza/i,
+  );
+  assert.match(
+    orchestration,
+    /red[\s\S]*tiempo real[\s\S]*aleatoriedad[\s\S]*inspección visual[\s\S]*entorno compartido/i,
+  );
+  assert.match(
+    orchestration,
+    /cambio posterior relevante[\s\S]*reintento[\s\S]*dependencia[\s\S]*generación[\s\S]*obsoleta/i,
+  );
+});
+
+test("los contratos separan la evidencia del Implementador del gate del Tester", async () => {
+  const [orchestration, planner, implementer, tester] = await Promise.all([
+    readFile(join(ROOT, ".agents", "policies", "orquestacion.md"), "utf8"),
+    readFile(join(ROOT, ".agents", "roles", "planificador.md"), "utf8"),
+    readFile(join(ROOT, ".agents", "roles", "implementador.md"), "utf8"),
+    readFile(join(ROOT, ".agents", "roles", "tester.md"), "utf8"),
+  ]);
+
+  assert.match(planner, /seleccionar[\s\S]*estrategia\s+de validación[\s\S]*cada\s+unidad/i);
+  assert.match(implementer, /revisión base[\s\S]*comando o procedimiento[\s\S]*resultado exacto[\s\S]*criterio cubierto/i);
+  assert.match(tester, /revisar el diff[\s\S]*estrategia asignada/i);
+  assert.match(
+    tester,
+    /\*\*Evidencia:\*\*[\s\S]*estrategia usada[\s\S]*evidencia revisada[\s\S]*ejecuciones propias[\s\S]*Omisiones/i,
+  );
+  assert.match(orchestration, /solo el Tester[\s\S]*marca la unidad como validada/i);
+  assert.match(orchestration, /distinct-acceptance-check[\s\S]*responsabilidades distintas/i);
+  assert.match(implementer, /No marcar la unidad como validada/i);
+});
+
+test("el cierre abre Documentador únicamente cuando existe una entrada real", async () => {
+  const [orchestration, skill, documenter, ...workflows] = await Promise.all([
+    readFile(join(ROOT, ".agents", "policies", "orquestacion.md"), "utf8"),
+    readFile(join(ROOT, ".agents", "skills", "orquestar", "SKILL.md"), "utf8"),
+    readFile(join(ROOT, ".agents", "roles", "documentador.md"), "utf8"),
+    ...["feature", "bugfix", "refactor"].map((workflow) =>
+      readFile(join(ROOT, ".agents", "workflows", `${workflow}.md`), "utf8"),
+    ),
+  ]);
+
+  assert.match(orchestration, /## Gate condicional de Documentador/);
+  assert.match(
+    orchestration,
+    /documentación vigente[\s\S]*contrato[\s\S]*decisión durable[\s\S]*candidato validado[\s\S]*Engram/i,
+  );
+  assert.match(orchestration, /interfaz[\s\S]*sigue\s+exigiendo\s+Documentador/i);
+  assert.match(orchestration, /No aplica[\s\S]*motivo breve[\s\S]*no (?:abrir|crear)[^\n]*Documentador/i);
+  assert.match(skill, /gate\s+de Documentador[\s\S]*No aplica/i);
+  assert.match(documenter, /condición que abrió el gate/i);
+  assert.match(documenter, /no se abre[\s\S]*certificar `No aplica`/i);
+  for (const workflow of workflows) {
+    assert.match(workflow, /Documentar[^\n]*condicional/i);
+    assert.match(workflow, /política de orquestación/i);
+  }
+});
+
 test("session controller se distribuye con contratos portables y excluye sesiones activas", async () => {
   const controllerPath = ".agents/scripts/session-controller.mjs";
   const subdevTemplatePath = ".agents/templates/subdev-session.md";

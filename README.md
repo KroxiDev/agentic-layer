@@ -112,7 +112,8 @@ conocer.
 Ofrece seis roles con contratos de salida, cuatro workflows, orquestación en
 contextos aislados con modos `full` y `light`, unidades verticales con
 paralelismo controlado, DevSession como único traspaso de estado, SDD
-proporcional con TDD por comportamiento, diagnóstico falsable de bugs,
+proporcional con TDD por comportamiento, gates de validación y documentación
+condicionados por evidencia, diagnóstico falsable de bugs,
 historial durable en Engram, inteligencia de código en CodeGraph y adapters
 nativos delgados para Codex y Claude Code.
 
@@ -165,15 +166,27 @@ deterministas con el trabajo listo.
 Cada unidad atraviesa tres gates:
 
 1. el Implementador la deja `implemented`;
-2. un Tester le atribuye evidencia y la deja `validated`;
+2. un Tester juzga la evidencia, le atribuye validación y la deja `validated`;
 3. el bloque administrado global la deja `consolidated` y su índice enlaza la
    evidencia atribuible.
+
+El Planificador elige antes de implementar una estrategia por unidad. La opción
+segura es `independent-rerun`; `distinct-acceptance-check` separa el chequeo de
+desarrollo de una señal observable de aceptación; y `verified-evidence-reuse`
+permite que el Tester acepte una señal local, rápida y determinista sin repetir
+el mismo comando. La reutilización exige autorización previa, revisión base,
+comando o procedimiento, resultado y criterio registrados, diff revisado y
+ningún cambio posterior en las rutas afectadas. Nunca aplica a seguridad,
+integridad, migración, compatibilidad pública, concurrencia, red, tiempo real,
+aleatoriedad, visuales ni entornos compartidos. Un reintento, una dependencia
+reabierta o una generación nueva vuelve obsoleta la evidencia.
 
 Cada reporte contractual íntegro vive una sola vez, en la SubDevSession de su
 intento. La parte humana de la DevSession global guarda únicamente una referencia
 compacta y el bloque administrado conserva el estado que consulta `status` sin
 leer cuerpos. Antes de `cleanup`, el orquestador pasa al Evaluador y al
-Documentador solo las rutas de los sobres pertinentes para su fase.
+Documentador, cuando su gate se abre, solo las rutas de los sobres pertinentes
+para su fase.
 
 Una dependencia sólo se satisface en el segundo gate. Una unidad ya validada no
 se repite sin impacto demostrado. Cada ruta editable tiene propietario
@@ -211,17 +224,17 @@ usuario ni entre sí: el orquestador es el único interlocutor.
 | Rol | Responsabilidad | Puede escribir |
 | --- | --- | --- |
 | **Explorador** | Delimita el sector de importancia y las reglas efectivas | Nada |
-| **Planificador** | Convierte el objetivo en especificación verificable | Nada |
-| **Implementador** | Aplica el cambio mínimo dentro del sector aprobado | Código y tests |
-| **Tester** | Verifica criterios con evidencia exacta | Sólo tests autorizados |
+| **Planificador** | Convierte el objetivo en especificación verificable y elige la estrategia por unidad | Nada |
+| **Implementador** | Aplica el cambio mínimo y entrega evidencia reproducible | Código y tests |
+| **Tester** | Juzga los criterios y es el único que valida la unidad | Sólo tests autorizados |
 | **Evaluador** | Aprueba o devuelve cambios concretos | Nada |
-| **Documentador** | Deja la documentación consistente y consolida memoria | Documentación |
+| **Documentador** | Si su gate se abre, deja la documentación consistente o consolida memoria durable | Documentación |
 
 | Workflow | Secuencia |
 | --- | --- |
-| `feature` | explorar → planificar → implementar → testear → evaluar → documentar |
-| `bugfix` | reproducir → diagnosticar → planificar → corregir → verificar → evaluar → documentar |
-| `refactor` | explorar → definir invariantes → implementar → testear → evaluar → documentar |
+| `feature` | explorar → planificar → implementar → testear → evaluar → documentar si aplica |
+| `bugfix` | reproducir → diagnosticar → planificar → corregir → verificar → evaluar → documentar si aplica |
+| `refactor` | explorar → definir invariantes → implementar → testear → evaluar → documentar si aplica |
 | `architecture` | explorar → comparar → proponer decisión → **aprobación del usuario** → registrar; si debe implementarse, transferir una vez a `feature` o `refactor` |
 
 Una tarea exclusivamente arquitectónica termina al registrar la decisión
@@ -231,6 +244,14 @@ no repite ese cierre.
 
 El Evaluador puede devolver trabajo al Implementador dos veces como máximo; si el
 rechazo persiste, la tarea se detiene con un diagnóstico.
+
+Documentador también tiene un gate: se abre solo si el cambio deja documentación
+incorrecta, el contrato exige un artefacto, hay una decisión durable o queda un
+candidato validado para Engram. Si nada aplica, la DevSession registra `No
+aplica` con el motivo y no crea ese contexto. Por ejemplo, un ajuste interno sin
+documentación ni memoria pendiente puede cerrar después de la evaluación; un
+cambio de interfaz pública sigue abriendo Documentador. «Condicional» se
+basa en evidencia y riesgo, no en comodidad.
 
 **Con Codex:** abrir el proyecto desde su raíz y pedir `orquestar <tarea>`, o
 describir la tarea para que la política canónica decida entre ejecución directa

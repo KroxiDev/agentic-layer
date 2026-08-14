@@ -265,8 +265,14 @@ flowchart TD
     perm -->|writer| lock["reserva global única<br/>del working tree"]
     lane --> work["ejecutar rol"]
     lock --> work
-    work --> impl["Implementador:<br/>implemented"]
-    impl --> test["Tester y evidencia<br/>atribuible"]
+    work --> impl["Implementador:<br/>implemented + evidencia"]
+    impl --> strategy{"estrategia de validación<br/>registrada"}
+    strategy -->|independent-rerun| rerun["repetir señal"]
+    strategy -->|distinct-acceptance-check| distinct["señal de aceptación<br/>distinta"]
+    strategy -->|verified-evidence-reuse| reuse["revisar vigencia,<br/>diff y cobertura"]
+    rerun --> test["Tester juzga y produce<br/>evidencia atribuible"]
+    distinct --> test
+    reuse --> test
     test --> green{"validada?"}
     green -->|no| rework["fallo + causa + impacto<br/>nuevo intento"]
     rework --> invalidate["invalidar ejes<br/>y subir generación"]
@@ -279,7 +285,11 @@ flowchart TD
     fulltest --> axes["combinada por defecto<br/>dual sólo por riesgo registrado"]
     axes --> approved{"¿todos los ejes<br/>aprobados?"}
     approved -->|no| rework
-    approved -->|sí| close["documentar · consolidar Engram<br/>cleanup + close"]
+    approved -->|sí| docgate{"¿documentación o<br/>memoria durable?"}
+    docgate -->|sí| document["Documentador"]
+    docgate -->|no| nodoc["registrar No aplica"]
+    document --> close["consolidar Engram<br/>cleanup + close"]
+    nodoc --> close
 ```
 
 El ciclo Evaluador → Implementador admite **dos** retrabajos como máximo; si el
@@ -341,6 +351,22 @@ La evidencia de cada unidad usa un caso, patrón o procedimiento focalizado
 concreto. La suite completa no se repite por unidad: en `full` se ejecuta una
 sola vez después del fan-in y antes de abrir la evaluación final.
 
+El Planificador registra en la especificación una de tres estrategias por
+unidad. `independent-rerun` es el valor seguro; `distinct-acceptance-check`
+separa el chequeo de desarrollo de una señal observable de aceptación; y
+`verified-evidence-reuse` permite al Tester juzgar evidencia previa sin repetir
+el mismo comando. Esta última sólo es válida para señales locales, rápidas y
+deterministas, autorizadas antes de implementar, con revisión, procedimiento,
+resultado y criterio trazables. El Tester revisa el diff y conserva la autoridad
+exclusiva del gate.
+
+No se persiste otra máquina de estados para esa decisión: la especificación y el
+reporte íntegro ya son sus seams. Un cambio posterior en rutas afectadas, un
+reintento, una dependencia reabierta o una generación nueva invalida la
+evidencia. Los riesgos de seguridad, integridad, migración, compatibilidad
+pública o concurrencia y las señales con red, tiempo, aleatoriedad, inspección
+visual o entorno compartido siempre requieren evidencia nueva.
+
 Las oleadas se derivan del DAG y contienen únicamente unidades listas. La
 propiedad de rutas writer es exclusiva y portable: se normalizan rutas
 relativas, se rechazan escapes y se detectan colisiones exactas o de
@@ -356,9 +382,13 @@ abrir los sobres ni cargar sus cuerpos.
 
 Antes de abrir Evaluador o Documentador, el orquestador selecciona en ese índice
 las rutas pertinentes por unidad, generación y eje y las pasa explícitamente al
-rol. `cleanup` solo ocurre después de ambos consumos. Las DevSessions heredadas
-que ya tengan consolidaciones verbosas se leen y preservan sin reescribir su
-parte humana.
+rol. Evaluador sigue siendo obligatorio. Documentador se abre después de la
+aprobación sólo si hay documentación afectada o una interfaz pública, un
+artefacto contractual, una decisión durable o memoria validada pendiente; en
+otro caso se registra `No aplica` sin crear el contexto. `cleanup` espera todos
+los consumos que realmente
+se abrieron. Las DevSessions heredadas que ya tengan consolidaciones verbosas se
+leen y preservan sin reescribir su parte humana.
 
 ### Writer lock, recuperación e idempotencia
 

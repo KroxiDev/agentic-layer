@@ -242,6 +242,67 @@ incrementa la generación; cada eje puede reintentarse de forma monotónica y
 trazable. Un reporte rojo o `fail` del Tester deja la unidad no validada y
 habilita retrabajo del Implementador.
 
+## Estrategias de validación por unidad
+
+El Planificador selecciona y registra en la especificación una estrategia para
+cada unidad antes de implementar. Las estrategias admitidas son:
+
+1. `independent-rerun`: el Tester vuelve a ejecutar la señal. Es la opción
+   segura por defecto.
+2. `distinct-acceptance-check`: el Implementador usa su chequeo de desarrollo y
+   el Tester ejecuta una señal observable distinta de aceptación; así ejercitan
+   responsabilidades distintas.
+3. `verified-evidence-reuse`: el Tester puede aceptar la evidencia del
+   Implementador sin repetir el mismo comando únicamente cuando la
+   especificación autorizó esa reutilización antes de implementar y se cumplen
+   todas estas condiciones:
+   - la señal es rápida, determinista y local;
+   - el reporte registra revisión base, comando o procedimiento, resultado
+     exacto y criterio cubierto;
+   - se conserva la misma revisión base y no hubo ningún cambio posterior en las
+     rutas afectadas; el Tester revisa el diff para confirmarlo;
+   - el riesgo es bajo o medio;
+   - no intervienen red, tiempo real, aleatoriedad, inspección visual ni un
+     entorno compartido.
+
+La evidencia de seguridad, integridad, migración, compatibilidad pública o
+concurrencia no se reutiliza. En cualquiera de esos casos, ante una condición
+ausente o si la estrategia no quedó autorizada, aplicar `independent-rerun`.
+
+Todo cambio posterior relevante invalida la reutilización. Esto incluye una
+modificación en las rutas afectadas, un reintento de implementación o testing,
+una dependencia reabierta o una nueva generación de fan-in: la evidencia queda
+obsoleta y el Tester debe producir validación vigente. La evidencia del
+Implementador nunca satisface automáticamente una dependencia; solo el Tester
+revisa el diff, juzga la cobertura y marca la unidad como validada mediante su
+reporte atribuible.
+
+Estas estrategias afectan únicamente la validación focalizada de una unidad.
+En `full`, la validación completa sigue ejecutándose una sola vez después del
+fan-in y antes de la evaluación final.
+
+## Gate condicional de Documentador
+
+En el cierre de `feature`, `bugfix` y `refactor`, después de la evaluación
+aprobada, abrir Documentador solo cuando exista al menos una entrada real:
+
+- el cambio vuelve incorrecta o incompleta documentación vigente; todo cambio
+  de interfaz pública exige revisar y reflejar su contrato;
+- el contrato efectivo exige actualizar un artefacto;
+- existe una decisión durable que debe registrarse;
+- existe un candidato validado que merece Engram y no fue consolidado por otro
+  responsable autorizado.
+
+Un cambio de interfaz pública o una decisión durable sigue exigiendo
+Documentador. Cuando ninguna condición aplica, registrar `No aplica` con un
+motivo breve en la DevSession y no abrir ni crear un contexto de Documentador.
+Este gate es condicional por evidencia y riesgo, no opcional por comodidad.
+No altera `architecture-propose` ni `architecture-record`, cuyas fases registran
+una propuesta o decisión durable según su workflow específico.
+
+El orden de cierre se conserva: fan-in, validación completa única en `full`,
+evaluación y Documentador condicional.
+
 ## Selección de workflow
 
 | Intención | Workflow |
@@ -320,6 +381,8 @@ subagentes y debe registrar:
 - objetivo, workflow, modo y fase actual;
 - presupuesto del modo, capacidad `read-only`, aislamiento de escritores y oleada;
 - unidades, dependencias, ownership, permiso por intento, hilos y revisión base;
+- estrategia de validación por unidad y, si se reutiliza evidencia, revisión,
+  comando o procedimiento, resultado, criterio cubierto y vigencia;
 - estados implementada, validada y consolidada, con evidencia atribuible;
 - hilos abiertos/cerrados, fallos, retrabajo y resultado del fan-in;
 - validación focalizada por unidad y validación completa única posterior al
@@ -332,6 +395,7 @@ subagentes y debe registrar:
 - tests creados, separados entre temporales y permanentes;
 - comandos y resultados de validación;
 - veredicto del evaluador;
+- decisión del gate de Documentador o `No aplica` con su motivo;
 - candidatos a memoria y próximos pasos.
 
 Antes de abrir cada Evaluador o el Documentador final, el orquestador debe
@@ -389,10 +453,11 @@ y presentar el diagnóstico al usuario.
    tests preexistentes.
 3. Repetir únicamente la validación afectada por la limpieza. Repetir la suite
    completa solo ante evidencia concreta de impacto transversal.
-4. Ejecutar la fase de Documentador, aunque concluya sin cambios, con la
-   selección explícita de sobres pertinente.
-5. Confirmar que Evaluador y Documentador ya consumieron sus sobres y ejecutar
-   `cleanup`.
+4. Evaluar el gate condicional de Documentador. Si existe una entrada real,
+   abrirlo con la selección explícita de sobres pertinente; en caso contrario,
+   registrar `No aplica` con su motivo sin crear ese contexto.
+5. Confirmar que Evaluador y, cuando se abrió, Documentador ya consumieron sus
+   sobres y ejecutar `cleanup`.
 6. Consolidar en Engram los candidatos durables.
 7. Ejecutar `close` para eliminar la DevSession.
 8. Informar cambios, evidencia, límites y próximos pasos al usuario.

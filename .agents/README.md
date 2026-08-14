@@ -113,11 +113,23 @@ El controlador concentra las invariantes mecánicas detrás de su CLI:
 intento. La parte humana global mantiene un índice compacto atribuible —ruta y
 hash incluidos— y el bloque administrado mantiene el estado de coordinación que
 consume `status`. El orquestador resuelve ese índice y entrega al Evaluador y al
-Documentador solo los sobres pertinentes antes de permitir `cleanup`.
+Documentador, cuando su gate se abre, solo los sobres pertinentes antes de
+permitir `cleanup`.
 
 La validación de cada unidad es focalizada y atribuible. En `full`, la suite
 completa se ejecuta una sola vez después del fan-in y antes de la evaluación
-final; no se repite por unidad.
+final; no se repite por unidad. El Planificador registra por unidad
+`independent-rerun`, `distinct-acceptance-check` o
+`verified-evidence-reuse`. La reutilización no agrega estado administrado: el
+Tester juzga la especificación, el reporte íntegro, la revisión base y el diff,
+y solo su reporte puede satisfacer dependencias. Cualquier cambio relevante,
+reintento, dependencia reabierta o generación nueva vuelve obsoleta la
+evidencia.
+
+Documentador se abre únicamente después de una evaluación aprobada y cuando hay
+documentación afectada o una interfaz pública, un artefacto contractual, una
+decisión durable o un candidato validado pendiente para Engram. Si no existe una
+entrada, el orquestador registra `No aplica` con el motivo sin crear ese contexto.
 
 La adquisición del writer lock publica por hard link un dueño exacto
 `{session, attempt, workingTreeId}`. Una transición inicial o un checkpoint
@@ -167,11 +179,16 @@ por defecto.
 16. Una dependencia se satisface sólo con validación atribuible del Tester; el
     fan-in ocurre después de consolidar todas las unidades y la suite completa
     de `full` se ejecuta una sola vez después de esa barrera.
-17. Reabrir una unidad incrementa la generación de evaluación e invalida todos
+17. La evidencia del Implementador nunca valida automáticamente. Su reutilización
+    exige autorización previa, señal determinista y local, misma revisión y diff
+    sin cambios; el Tester sigue siendo la autoridad del gate.
+18. Reabrir una unidad incrementa la generación de evaluación e invalida todos
     sus ejes anteriores.
-18. La evaluación combinada cubre Estándares y Especificación por defecto; la
+19. La evaluación combinada cubre Estándares y Especificación por defecto; la
     dual exige un riesgo admitido registrado antes del fan-in.
-19. El contrato administrado solo admite campos canónicos. Una entrada
+20. Documentador es condicional por evidencia: se abre sólo ante documentación o
+    memoria durable real; en otro caso se registra `No aplica` sin abrirlo.
+21. El contrato administrado solo admite campos canónicos. Una entrada
     desconocida puede salir del bloque únicamente por elección interactiva
     explícita y permanece efectiva bajo `## Reglas adicionales del proyecto`;
     cancelar o ejecutar sin interacción conserva el destino byte a byte.

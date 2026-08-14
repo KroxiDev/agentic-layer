@@ -20,8 +20,8 @@ Usar para bugs, fallos y regresiones. La disciplina canónica es
    regresión y las validaciones exigidas.
 6. **Evaluar — Evaluador:** <!-- agentic-phase:v1 {"id":"bugfix-evaluate","role":"evaluador"} --> aprobar o devolver cambios concretos; máximo dos
    ciclos hacia Implementador.
-7. **Documentar — Documentador:** <!-- agentic-phase:v1 {"id":"bugfix-document","role":"documentador"} --> registrar solo conocimiento durable y
-   documentación afectada.
+7. **Documentar — Documentador (condicional):** <!-- agentic-phase:v1 {"id":"bugfix-document","role":"documentador"} --> abrir únicamente cuando el gate de la
+   política de orquestación detecte documentación o memoria durable pendiente.
 
 En `light` se conserva la secuencia. La reducción de evidencia nunca permite
 hipotetizar sin un bucle rojo-capaz ni omitir una regresión necesaria para
@@ -37,3 +37,6 @@ registrado antes del fan-in una estrategia dual y un `evaluationRisk` admitido.
 
 Un Tester rojo o fallido reabre retrabajo sin validar. Cada nuevo fan-in
 invalida la generación anterior y exige reevaluar sus ejes.
+
+La validación por unidad y la fase Documentador aplican los gates canónicos de
+la política de orquestación; los roles no reinterpretan sus excepciones.
