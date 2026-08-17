@@ -11,6 +11,11 @@ roles reciben un `WorkEnvelope` sin capacidad de mutación y devuelven un
 `RoleReport`. `schemaVersion` identifica el formato persistido actual sin
 negociación ni rutas alternativas.
 
+`protocol.json` es también la fuente autoritativa de rutas instaladas, assets,
+markers, directorios gestionados y overrides del host. El consumidor compartido
+`kernel/protocol-manifest.mjs` valida esa declaración y la proyecta hacia
+conformidad, inicializador, inventario npm y kernel, sin listas paralelas.
+
 `scripts/agentic-init.mjs` es la única superficie automatizada y la única
 implementación de adopción y actualización. No forma parte del núcleo de
 orquestación: detecta hechos y versiones, planifica el inventario canónico,
@@ -62,9 +67,11 @@ antes de la mutación final.
 - `policies/`: orquestación, SDD/TDD y Regla de Oro para código y pruebas.
 - `kernel/`: estado estructurado, idempotencia, ownership, aceptación, lanes,
   presupuesto, stores, reloj, preflight y telemetría.
+- `kernel/protocol-manifest.mjs`: validación y proyección del inventario y de
+  los overrides declarados por `protocol.json`.
 - `schemas/`: contratos JSON de aceptación, reporte, evento y validación.
-- `conformance/`: gate ejecutable de schema, overrides e interface.
-- `protocol.json`: inventario indivisible de artefactos y overrides admitidos.
+- `conformance/`: gate ejecutable de inventario, schemas, overrides e interface.
+- `protocol.json`: inventario indivisible y schema de overrides admitidos.
 - `roles/`: responsabilidades, límites y contratos de salida de seis roles.
 - `workflows/`: orden de fases para feature, bugfix, refactor y architecture.
 - `skills/`: routing portable de orquestación y procedimientos especializados
@@ -76,7 +83,7 @@ antes de la mutación final.
 - `VERSION`: versión de la capa adoptada. La genera el inicializador en el
   destino, no viaja en el paquete y permite clasificar una instalación como
   sin versión, anterior, igual o posterior durante `update`. Los directorios
-  declarados por el actualizador se gestionan por completo: al reemplazar, todo
+  declarados por `protocol.json` se gestionan por completo: al reemplazar, todo
   archivo ajeno al inventario canónico se elimina como residuo. `sessions/` y
   esta raíz no.
 - `../bin/agentic.mjs`: ejecutable `agentic` con `init` y `update`.
@@ -99,12 +106,15 @@ referencia:
 | Routing operativo | [`skills/orquestar/SKILL.md`](skills/orquestar/SKILL.md) | Cargar política, workflow y kernel actuales sin duplicar reglas. |
 | Datos que persisten durante la tarea | [`templates/dev-session.md`](templates/dev-session.md) | Declarar campos sin explicar de nuevo sus reglas. |
 | Descubrimiento de plataforma | [`.codex/`](../.codex/) y [`.claude/`](../.claude/) | Aplicar solo restricciones técnicas y apuntar al núcleo. |
-| Inventario y estructura distribuible | [`agentic-init.mjs`](../scripts/agentic-init.mjs) | Validar archivos, enlaces, secciones y marcadores estables. |
+| Inventario instalado, assets y overrides del host | [`protocol.json`](protocol.json) | `protocol-manifest.mjs`, conformidad, inicializador, paquete y kernel consumen la misma declaración. |
 
 ## Interface y adapters
 
-El seam externo es `AGENTS.md`. El núcleo interpreta su contrato efectivo,
-incluidos los overrides locales, y mantiene el comportamiento común.
+El seam externo del proyecto es `AGENTS.md`: contiene hechos y restricciones
+del proyecto adoptante. Separadamente, `protocol.json` define los overrides del
+host. `contextBudgetBytes` se normaliza con su default y `telemetrySink` se
+resuelve contra un mapa explícito de sinks; `capabilityTtlMs` permanece como
+opción interna de seguridad, fuera de esa lista pública.
 
 - Codex descubre los roles en `.codex/agents/*.toml`.
 - Claude Code descubre los roles en `.claude/agents/*.md` y el wrapper público

@@ -130,6 +130,20 @@ test("los assets de la distribución llegan al destino como archivos canónicos"
   assert.equal(existsSync(join(repository, ".claude", "gitignore.asset")), false);
 });
 
+test("el inicializador deriva del protocolo el inventario instalado y empaquetado", async () => {
+  const protocol = JSON.parse(
+    await readFile(join(ROOT, ".agents", "protocol.json"), "utf8"),
+  );
+  const installed = protocol.artifacts.map((artifact) => artifact.path);
+  const packaged = [
+    ...protocol.artifacts.map((artifact) => artifact.source ?? artifact.path),
+    ...protocol.distributionSupportFiles,
+  ].sort();
+
+  assert.deepEqual(TEMPLATE_FILES, installed);
+  assert.deepEqual(PACKAGE_FILES, packaged);
+});
+
 test("el manifiesto empaqueta el inventario canónico y excluye artefactos locales", async () => {
   const manifest = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8"));
 

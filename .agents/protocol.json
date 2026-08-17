@@ -3,14 +3,270 @@
   "distributionVersion": "0.2.0",
   "kernelInterface": ["apply", "inspect"],
   "artifacts": [
-    "adapters",
-    "kernel",
-    "policies",
-    "roles",
-    "schemas",
-    "skill",
-    "templates",
-    "workflows"
+    { "path": ".agents/README.md", "kind": "documentation" },
+    {
+      "path": ".agents/conformance/protocol-conformance.mjs",
+      "kind": "conformance",
+      "contains": ["assertProtocolConformance"]
+    },
+    {
+      "path": ".agents/kernel/adapters.mjs",
+      "kind": "kernel",
+      "markers": ["agentic-adapters"]
+    },
+    {
+      "path": ".agents/kernel/orchestration-kernel.mjs",
+      "kind": "kernel",
+      "markers": ["agentic-kernel"]
+    },
+    {
+      "path": ".agents/kernel/protocol-manifest.mjs",
+      "kind": "kernel",
+      "markers": ["agentic-protocol-manifest"]
+    },
+    {
+      "path": ".agents/kernel/protocol.mjs",
+      "kind": "kernel",
+      "markers": ["agentic-protocol-core"]
+    },
+    {
+      "path": ".agents/policies/orquestacion.md",
+      "kind": "policy",
+      "markers": ["<!-- agentic-protocol -->", "<!-- agentic-bootstrap-repair -->"]
+    },
+    { "path": ".agents/policies/regla-de-oro.md", "kind": "policy" },
+    { "path": ".agents/policies/sdd-tdd.md", "kind": "policy" },
+    { "path": ".agents/protocol.json", "kind": "manifest" },
+    {
+      "path": ".agents/roles/documentador.md",
+      "kind": "role",
+      "markers": ["<!-- agentic-role-report -->"]
+    },
+    {
+      "path": ".agents/roles/evaluador.md",
+      "kind": "role",
+      "markers": ["<!-- agentic-role-report -->"]
+    },
+    {
+      "path": ".agents/roles/explorador.md",
+      "kind": "role",
+      "markers": ["<!-- agentic-role-report -->"]
+    },
+    {
+      "path": ".agents/roles/implementador.md",
+      "kind": "role",
+      "markers": ["<!-- agentic-role-report -->"]
+    },
+    {
+      "path": ".agents/roles/planificador.md",
+      "kind": "role",
+      "markers": ["<!-- agentic-role-report -->"]
+    },
+    {
+      "path": ".agents/roles/tester.md",
+      "kind": "role",
+      "markers": ["<!-- agentic-role-report -->"]
+    },
+    {
+      "path": ".agents/schemas/acceptance-contract.schema.json",
+      "kind": "schema",
+      "schemaTitle": "AcceptanceContract"
+    },
+    {
+      "path": ".agents/schemas/role-report.schema.json",
+      "kind": "schema",
+      "schemaTitle": "RoleReport"
+    },
+    {
+      "path": ".agents/schemas/session-event.schema.json",
+      "kind": "schema",
+      "schemaTitle": "SessionEvent"
+    },
+    {
+      "path": ".agents/schemas/validation-evidence.schema.json",
+      "kind": "schema",
+      "schemaTitle": "ValidationEvidence"
+    },
+    {
+      "path": ".agents/schemas/work-envelope.schema.json",
+      "kind": "schema",
+      "schemaTitle": "WorkEnvelope"
+    },
+    {
+      "path": ".agents/sessions/.gitignore",
+      "source": ".agents/sessions/gitignore.asset",
+      "kind": "asset"
+    },
+    { "path": ".agents/skills/agentic-diagnostico-bugs/SKILL.md", "kind": "skill" },
+    {
+      "path": ".agents/skills/agentic-diagnostico-bugs/references/hitl-loop.template.md",
+      "kind": "asset"
+    },
+    {
+      "path": ".agents/skills/agentic-diagnostico-bugs/references/hitl-loop.template.ps1",
+      "kind": "asset"
+    },
+    {
+      "path": ".agents/skills/agentic-diagnostico-bugs/references/hitl-loop.template.sh",
+      "kind": "asset"
+    },
+    { "path": ".agents/skills/agentic-grilling/SKILL.md", "kind": "skill" },
+    { "path": ".agents/skills/agentic-tdd/SKILL.md", "kind": "skill" },
+    {
+      "path": ".agents/skills/orquestar/SKILL.md",
+      "kind": "skill",
+      "markers": ["<!-- agentic-protocol -->"]
+    },
+    {
+      "path": ".agents/templates/dev-session.md",
+      "kind": "template",
+      "markers": ["<!-- agentic-template -->"]
+    },
+    {
+      "path": ".agents/templates/subdev-session.md",
+      "kind": "template",
+      "markers": ["<!-- agentic-template -->"]
+    },
+    {
+      "path": ".agents/workflows/architecture.md",
+      "kind": "workflow",
+      "markers": ["<!-- agentic-workflow -->"]
+    },
+    {
+      "path": ".agents/workflows/bugfix.md",
+      "kind": "workflow",
+      "markers": ["<!-- agentic-workflow -->", "<!-- agentic-light-sequence "]
+    },
+    {
+      "path": ".agents/workflows/feature.md",
+      "kind": "workflow",
+      "markers": ["<!-- agentic-workflow -->", "<!-- agentic-light-sequence "]
+    },
+    {
+      "path": ".agents/workflows/refactor.md",
+      "kind": "workflow",
+      "markers": ["<!-- agentic-workflow -->", "<!-- agentic-light-sequence "]
+    },
+    {
+      "path": ".codex/agents/documentador.toml",
+      "kind": "adapter",
+      "markers": ["agentic-protocol"],
+      "contains": ["RoleReport", "contextPaths"]
+    },
+    {
+      "path": ".codex/agents/evaluador.toml",
+      "kind": "adapter",
+      "markers": ["agentic-protocol"],
+      "contains": ["RoleReport", "contextPaths"]
+    },
+    {
+      "path": ".codex/agents/explorador.toml",
+      "kind": "adapter",
+      "markers": ["agentic-protocol"],
+      "contains": ["RoleReport", "contextPaths"]
+    },
+    {
+      "path": ".codex/agents/implementador.toml",
+      "kind": "adapter",
+      "markers": ["agentic-protocol"],
+      "contains": ["RoleReport", "contextPaths"]
+    },
+    {
+      "path": ".codex/agents/planificador.toml",
+      "kind": "adapter",
+      "markers": ["agentic-protocol"],
+      "contains": ["RoleReport", "contextPaths"]
+    },
+    {
+      "path": ".codex/agents/tester.toml",
+      "kind": "adapter",
+      "markers": ["agentic-protocol"],
+      "contains": ["RoleReport", "contextPaths"]
+    },
+    {
+      "path": ".claude/.gitignore",
+      "source": ".claude/gitignore.asset",
+      "kind": "asset"
+    },
+    {
+      "path": ".claude/agents/documentador.md",
+      "kind": "adapter",
+      "markers": ["agentic-protocol"],
+      "contains": ["RoleReport", "contextPaths"]
+    },
+    {
+      "path": ".claude/agents/evaluador.md",
+      "kind": "adapter",
+      "markers": ["agentic-protocol"],
+      "contains": ["RoleReport", "contextPaths"]
+    },
+    {
+      "path": ".claude/agents/explorador.md",
+      "kind": "adapter",
+      "markers": ["agentic-protocol"],
+      "contains": ["RoleReport", "contextPaths"]
+    },
+    {
+      "path": ".claude/agents/implementador.md",
+      "kind": "adapter",
+      "markers": ["agentic-protocol"],
+      "contains": ["RoleReport", "contextPaths"]
+    },
+    {
+      "path": ".claude/agents/planificador.md",
+      "kind": "adapter",
+      "markers": ["agentic-protocol"],
+      "contains": ["RoleReport", "contextPaths"]
+    },
+    {
+      "path": ".claude/agents/tester.md",
+      "kind": "adapter",
+      "markers": ["agentic-protocol"],
+      "contains": ["RoleReport", "contextPaths"]
+    },
+    {
+      "path": ".claude/skills/orquestar/SKILL.md",
+      "kind": "adapter",
+      "markers": ["<!-- agentic-protocol -->"],
+      "contains": [".agents/kernel/orchestration-kernel.mjs", "WorkEnvelope", "RoleReport"]
+    },
+    {
+      "path": "CLAUDE.md",
+      "kind": "entrypoint",
+      "markers": ["<!-- agentic-protocol -->"],
+      "contains": [".agents/kernel/orchestration-kernel.mjs"]
+    }
   ],
-  "allowedOverrides": ["contextBudgetBytes", "telemetrySink"]
+  "layerMarkers": [
+    ".agents/policies/orquestacion.md",
+    ".agents/skills/orquestar/SKILL.md",
+    ".claude/skills/orquestar/SKILL.md",
+    ".codex/agents/planificador.toml"
+  ],
+  "managedDirectories": [
+    ".agents/conformance",
+    ".agents/kernel",
+    ".agents/policies",
+    ".agents/roles",
+    ".agents/schemas",
+    ".agents/scripts",
+    ".agents/skills",
+    ".agents/templates",
+    ".agents/workflows",
+    ".claude/agents",
+    ".claude/skills",
+    ".codex/agents"
+  ],
+  "distributionSupportFiles": [
+    "AGENTS.md",
+    "LICENSE",
+    "README.md",
+    "bin/agentic.mjs",
+    "package.json",
+    "scripts/agentic-init.mjs"
+  ],
+  "configuration": {
+    "contextBudgetBytes": { "type": "integer", "minimum": 1, "default": 128000 },
+    "telemetrySink": { "type": "string", "minLength": 1 }
+  }
 }

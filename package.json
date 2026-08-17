@@ -46,6 +46,7 @@
     ".agents/conformance/protocol-conformance.mjs",
     ".agents/kernel/adapters.mjs",
     ".agents/kernel/orchestration-kernel.mjs",
+    ".agents/kernel/protocol-manifest.mjs",
     ".agents/kernel/protocol.mjs",
     ".agents/policies/orquestacion.md",
     ".agents/policies/regla-de-oro.md",

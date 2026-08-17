@@ -49,9 +49,13 @@ solo agente, conservando seguridad y todas las validaciones.
 
 El contrato base está en `.agents/kernel/protocol.mjs`. `schemaVersion` vale `3`
 y describe el formato actual; no existe negociación entre formatos. Los
-schemas JSON tienen nombres estables y `.agents/protocol.json` declara el
-inventario y los únicos overrides admitidos: `contextBudgetBytes` y
-`telemetrySink`.
+schemas JSON tienen nombres estables y `.agents/protocol.json` declara las rutas
+del inventario, markers, assets, directorios gestionados y el schema de los
+únicos overrides admitidos: `contextBudgetBytes` y `telemetrySink`.
+`protocol-manifest.mjs` valida y proyecta esa fuente única hacia conformidad,
+inicializador, paquete y kernel. El sink nombrado se resuelve mediante el mapa
+explícito `telemetrySinks`; `capabilityTtlMs` es una opción interna separada y
+no un override público.
 
 El estado persistente vive en `.agents/sessions/state/` como snapshot y event
 log. El adapter de filesystem demuestra la contención física de cada ancestro y
@@ -115,6 +119,7 @@ Validación focalizada:
 node --check scripts/agentic-init.mjs
 node --check bin/agentic.mjs
 node --check .agents/kernel/protocol.mjs
+node --check .agents/kernel/protocol-manifest.mjs
 node --check .agents/kernel/adapters.mjs
 node --check .agents/kernel/orchestration-kernel.mjs
 node --check .agents/conformance/protocol-conformance.mjs
@@ -138,6 +143,8 @@ registro.
 - `AGENTS.md`: contrato configurable del proyecto.
 - `.agents/policies/`: activación, seguridad y reglas comunes.
 - `.agents/kernel/`: protocolo, estado y adapters de infraestructura.
+- `.agents/kernel/protocol-manifest.mjs`: consumidor único del inventario y de
+  la configuración declarados en `.agents/protocol.json`.
 - `.agents/schemas/`: contratos JSON actuales.
 - `.agents/conformance/`: verificación de estructura y distribución.
 - `.agents/roles/`, `.agents/workflows/`, `.agents/templates/`: proceso.

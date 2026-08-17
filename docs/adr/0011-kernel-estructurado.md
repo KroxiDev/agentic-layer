@@ -31,6 +31,14 @@ negociación. Kernel, políticas, roles, workflows, templates y schemas forman e
 inventario indivisible declarado en `.agents/protocol.json`. La conformidad
 rechaza mezclas, overrides no declarados o cambios en la interface.
 
+El mismo manifiesto declara cada ruta, asset, marker, directorio gestionado y
+override público. `protocol-manifest.mjs` valida esa declaración y proyecta las
+listas consumidas por conformidad, inicializador y distribución. Los únicos
+overrides del host son `contextBudgetBytes` y `telemetrySink`; este último se
+resuelve contra un mapa explícito de `telemetrySinks`. `capabilityTtlMs` se
+mantiene como opción interna del constructor porque controla seguridad, no el
+contrato configurable del proyecto.
+
 ## Alternativas descartadas
 
 1. **Métodos públicos por transición:** acoplan callers y tests a la máquina
@@ -47,6 +55,10 @@ rechaza mezclas, overrides no declarados o cambios en la interface.
 - El preflight ambiental ocurre antes del primer snapshot.
 - Un outbox persistido junto al snapshot cierra la ventana entre persistencia y
   telemetría; los retries entregan eventos pendientes con deduplicación durable.
+- La conformidad recorre el inventario declarado completo y valida
+  semánticamente cada schema antes de que pueda comenzar una `DevSession`.
+- El inicializador y el inventario npm son proyecciones del manifiesto; no
+  mantienen listas paralelas editables.
 - Un finding nuevo crítico pausa para decisión de alcance y no amplía producto
   silenciosamente.
 - La capacidad vive fuera de snapshots, sobres y reportes. Tras una expiración,

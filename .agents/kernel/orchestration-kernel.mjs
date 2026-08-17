@@ -6,6 +6,7 @@ import {
   SystemEnvironmentProbe,
   validationFingerprint,
 } from "./adapters.mjs";
+import { normalizeProtocolOverrides } from "./protocol-manifest.mjs";
 import {
   KernelError,
   SCHEMA_VERSION,
@@ -1897,12 +1898,14 @@ function applyToState(state, command, clock) {
 export class OrchestrationKernel {
   constructor({
     bootstrapCapability,
+    capabilityTtlMs = 3_600_000,
     capabilityRegistry = new MemoryCapabilityRegistry(),
     clock = new SystemClock(),
     configuration = {},
     environmentProbe = new SystemEnvironmentProbe(),
     eventSink,
     stateStore,
+    telemetrySinks = {},
   } = {}) {
     if (!bootstrapCapability) throw new TypeError("bootstrapCapability es obligatorio.");
     if (!stateStore) throw new TypeError("stateStore es obligatorio; producción debe usar un store durable.");
@@ -1922,32 +1925,31 @@ export class OrchestrationKernel {
         throw new TypeError(`stateStore debe implementar ${method}().`);
       }
     }
-    if (!configuration || typeof configuration !== "object" || Array.isArray(configuration)) {
-      throw new TypeError("configuration debe ser un objeto.");
-    }
-    const unsupportedConfiguration = Object.keys(configuration).filter(
-      (key) => !new Set(["capabilityTtlMs", "contextBudgetBytes"]).has(key),
-    );
-    if (unsupportedConfiguration.length) {
-      throw new TypeError(`configuration contiene campos no admitidos: ${unsupportedConfiguration.join(", ")}.`);
-    }
+    const normalizedConfiguration = normalizeProtocolOverrides(configuration);
     this.bootstrapCapability = bootstrapCapability;
     this.capabilityRegistry = capabilityRegistry;
     this.clock = clock;
-    const capabilityTtlMs = configuration.capabilityTtlMs ?? 3_600_000;
-    const contextBudgetBytes = configuration.contextBudgetBytes ?? 128_000;
     if (!Number.isFinite(capabilityTtlMs) || capabilityTtlMs <= 0) {
       throw new TypeError("capabilityTtlMs debe ser positivo y finito.");
     }
-    if (!Number.isInteger(contextBudgetBytes) || contextBudgetBytes < 1) {
-      throw new TypeError("contextBudgetBytes debe ser un entero positivo.");
-    }
     this.configuration = {
       capabilityTtlMs,
-      contextBudgetBytes,
+      ...normalizedConfiguration,
     };
     this.environmentProbe = environmentProbe;
-    this.eventSink = eventSink ?? stateStore.eventSink ?? new MemoryEventSink();
+    if (!telemetrySinks || typeof telemetrySinks !== "object" || Array.isArray(telemetrySinks)) {
+      throw new TypeError("telemetrySinks debe ser un objeto de resolvers.");
+    }
+    if (normalizedConfiguration.telemetrySink) {
+      if (!Object.hasOwn(telemetrySinks, normalizedConfiguration.telemetrySink)) {
+        throw new TypeError(
+          `No existe un resolver de telemetría para ${normalizedConfiguration.telemetrySink}.`,
+        );
+      }
+      this.eventSink = telemetrySinks[normalizedConfiguration.telemetrySink];
+    } else {
+      this.eventSink = eventSink ?? stateStore.eventSink ?? new MemoryEventSink();
+    }
     this.stateStore = stateStore;
     for (const [label, adapter, methods] of [
       ["capabilityRegistry", this.capabilityRegistry, ["authorize", "capabilityFor", "issue"]],

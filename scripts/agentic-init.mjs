@@ -24,6 +24,13 @@ import { stdin as input, stdout as output } from "node:process";
 import { fileURLToPath } from "node:url";
 
 import { assertProtocolConformance } from "../.agents/conformance/protocol-conformance.mjs";
+import {
+  PROTOCOL_MANIFEST,
+  protocolArtifactPaths,
+  protocolAssetSources,
+  protocolPackageFiles,
+  protocolRoleNames,
+} from "../.agents/kernel/protocol-manifest.mjs";
 
 const CONTRACT_START = "<!-- AGENTIC_PROJECT_CONTRACT_START -->";
 const CONTRACT_END = "<!-- AGENTIC_PROJECT_CONTRACT_END -->";
@@ -36,71 +43,10 @@ const GOLDEN_RULE_DEVELOPMENT = `## Desarrollo
 
 ${GOLDEN_RULE_DEVELOPMENT_BULLET}`;
 const SOURCE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const TEMPLATE_FILES = [
-  ".agents/README.md",
-  ".agents/conformance/protocol-conformance.mjs",
-  ".agents/kernel/adapters.mjs",
-  ".agents/kernel/orchestration-kernel.mjs",
-  ".agents/kernel/protocol.mjs",
-  ORCHESTRATION_POLICY,
-  GOLDEN_RULE_POLICY,
-  ".agents/policies/sdd-tdd.md",
-  ".agents/protocol.json",
-  ".agents/roles/documentador.md",
-  ".agents/roles/evaluador.md",
-  ".agents/roles/explorador.md",
-  ".agents/roles/implementador.md",
-  ".agents/roles/planificador.md",
-  ".agents/roles/tester.md",
-  ".agents/schemas/acceptance-contract.schema.json",
-  ".agents/schemas/role-report.schema.json",
-  ".agents/schemas/session-event.schema.json",
-  ".agents/schemas/validation-evidence.schema.json",
-  ".agents/schemas/work-envelope.schema.json",
-  ".agents/sessions/.gitignore",
-  ".agents/skills/agentic-diagnostico-bugs/SKILL.md",
-  ".agents/skills/agentic-diagnostico-bugs/references/hitl-loop.template.md",
-  ".agents/skills/agentic-diagnostico-bugs/references/hitl-loop.template.ps1",
-  ".agents/skills/agentic-diagnostico-bugs/references/hitl-loop.template.sh",
-  ".agents/skills/agentic-grilling/SKILL.md",
-  ".agents/skills/agentic-tdd/SKILL.md",
-  ".agents/skills/orquestar/SKILL.md",
-  ".agents/templates/dev-session.md",
-  ".agents/templates/subdev-session.md",
-  ".agents/workflows/architecture.md",
-  ".agents/workflows/bugfix.md",
-  ".agents/workflows/feature.md",
-  ".agents/workflows/refactor.md",
-  ".codex/agents/documentador.toml",
-  ".codex/agents/evaluador.toml",
-  ".codex/agents/explorador.toml",
-  ".codex/agents/implementador.toml",
-  ".codex/agents/planificador.toml",
-  ".codex/agents/tester.toml",
-  ".claude/.gitignore",
-  ".claude/agents/documentador.md",
-  ".claude/agents/evaluador.md",
-  ".claude/agents/explorador.md",
-  ".claude/agents/implementador.md",
-  ".claude/agents/planificador.md",
-  ".claude/agents/tester.md",
-  ".claude/skills/orquestar/SKILL.md",
-  "CLAUDE.md",
-];
-// npm descarta los `.gitignore` anidados al empaquetar, así que la distribución
-// los transporta con un nombre neutro y el inicializador restaura el canónico.
-const TEMPLATE_ASSET_SOURCES = new Map([
-  [".agents/sessions/.gitignore", ".agents/sessions/gitignore.asset"],
-  [".claude/.gitignore", ".claude/gitignore.asset"],
-]);
-const DISTRIBUTION_SUPPORT_FILES = [
-  "AGENTS.md",
-  "LICENSE",
-  "README.md",
-  "bin/agentic.mjs",
-  "package.json",
-  "scripts/agentic-init.mjs",
-];
+const TEMPLATE_FILES = protocolArtifactPaths();
+// npm descarta los `.gitignore` anidados al empaquetar, así que el protocolo
+// declara el asset neutro que el inicializador restaura con su nombre canónico.
+const TEMPLATE_ASSET_SOURCES = protocolAssetSources();
 // npm renombra a `.npmignore` cualquier `.gitignore` empaquetado, así que la
 // higiene de este repositorio no puede formar parte de la distribución.
 const DEVELOPMENT_FILES = [
@@ -112,10 +58,7 @@ const DEVELOPMENT_FILES = [
   "tests/distribution-contracts.test.mjs",
   "tests/orchestration-kernel.test.mjs",
 ];
-const PACKAGE_FILES = [
-  ...TEMPLATE_FILES.map((relativePath) => TEMPLATE_ASSET_SOURCES.get(relativePath) ?? relativePath),
-  ...DISTRIBUTION_SUPPORT_FILES,
-].sort();
+const PACKAGE_FILES = protocolPackageFiles();
 
 function templateSourcePath(relativePath) {
   const source = TEMPLATE_ASSET_SOURCES.get(relativePath) ?? relativePath;
@@ -140,41 +83,16 @@ const LAYER_VERSION_FILE = ".agents/VERSION";
 // Señales de que el destino ya tiene una capa agéntica. Basta una para tratar
 // las divergencias como reemplazo de una instalación previa y no como una
 // colisión con archivos ajenos del proyecto.
-const LAYER_MARKERS = [
-  ".agents/policies/orquestacion.md",
-  ".agents/skills/orquestar/SKILL.md",
-  ".claude/skills/orquestar/SKILL.md",
-  ".codex/agents/planificador.toml",
-];
+const LAYER_MARKERS = [...PROTOCOL_MANIFEST.layerMarkers];
 // Directorios cuyo contenido gestiona por completo la capa: al reemplazar, todo
 // archivo que no pertenezca a la distribución es residuo de otra versión.
 // `.agents/sessions/` queda fuera porque guarda DevSessions del propietario, y
 // la raíz de `.agents/` porque aloja el VERSION generado.
-const MANAGED_DIRECTORIES = [
-  ".agents/conformance",
-  ".agents/kernel",
-  ".agents/policies",
-  ".agents/roles",
-  ".agents/schemas",
-  ".agents/scripts",
-  ".agents/skills",
-  ".agents/templates",
-  ".agents/workflows",
-  ".claude/agents",
-  ".claude/skills",
-  ".codex/agents",
-];
+const MANAGED_DIRECTORIES = [...PROTOCOL_MANIFEST.managedDirectories];
 // Rutas que solo existen en el checkout de desarrollo: la distribución no las
 // transporta, así que sus enlaces se comprueban únicamente donde existen.
 const DEVELOPMENT_ONLY_PREFIXES = ["CONTEXT.md", "docs/", "tests/"];
-const ROLE_NAMES = [
-  "documentador",
-  "evaluador",
-  "explorador",
-  "implementador",
-  "planificador",
-  "tester",
-];
+const ROLE_NAMES = protocolRoleNames();
 const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)*$/;
 const EXIT_REQUIREMENTS_MISSING = 4;
 

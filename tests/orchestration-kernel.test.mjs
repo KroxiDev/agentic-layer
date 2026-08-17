@@ -124,21 +124,25 @@ function validationEvidence(generation, overrides = {}) {
 }
 
 function createHarness({
+  capabilityTtlMs,
   clock = new FakeClock(),
   configuration,
   environmentProbe = new FakeEnvironmentProbe(),
   eventSink = new MemoryEventSink(),
   sessionId = `session-${commandId("fixture")}`,
   stateStore = new MemoryStateStore(),
+  telemetrySinks,
 } = {}) {
   const bootstrapCapability = createBootstrapCapability();
   const kernel = new OrchestrationKernel({
     bootstrapCapability,
+    capabilityTtlMs,
     clock,
     configuration,
     environmentProbe,
     eventSink,
     stateStore,
+    telemetrySinks,
   });
   return {
     bootstrapCapability,
@@ -922,8 +926,8 @@ test("un host reiniciado recupera capacidad solo mediante el retry exacto de sta
   const stateStore = new MemoryStateStore();
   const clock = new FakeClock();
   const original = createHarness({
+    capabilityTtlMs: 5,
     clock,
-    configuration: { capabilityTtlMs: 5 },
     sessionId: "recover-capability",
     stateStore,
   });
@@ -955,8 +959,8 @@ test("un host reiniciado recupera capacidad solo mediante el retry exacto de sta
   const recoveredBootstrap = createBootstrapCapability();
   const recoveredKernel = new OrchestrationKernel({
     bootstrapCapability: recoveredBootstrap,
+    capabilityTtlMs: 5,
     clock,
-    configuration: { capabilityTtlMs: 5 },
     environmentProbe: new FakeEnvironmentProbe(),
     stateStore,
   });
@@ -1361,6 +1365,29 @@ test("telemetría atribuye actor, tiempos, contexto y degradación sin secretos"
   const view = await degraded.kernel.inspect(degraded.sessionId);
   assert.equal(view.revision, 1);
   assert.equal(view.telemetry.degradedEvents.length, 1);
+});
+
+test("kernel y protocolo comparten overrides y resuelven el sink de telemetría", async () => {
+  const selectedSink = new MemoryEventSink();
+  const harness = createHarness({
+    configuration: { contextBudgetBytes: 12, telemetrySink: "selected" },
+    telemetrySinks: { selected: selectedSink },
+  });
+
+  await start(harness);
+  assert.equal((await harness.kernel.inspect(harness.sessionId)).contextBudgetBytes, 12);
+  assert.equal(selectedSink.events.length, 1);
+  assert.equal(harness.eventSink.events.length, 0);
+
+  assert.throws(
+    () => createHarness({ configuration: { capabilityTtlMs: 5 } }),
+    /configuration contiene campos no admitidos: capabilityTtlMs/,
+  );
+  assert.throws(
+    () => createHarness({ configuration: { telemetrySink: "missing" } }),
+    /No existe un resolver de telemetría para missing/,
+  );
+  assert.doesNotThrow(() => createHarness({ capabilityTtlMs: 5 }));
 });
 
 test("el presupuesto de contexto rechaza exceso y deduplica referencias portables", async () => {
@@ -2643,13 +2670,19 @@ test("un retry terminal preserva sin cambios la reserva de un writer sucesor", a
 test("la conformidad exige inventario, schemas y marcadores canónicos", async (t) => {
   const manifest = JSON.parse(await readFile(join(ROOT, ".agents", "protocol.json"), "utf8"));
   assert.deepEqual(Object.keys(manifest).sort(), [
-    "allowedOverrides",
     "artifacts",
+    "configuration",
+    "distributionSupportFiles",
     "distributionVersion",
     "kernelInterface",
+    "layerMarkers",
+    "managedDirectories",
     "schemaVersion",
   ]);
-  assert.deepEqual(manifest.allowedOverrides, ["contextBudgetBytes", "telemetrySink"]);
+  assert.deepEqual(Object.keys(manifest.configuration), ["contextBudgetBytes", "telemetrySink"]);
+  const artifactPaths = manifest.artifacts.map((artifact) => artifact.path);
+  assert.ok(artifactPaths.includes(".agents/policies/regla-de-oro.md"));
+  assert.ok(artifactPaths.includes(".agents/kernel/protocol-manifest.mjs"));
 
   const canonical = await assertProtocolConformance({
     root: ROOT,
@@ -2659,7 +2692,7 @@ test("la conformidad exige inventario, schemas y marcadores canónicos", async (
   assert.equal(canonical.distributionVersion, "0.2.0");
   assert.match(canonical.artifactHash, /^sha256:[0-9a-f]{64}$/);
   await assert.rejects(
-    assertProtocolConformance({ root: ROOT, overrides: { kernelInterface: ["apply", "inspect", "drift"] } }),
+    assertProtocolConformance({ root: ROOT, overrides: { capabilityTtlMs: 5 } }),
     { code: "conformance_override_drift" },
   );
 
@@ -2668,6 +2701,14 @@ test("la conformidad exige inventario, schemas y marcadores canónicos", async (
   await cp(join(ROOT, ".agents"), join(fixtureRoot, ".agents"), { recursive: true });
   await cp(join(ROOT, ".codex"), join(fixtureRoot, ".codex"), { recursive: true });
   await cp(join(ROOT, ".claude"), join(fixtureRoot, ".claude"), { recursive: true });
+  await cp(
+    join(fixtureRoot, ".agents", "sessions", "gitignore.asset"),
+    join(fixtureRoot, ".agents", "sessions", ".gitignore"),
+  );
+  await cp(
+    join(fixtureRoot, ".claude", "gitignore.asset"),
+    join(fixtureRoot, ".claude", ".gitignore"),
+  );
   await cp(join(ROOT, "CLAUDE.md"), join(fixtureRoot, "CLAUDE.md"));
   await writeFile(
     join(fixtureRoot, "package.json"),
@@ -2676,6 +2717,31 @@ test("la conformidad exige inventario, schemas y marcadores canónicos", async (
   );
   await writeFile(join(fixtureRoot, ".agents", "VERSION"), "0.2.0\n", "utf8");
   assert.equal((await assertProtocolConformance({ root: fixtureRoot })).schemaVersion, 3);
+
+  for (const relativePath of [
+    ".agents/policies/regla-de-oro.md",
+    ".agents/skills/agentic-tdd/SKILL.md",
+    ".agents/roles/tester.md",
+    ".agents/workflows/feature.md",
+    ".agents/templates/dev-session.md",
+    ".agents/schemas/role-report.schema.json",
+    ".codex/agents/tester.toml",
+    "CLAUDE.md",
+  ]) {
+    const artifactPath = join(fixtureRoot, ...relativePath.split("/"));
+    const missingPath = `${artifactPath}.missing`;
+    await rename(artifactPath, missingPath);
+    try {
+      await assert.rejects(assertProtocolConformance({ root: fixtureRoot }), (error) => {
+        assert.equal(error.code, "conformance_missing_artifact");
+        assert.equal(error.details.artifact, relativePath);
+        return true;
+      });
+    } finally {
+      await rename(missingPath, artifactPath);
+    }
+  }
+
   const rolePath = join(fixtureRoot, ".agents", "roles", "tester.md");
   const roleSource = await readFile(rolePath, "utf8");
   await writeFile(rolePath, roleSource.replace("<!-- agentic-role-report -->", ""), "utf8");
@@ -2697,12 +2763,14 @@ test("la conformidad exige inventario, schemas y marcadores canónicos", async (
   await writeFile(claudeSkillPath, claudeSkillSource, "utf8");
 
   const schemaPath = join(fixtureRoot, ".agents", "schemas", "role-report.schema.json");
-  const missingSchemaPath = `${schemaPath}.missing`;
-  await rename(schemaPath, missingSchemaPath);
+  const schemaSource = await readFile(schemaPath, "utf8");
+  const invalidSchema = JSON.parse(schemaSource);
+  invalidSchema.required = invalidSchema.required.filter((name) => name !== "schemaVersion");
+  await writeFile(schemaPath, `${JSON.stringify(invalidSchema, null, 2)}\n`, "utf8");
   await assert.rejects(assertProtocolConformance({ root: fixtureRoot }), {
-    code: "conformance_missing_artifact",
+    code: "conformance_schema_invalid",
   });
-  await rename(missingSchemaPath, schemaPath);
+  await writeFile(schemaPath, schemaSource, "utf8");
 
   const protocolPath = join(fixtureRoot, ".agents", "protocol.json");
   const protocolSource = await readFile(protocolPath, "utf8");

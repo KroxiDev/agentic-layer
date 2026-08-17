@@ -237,6 +237,23 @@ Módulo profundo del protocolo estructurado. Su instancia expone solo `apply(com
 persistencia, presupuesto, aceptación y telemetría.
 _Evitar_: conjunto de helpers, API por transición, mutación desde roles.
 
+**Manifiesto del protocolo**:
+`.agents/protocol.json`, fuente declarativa única de artefactos instalados,
+assets, markers, directorios gestionados, interface del kernel y overrides del
+host. `protocol-manifest.mjs` lo valida y proyecta; no introduce otra lista.
+_Evitar_: package manifest, inventario npm, configuración del proyecto.
+
+**Override del host**:
+Opción de composición declarada por el manifiesto del protocolo. Actualmente
+son `contextBudgetBytes` y `telemetrySink`; una opción interna de seguridad como
+`capabilityTtlMs` no pertenece a este conjunto.
+_Evitar_: campo contractual, configuración Codex, dependencia interna.
+
+**Resolver de telemetría**:
+Entrada explícita de `telemetrySinks` que convierte el nombre declarado por
+`telemetrySink` en un `EventSink` concreto.
+_Evitar_: sink predeterminado, nombre sin adapter, override del proyecto.
+
 **Excepción bootstrap de reparación**:
 Ruta directa, explícita y de un solo agente para corregir un defecto demostrado
 de la propia capa canónica desde una especificación externa cerrada, sin
@@ -304,7 +321,9 @@ _Evitar_: reporte, respuesta, output.
 
 **Seam**:
 Un límite público donde el comportamiento se observa sin acceder al interior.
-Los tests viven en seams. El seam de configuración de la capa es `AGENTS.md`.
+Los tests viven en seams. El seam de configuración del proyecto adoptante es
+`AGENTS.md`; los overrides del host se declaran separadamente en el manifiesto
+del protocolo.
 _Evitar_: punto de extensión, hook, boundary.
 
 **Campo pendiente**:
@@ -336,8 +355,9 @@ El artefacto npm publicable que transporta la capa.
 _Evitar_: build, release, bundle.
 
 **Inventario canónico**:
-La lista exacta de rutas que la distribución transporta, declarada en el código
-y verificada contra `package.json`. Lo que no está en el inventario no puede
+La lista exacta de rutas instaladas y sus assets, declarada en
+`.agents/protocol.json`. El inicializador la consume y `package.json` conserva
+su proyección npm exacta. Lo que no está en el inventario no puede instalarse ni
 publicarse.
 _Evitar_: file list, contenido, whitelist.
 

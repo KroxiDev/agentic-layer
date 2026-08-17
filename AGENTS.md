@@ -73,13 +73,17 @@ validaciones compatibles y consultar cualquier conflicto real.
 - Arquitectura: núcleo canónico en `.agents/`, protocolo estructurado vigente en
   `.agents/kernel/` con única interface `apply/inspect`, schemas y conformidad;
   `schemaVersion` identifica el formato persistido sin negociación. El seam de
-  configuración vive en `AGENTS.md`, el inicializador único en
+  configuración del proyecto vive en `AGENTS.md`; `.agents/protocol.json`
+  declara el inventario instalado y los overrides del host, consumidos mediante
+  `.agents/kernel/protocol-manifest.mjs`. El inicializador único vive en
   `scripts/agentic-init.mjs`, el ejecutable delgado en `bin/agentic.mjs`, el
-  inventario en `package.json`, los adapters delgados en `.codex/`, `.claude/`
-  y `CLAUDE.md`, y las pruebas públicas en `tests/`.
+  inventario npm de `package.json` es una proyección exacta, los adapters
+  delgados viven en `.codex/`, `.claude/` y `CLAUDE.md`, y las pruebas públicas
+  en `tests/`.
 <!-- agentic-contract-field entrypoints -->
 - Entrypoints: `AGENTS.md`, `bin/agentic.mjs`, `scripts/agentic-init.mjs`,
-  `.agents/kernel/orchestration-kernel.mjs`, `.agents/protocol.json`,
+  `.agents/kernel/orchestration-kernel.mjs`,
+  `.agents/kernel/protocol-manifest.mjs`, `.agents/protocol.json`,
   `.agents/skills/orquestar/SKILL.md` y `CLAUDE.md`.
 
 ## Validación
@@ -87,6 +91,7 @@ validaciones compatibles y consultar cualquier conflicto real.
 <!-- agentic-contract-field focusedValidation -->
 - Focalizada: ejecutar `node --check scripts/agentic-init.mjs`,
   `node --check bin/agentic.mjs`,
+  `node --check .agents/kernel/protocol-manifest.mjs`,
   `node --check .agents/kernel/orchestration-kernel.mjs` y el caso relacionado de
   `node --test --test-name-pattern="<patrón concreto del caso relacionado>"`;
   sustituir el placeholder por el nombre o patrón exacto antes de ejecutar el

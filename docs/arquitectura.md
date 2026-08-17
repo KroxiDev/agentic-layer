@@ -54,7 +54,7 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 ├── AGENTS.md                    # reglas globales + contrato de proyecto
 ├── CLAUDE.md                    # import fijo de AGENTS.md
 ├── LICENSE
-├── package.json                 # manifiesto e inventario canónico
+├── package.json                 # proyección npm exacta del inventario canónico
 ├── .gitignore
 ├── bin/
 │   └── agentic.mjs              # ejecutable; despacha `init` y `update`
@@ -77,10 +77,11 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 │   │   ├── orquestacion.md      # precedencia, preflight, modos, delegación
 │   │   ├── regla-de-oro.md       # regla transversal para código y pruebas
 │   │   └── sdd-tdd.md            # SDD proporcional y vocabulario de diseño
-│   ├── protocol.json              # inventario y overrides admitidos
+│   ├── protocol.json              # inventario y schema de overrides admitidos
 │   ├── kernel/
 │   │   ├── orchestration-kernel.mjs # interface apply/inspect
 │   │   ├── adapters.mjs           # stores, clocks, probes y sinks
+│   │   ├── protocol-manifest.mjs   # valida y proyecta protocol.json
 │   │   └── protocol.mjs           # hashing y contratos base
 │   ├── schemas/                   # AcceptanceContract, RoleReport, eventos y evidencia
 │   ├── conformance/               # gate de protocolo y drift
@@ -123,6 +124,7 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 | `.agents/roles/` | Seis contratos de salida con límites explícitos | Profundo: cada rol oculta su método |
 | `.agents/kernel/orchestration-kernel.mjs` | Estado, CAS, idempotencia, ownership, aceptación, lanes, presupuesto, persistencia y telemetría | Profundo: solo `apply/inspect` |
 | `.agents/kernel/adapters.mjs` | Filesystem/memoria, reloj, preflight y event sinks | Profundo: seams de producción y tests |
+| `.agents/protocol.json` y `.agents/kernel/protocol-manifest.mjs` | Inventario instalado, assets, directorios gestionados y overrides del host | Fuente declarativa y consumidor compartido |
 | `.agents/schemas/` y `.agents/conformance/` | Validar contratos y rechazar mezclas o drift | Gate distribuible |
 | `.agents/workflows/` | Orden de fases por intención | Delgado: sólo secuencia |
 | `.agents/skills/` | Routing de orquestación y disciplinas invocables (grilling, TDD, diagnóstico) | `orquestar` delgada; disciplinas especializadas profundas |
@@ -295,6 +297,14 @@ degradación observable. Cada evento se guarda primero en
 `telemetry.pendingEvents` dentro del snapshot; un retry exacto completa ese
 outbox sin repetir la transición. El sink JSONL relee los IDs durables antes de
 append para deduplicar incluso después de reiniciar el proceso.
+
+La configuración del host usa exactamente las propiedades declaradas en
+`protocol.json`. `contextBudgetBytes` se valida y recibe allí su default;
+`telemetrySink` nombra una entrada del mapa interno `telemetrySinks`, cuya
+resolución selecciona el `EventSink` observable. `capabilityTtlMs` conserva una
+entrada separada del constructor porque es una opción interna de seguridad, no
+un override público. La configuración del proyecto adoptante continúa viviendo
+en el contrato de `AGENTS.md`; son dos seams distintos.
 
 ## Activación del flujo
 
@@ -517,10 +527,14 @@ vigente en [ADR 0010](adr/0010-cierre-y-evaluacion-proporcionales-al-riesgo.md).
 
 ## Frontera de distribución
 
-Lo que viaja en el paquete está declarado dos veces —en el código y en
-`package.json`— y el inicializador falla si las dos listas no coinciden. Además,
-la conformidad exige que kernel, políticas, roles, workflows, templates y
-schemas declaren protocolo 2 como conjunto indivisible.
+El inventario existe una sola vez en `.agents/protocol.json`. El consumidor
+`protocol-manifest.mjs` deriva de allí las rutas instaladas, los assets con
+nombre neutro, los directorios gestionados y `PACKAGE_FILES`; `package.json`
+mantiene la proyección estática que npm requiere y el inicializador exige que
+coincida exactamente. La conformidad recorre cada artefacto declarado, valida
+markers y requisitos de contenido, comprueba semánticamente todos los schemas y
+rechaza cualquier mezcla con `schemaVersion` distinto de `3` antes de abrir una
+DevSession.
 
 | Categoría | Ejemplos | Viaja |
 | --- | --- | --- |
@@ -599,5 +613,5 @@ romper la interface pública:
   canónico», mientras que `Validación` en el contrato significa la evidencia
   del proyecto. Son cosas distintas con la misma palabra; el segundo sentido es
   el canónico.
-- `PACKAGE_FILES` nombra lo que el glosario llama inventario canónico. Los
-  tests lo importan con ese nombre.
+- `PACKAGE_FILES` conserva ese nombre público en los tests, pero ahora es la
+  proyección npm derivada del inventario canónico de `protocol.json`.
