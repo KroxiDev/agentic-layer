@@ -141,8 +141,13 @@ Reintentar no crea otra unidad ni reactiva un intento terminal.
 
 El constructor exige un `StateStore` explícito para no degradar producción a
 memoria volátil. El host normal inyecta `FileSystemStateStore({ root })`, que
-compone snapshots atómicos con `JsonlEventSink`; los tests inyectan
-`MemoryStateStore`. El `EnvironmentProbe` predeterminado es el adapter real.
+demuestra en cada acceso que todos los ancestros siguen siendo directorios
+físicos dentro de `root`. Un symlink o junction intermedio, un enlace ajeno en
+snapshot/event log o una ruta no verificable falla con `state_path_unsafe` antes
+de escribir fuera de la raíz. El adapter
+compone reemplazos atómicos de snapshots con un `JsonlEventSink` exclusivo; los
+tests inyectan `MemoryStateStore`. El `EnvironmentProbe` predeterminado es el
+adapter real.
 
 `accept-role-report` conserva el reporte estructurado atribuible al intento y
 el snapshot mantiene el estado de coordinación que devuelve `inspect`. Una
@@ -180,12 +185,15 @@ integrado, la evaluación y el gate de Documentador se definen una sola vez en l
 estado y los gates ejecutables; Planificador, Tester, Evaluador y Documentador
 aplican sus contratos de rol mediante esa referencia.
 
-La adquisición del writer lock publica por hard link un dueño exacto
-`{session, attempt, workingTreeId}`. Una transición terminal libera sólo si el
-lock continúa siendo suyo: si un intento sucesor lo adquirió, el reintento
-idempotente preserva la reserva ajena. Así la aceptación de reportes y el
-registro de fallos recuperan interrupciones reales sin romper exclusión entre
-sesiones.
+La adquisición del writer lock sincroniza un candidato completo y lo publica
+por hard link. La reserva usa `schemaVersion: 2`, conserva el dueño exacto
+`{session, attempt, workingTreeId}` y un checkpoint de `commandId`, fingerprint
+y revisión esperada. Una transición terminal la libera sólo cuando el snapshot
+demuestra ese mismo intento terminado. Si un intento sucesor ya la adquirió, el
+reintento idempotente preserva sin cambios la reserva ajena. Los locks
+transitorios global y de sesión registran `{pid, token}`: únicamente se recupera
+un propietario demostrablemente terminado; un contenido ambiguo se conserva y
+nunca se limpia por antigüedad.
 
 El kernel acepta únicamente snapshots con `schemaVersion: 2`. Una sesión
 `light` persiste `lightStrategy: "compact"`; `full` usa el lane integral de su

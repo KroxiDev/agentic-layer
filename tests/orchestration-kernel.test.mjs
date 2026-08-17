@@ -1,5 +1,16 @@
 import assert from "node:assert/strict";
-import { cp, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import {
+  cp,
+  link,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
@@ -200,6 +211,33 @@ async function dispatchAndReport(harness, { role, attempt = commandId(role), rep
     report: roleReport(harness, attempt, role, report),
   });
   return { accepted, attempt, dispatched };
+}
+
+async function dispatchWriter(harness, attemptId, options = {}) {
+  return apply(
+    harness,
+    "dispatch-attempt",
+    {
+      attemptId,
+      contextManifest: [],
+      findings: [],
+      objective: "Implementar la unidad writer.",
+      role: "implementador",
+      rules: "Aplicar el contrato.",
+      tasks: "Completar la unidad.",
+      workUnitId: "unit-1",
+    },
+    options,
+  );
+}
+
+async function readWriterReservation(root) {
+  const directory = join(root, ".agents", "sessions", "state");
+  const names = await readdir(directory);
+  const locks = names.filter((name) => /^\.writer-[a-f0-9]{64}\.lock$/.test(name));
+  assert.equal(locks.length, 1, "Debe existir una única reserva durable del writer.");
+  const path = join(directory, locks[0]);
+  return { path, reservation: JSON.parse(await readFile(path, "utf8")) };
 }
 
 async function reachEvaluation(harness, { mode = "light", strategy = "combined", risk } = {}) {
@@ -1151,13 +1189,16 @@ test("MemoryStateStore y FileSystemStateStore cumplen la misma superficie públi
   );
   assert.deepEqual(surfaces[0], surfaces[1]);
   assert.deepEqual(surfaces[0], [
+    "acquireWriter",
     "findActiveWriter",
     "findCommand",
     "load",
     "probe",
+    "releaseWriter",
     "save",
     "withGlobalLock",
     "withLock",
+    "workingTreeId",
   ]);
 
   for (const stateStore of stores) {
@@ -1229,6 +1270,165 @@ test("FileSystemStateStore compone snapshot atómico y event log JSONL append-on
     assert.equal(error.details.path, snapshotPath);
     assert.ok(error.details.remedy);
     return true;
+  });
+});
+
+test("FileSystemStateStore rechaza ancestros redirigidos antes de escribir fuera de root", async (t) => {
+  const linkType = process.platform === "win32" ? "junction" : "dir";
+  for (const redirectedAncestor of ["state", "session"]) {
+    await t.test(redirectedAncestor, async (t) => {
+      const root = await mkdtemp(join(tmpdir(), `agentic-kernel-${redirectedAncestor}-root-`));
+      const outside = await mkdtemp(join(tmpdir(), `agentic-kernel-${redirectedAncestor}-outside-`));
+      t.after(() => rm(root, { recursive: true, force: true }));
+      t.after(() => rm(outside, { recursive: true, force: true }));
+      const sessionId = `redirected-${redirectedAncestor}`;
+      const baseDirectory = join(root, ".agents", "sessions", "state");
+      if (redirectedAncestor === "state") {
+        await mkdir(dirname(baseDirectory), { recursive: true });
+        await symlink(outside, baseDirectory, linkType);
+      } else {
+        await mkdir(baseDirectory, { recursive: true });
+        await symlink(outside, join(baseDirectory, sessionId), linkType);
+      }
+      const harness = createHarness({
+        sessionId,
+        stateStore: new FileSystemStateStore({ root }),
+      });
+
+      await assert.rejects(start(harness), (error) => {
+        assert.equal(error.code, "state_path_unsafe");
+        assert.ok(error.details.path);
+        assert.ok(error.details.remedy);
+        return true;
+      });
+      assert.deepEqual(await readdir(outside), []);
+    });
+  }
+});
+
+test("FileSystemStateStore rechaza un snapshot enlazado físicamente fuera de root", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "agentic-kernel-hardlink-root-"));
+  const outside = await mkdtemp(join(tmpdir(), "agentic-kernel-hardlink-outside-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  const sessionId = "hardlink-snapshot";
+  const harness = createHarness({
+    sessionId,
+    stateStore: new FileSystemStateStore({ root }),
+  });
+  await start(harness);
+  const snapshotPath = join(
+    root,
+    ".agents",
+    "sessions",
+    "state",
+    sessionId,
+    "snapshot.json",
+  );
+  const outsidePath = join(outside, "snapshot.json");
+  const source = await readFile(snapshotPath, "utf8");
+  await rm(snapshotPath);
+  await writeFile(outsidePath, source, "utf8");
+  await link(outsidePath, snapshotPath);
+
+  await assert.rejects(harness.kernel.inspect(sessionId), { code: "state_path_unsafe" });
+  assert.equal(await readFile(outsidePath, "utf8"), source);
+});
+
+test("FileSystemStateStore crea, reemplaza e inspecciona snapshots tras reiniciar el host", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "agentic-kernel-restart-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const sessionId = "filesystem-restart";
+  const startCommandId = commandId("filesystem-restart-start");
+  const first = createHarness({
+    sessionId,
+    stateStore: new FileSystemStateStore({ root }),
+  });
+  await start(first, { mode: "full" }, { commandId: startCommandId });
+  await plan(first);
+  const snapshotPath = join(
+    root,
+    ".agents",
+    "sessions",
+    "state",
+    sessionId,
+    "snapshot.json",
+  );
+  assert.equal(JSON.parse(await readFile(snapshotPath, "utf8")).revision, 2);
+
+  const restarted = createHarness({
+    sessionId,
+    stateStore: new FileSystemStateStore({ root }),
+  });
+  const recovered = await start(restarted, { mode: "full" }, { commandId: startCommandId });
+  assert.equal(recovered.revision, 1);
+  const inspected = await restarted.kernel.inspect(sessionId);
+  assert.equal(inspected.revision, 2);
+  assert.equal(inspected.lifecycle, "executing");
+  assert.deepEqual(await readdir(dirname(snapshotPath)), ["snapshot.json"]);
+});
+
+test("FileSystemStateStore recupera locks de mutación abandonados sin usar antigüedad", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "agentic-kernel-abandoned-lock-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const baseDirectory = join(root, ".agents", "sessions", "state");
+  await mkdir(baseDirectory, { recursive: true });
+  const abandonedOwner = { pid: 2_147_483_647, token: "abandoned-owner" };
+  const candidatePath = join(
+    baseDirectory,
+    `.global.lock.tmp-${abandonedOwner.pid}-${abandonedOwner.token}`,
+  );
+  await writeFile(candidatePath, JSON.stringify(abandonedOwner), "utf8");
+  await link(candidatePath, join(baseDirectory, ".global.lock"));
+  const harness = createHarness({
+    sessionId: "abandoned-lock",
+    stateStore: new FileSystemStateStore({ root }),
+  });
+
+  const started = await start(harness);
+  assert.equal(started.decision, "started");
+  assert.equal((await readdir(baseDirectory)).includes(".global.lock"), false);
+  assert.equal((await readdir(baseDirectory)).includes(candidatePath.split(/[\\/]/).at(-1)), false);
+});
+
+test("FileSystemStateStore conserva locks ambiguos sin limpieza oportunista", async (t) => {
+  await t.test("mutation lock", async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "agentic-kernel-ambiguous-mutation-"));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const baseDirectory = join(root, ".agents", "sessions", "state");
+    const lockPath = join(baseDirectory, ".global.lock");
+    await mkdir(baseDirectory, { recursive: true });
+    await writeFile(lockPath, "owner-incompleto", "utf8");
+    const harness = createHarness({
+      sessionId: "ambiguous-mutation",
+      stateStore: new FileSystemStateStore({ root }),
+    });
+
+    await assert.rejects(start(harness), { code: "session_lock_ambiguous" });
+    assert.equal(await readFile(lockPath, "utf8"), "owner-incompleto");
+  });
+
+  await t.test("writer lock", async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "agentic-kernel-ambiguous-writer-"));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const stateStore = new FileSystemStateStore({ root });
+    const harness = createHarness({ sessionId: "ambiguous-writer", stateStore });
+    await start(harness);
+    await plan(harness);
+    const lockPath = join(
+      root,
+      ".agents",
+      "sessions",
+      "state",
+      `.writer-${await stateStore.workingTreeId()}.lock`,
+    );
+    await writeFile(lockPath, "owner-incompleto", "utf8");
+
+    await assert.rejects(
+      dispatchWriter(harness, commandId("ambiguous-writer-attempt")),
+      { code: "writer_lock_ambiguous" },
+    );
+    assert.equal(await readFile(lockPath, "utf8"), "owner-incompleto");
   });
 });
 
@@ -1670,6 +1870,214 @@ test("una interrupción cierra el intento sin fabricar RoleReport y libera el wr
   });
   assert.equal(retry.envelope.role, "implementador");
   assert.equal(harness.eventSink.events.at(-1).retryCause, "timeout");
+});
+
+test("FileSystemStateStore persiste el dueño exacto y atribuye conflictos entre DevSessions", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "agentic-kernel-writer-owner-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const first = createHarness({
+    sessionId: "filesystem-writer-a",
+    stateStore: new FileSystemStateStore({ root }),
+  });
+  const second = createHarness({
+    sessionId: "filesystem-writer-b",
+    stateStore: new FileSystemStateStore({ root }),
+  });
+  await start(first);
+  await plan(first);
+  await start(second);
+  await plan(second);
+
+  const firstAttempt = commandId("filesystem-writer-first");
+  await dispatchWriter(first, firstAttempt);
+  const { reservation } = await readWriterReservation(root);
+  assert.deepEqual(reservation.owner, {
+    attempt: firstAttempt,
+    session: first.sessionId,
+    workingTreeId: reservation.owner.workingTreeId,
+  });
+  assert.match(reservation.owner.workingTreeId, /^[a-f0-9]{64}$/);
+  const blockedAttempt = commandId("filesystem-writer-blocked");
+  await assert.rejects(dispatchWriter(second, blockedAttempt), (error) => {
+    assert.equal(error.code, "writer_locked");
+    assert.deepEqual(error.details, reservation.owner);
+    assert.match(error.message, new RegExp(`${first.sessionId}/${firstAttempt}`));
+    return true;
+  });
+
+  await apply(first, "accept-role-report", {
+    attemptId: firstAttempt,
+    report: roleReport(first, firstAttempt, "implementador"),
+  });
+  const stateDirectory = join(root, ".agents", "sessions", "state");
+  assert.equal((await readdir(stateDirectory)).some((name) => name.startsWith(".writer-")), false);
+  const released = await dispatchWriter(second, commandId("filesystem-writer-after-release"));
+  assert.equal(released.envelope.role, "implementador");
+});
+
+test("un retry exacto recupera el checkpoint de una reserva publicada antes del snapshot", async (t) => {
+  class InterruptWriterSnapshotStore extends FileSystemStateStore {
+    interruptNextWriterSnapshot = false;
+
+    async save(sessionId, snapshot) {
+      if (
+        this.interruptNextWriterSnapshot &&
+        Object.values(snapshot.attempts ?? {}).some(
+          (attempt) => attempt.state === "active" && attempt.permission === "writer",
+        )
+      ) {
+        this.interruptNextWriterSnapshot = false;
+        throw Object.assign(new Error("Interrupción antes del snapshot writer."), { code: "EIO" });
+      }
+      return super.save(sessionId, snapshot);
+    }
+  }
+
+  const root = await mkdtemp(join(tmpdir(), "agentic-kernel-writer-checkpoint-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const stateStore = new InterruptWriterSnapshotStore({ root });
+  const harness = createHarness({ sessionId: "writer-checkpoint", stateStore });
+  await start(harness);
+  await plan(harness);
+  const attemptId = commandId("writer-checkpoint-attempt");
+  const dispatchCommandId = commandId("writer-checkpoint-dispatch");
+  stateStore.interruptNextWriterSnapshot = true;
+
+  await assert.rejects(
+    dispatchWriter(harness, attemptId, { commandId: dispatchCommandId }),
+    { code: "EIO" },
+  );
+  const beforeRetry = await readWriterReservation(root);
+  assert.deepEqual(beforeRetry.reservation.owner, {
+    attempt: attemptId,
+    session: harness.sessionId,
+    workingTreeId: beforeRetry.reservation.owner.workingTreeId,
+  });
+  assert.equal(beforeRetry.reservation.checkpoint.commandId, dispatchCommandId);
+  assert.equal(beforeRetry.reservation.checkpoint.expectedRevision, 2);
+
+  const recovered = await dispatchWriter(harness, attemptId, { commandId: dispatchCommandId });
+  assert.equal(recovered.envelope.attemptId, attemptId);
+  assert.deepEqual(await readWriterReservation(root), beforeRetry);
+});
+
+test("un retry terminal libera una reserva propia demostrada por el snapshot", async (t) => {
+  class InterruptWriterReleaseStore extends FileSystemStateStore {
+    interruptNextRelease = false;
+
+    async releaseWriter(...arguments_) {
+      if (this.interruptNextRelease) {
+        this.interruptNextRelease = false;
+        throw Object.assign(new Error("Interrupción después del snapshot terminal."), { code: "EIO" });
+      }
+      return super.releaseWriter(...arguments_);
+    }
+  }
+
+  const root = await mkdtemp(join(tmpdir(), "agentic-kernel-writer-recovery-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const sessionId = "writer-recovery";
+  const startCommandId = commandId("writer-recovery-start");
+  const stateStore = new InterruptWriterReleaseStore({ root });
+  const harness = createHarness({ sessionId, stateStore });
+  await start(harness, {}, { commandId: startCommandId });
+  await plan(harness);
+  const attemptId = commandId("writer-recovery-attempt");
+  await dispatchWriter(harness, attemptId);
+  const report = roleReport(harness, attemptId, "implementador");
+  const terminalCommandId = commandId("writer-recovery-terminal");
+  stateStore.interruptNextRelease = true;
+
+  await assert.rejects(
+    apply(
+      harness,
+      "accept-role-report",
+      { attemptId, report },
+      { commandId: terminalCommandId },
+    ),
+    { code: "EIO" },
+  );
+  assert.equal((await harness.kernel.inspect(sessionId)).attempts[attemptId].state, "completed");
+  await readWriterReservation(root);
+
+  const restarted = createHarness({
+    sessionId,
+    stateStore: new FileSystemStateStore({ root }),
+  });
+  await start(restarted, {}, { commandId: startCommandId });
+  const retried = await apply(
+    restarted,
+    "accept-role-report",
+    { attemptId, report },
+    { commandId: terminalCommandId, expectedRevision: 3 },
+  );
+  assert.equal(retried.revision, 4);
+  const stateDirectory = join(root, ".agents", "sessions", "state");
+  assert.equal((await readdir(stateDirectory)).some((name) => name.startsWith(".writer-")), false);
+
+  const contender = createHarness({
+    sessionId: "writer-recovery-contender",
+    stateStore: new FileSystemStateStore({ root }),
+  });
+  await start(contender);
+  await plan(contender);
+  assert.equal(
+    (await dispatchWriter(contender, commandId("writer-recovery-after"))).envelope.role,
+    "implementador",
+  );
+});
+
+test("un retry terminal preserva sin cambios la reserva de un writer sucesor", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "agentic-kernel-writer-successor-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const first = createHarness({
+    sessionId: "writer-successor-first",
+    stateStore: new FileSystemStateStore({ root }),
+  });
+  const successor = createHarness({
+    sessionId: "writer-successor-second",
+    stateStore: new FileSystemStateStore({ root }),
+  });
+  const contender = createHarness({
+    sessionId: "writer-successor-third",
+    stateStore: new FileSystemStateStore({ root }),
+  });
+  for (const harness of [first, successor, contender]) {
+    await start(harness);
+    await plan(harness);
+  }
+
+  const firstAttempt = commandId("writer-successor-original");
+  await dispatchWriter(first, firstAttempt);
+  const firstReport = roleReport(first, firstAttempt, "implementador");
+  const terminalCommandId = commandId("writer-successor-terminal");
+  await apply(
+    first,
+    "accept-role-report",
+    { attemptId: firstAttempt, report: firstReport },
+    { commandId: terminalCommandId },
+  );
+  const successorAttempt = commandId("writer-successor-current");
+  await dispatchWriter(successor, successorAttempt);
+  const beforeRetry = await readWriterReservation(root);
+
+  const retried = await apply(
+    first,
+    "accept-role-report",
+    { attemptId: firstAttempt, report: firstReport },
+    { commandId: terminalCommandId, expectedRevision: 3 },
+  );
+  assert.equal(retried.revision, 4);
+  assert.deepEqual(await readWriterReservation(root), beforeRetry);
+  await assert.rejects(
+    dispatchWriter(contender, commandId("writer-successor-blocked")),
+    (error) => {
+      assert.equal(error.code, "writer_locked");
+      assert.equal(error.details.session, successor.sessionId);
+      assert.equal(error.details.attempt, successorAttempt);
+      return true;
+    },
+  );
 });
 
 test("la conformidad exige inventario, schemas y marcadores canónicos", async (t) => {

@@ -230,11 +230,11 @@ optimización opcional de Codex; ninguna garantía esencial depende de ella.
 Los planes declaran `workUnits` y el kernel rechaza todo despacho sin el
 contrato estructurado completo.
 
-Las regresiones permanentes usan la CLI pública en procesos Node.js y
-directorios temporales autolimpiables. Cubren identidad unidad/intento,
-contratos y DAG, gates, dependencias, ownership portable, writer lock entre
-DevSessions, capacidades separadas, fan-in por modo, generaciones, Evaluadores
-obsoletos, upgrade heredado, idempotencia de `commit`/`fail`, recuperación del
-lock original y preservación del lock sucesor. La validación contractual añade
-checks sintácticos, suite completa, dry-run, paquete offline y auditoría de
-residuos.
+Las regresiones permanentes ejercitan `OrchestrationKernel.apply/inspect` con
+stores de memoria y filesystem real en directorios temporales autolimpiables.
+Cubren identidad unidad/intento, contratos y DAG, gates, dependencias,
+ownership portable, reserva writer entre DevSessions, checkpoints
+interrumpidos, idempotencia terminal y preservación del writer sucesor, además
+de capacidades separadas, fan-in por modo, generaciones y Evaluadores
+obsoletos. La validación contractual añade checks sintácticos, suite completa,
+dry-run, paquete offline y auditoría de residuos.

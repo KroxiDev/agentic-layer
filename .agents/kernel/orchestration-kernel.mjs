@@ -44,6 +44,8 @@ const ROLES = new Set([
 ]);
 const WORKFLOWS = new Set(["architecture", "bugfix", "feature", "refactor"]);
 const WRITER_ROLES = new Set(["documentador", "implementador", "tester"]);
+const WRITER_TERMINAL_COMMANDS = new Set(["accept-role-report", "record-attempt-failure"]);
+const WRITER_TERMINAL_STATES = new Set(["completed", "failed"]);
 const EVALUATION_RISKS = new Set([
   "architectural-decision",
   "considerable-fan-in",
@@ -99,6 +101,33 @@ const COMMAND_PAYLOAD_KEYS = {
     "workflow",
   ]),
 };
+
+function sameWriterOwner(left, right) {
+  return Boolean(
+    left &&
+      right &&
+      left.attempt === right.attempt &&
+      left.session === right.session &&
+      left.workingTreeId === right.workingTreeId,
+  );
+}
+
+async function writerOwner(stateStore, session, attempt) {
+  return {
+    attempt,
+    session,
+    workingTreeId: await stateStore.workingTreeId(),
+  };
+}
+
+function terminalWriterAttempt(state, command) {
+  if (!WRITER_TERMINAL_COMMANDS.has(command.type)) return undefined;
+  const attempt = state.attempts?.[command.payload?.attemptId];
+  if (attempt?.permission !== "writer" || !WRITER_TERMINAL_STATES.has(attempt.state)) {
+    return undefined;
+  }
+  return attempt;
+}
 
 function assertExactKeys(value, allowed, label, code) {
   const unexpected = Object.keys(value).filter((key) => !allowed.has(key));
@@ -1651,13 +1680,16 @@ export class OrchestrationKernel {
     if (!bootstrapCapability) throw new TypeError("bootstrapCapability es obligatorio.");
     if (!stateStore) throw new TypeError("stateStore es obligatorio; producción debe usar un store durable.");
     for (const method of [
+      "acquireWriter",
       "findActiveWriter",
       "findCommand",
       "load",
       "probe",
+      "releaseWriter",
       "save",
       "withGlobalLock",
       "withLock",
+      "workingTreeId",
     ]) {
       if (typeof stateStore[method] !== "function") {
         throw new TypeError(`stateStore debe implementar ${method}().`);
@@ -1754,6 +1786,17 @@ export class OrchestrationKernel {
           if (recorded.sessionId !== command.sessionId || recorded.command.fingerprint !== fingerprint) {
             invalid("idempotency_conflict", "commandId ya fue usado con otro payload.");
           }
+          const recordedTerminalAttempt = terminalWriterAttempt(recordedState, command);
+          if (recordedTerminalAttempt) {
+            await this.stateStore.releaseWriter(
+              await writerOwner(
+                this.stateStore,
+                recordedState.sessionId,
+                recordedTerminalAttempt.attemptId,
+              ),
+              { preserveForeignOwner: true },
+            );
+          }
           const result = clone(recorded.command.result);
           await deliverPendingEvents(this, recordedState, command.commandId, result);
           if (command.type === "start-session") {
@@ -1781,6 +1824,7 @@ export class OrchestrationKernel {
         let transition;
         let transitionFromRevision;
         let transitionFromState;
+        let writerToRelease;
 
         if (command.type === "start-session") {
           authorizeStart(this, command);
@@ -1816,23 +1860,41 @@ export class OrchestrationKernel {
           if (!state) invalid("session_not_found", "La sesión no existe.");
           authorizeSession(this, state, command);
           requireRevision(command, state);
-          if (
-            command.type === "dispatch-attempt" &&
-            WRITER_ROLES.has(command.payload?.role)
-          ) {
-            const activeWriter = await this.stateStore.findActiveWriter();
-            if (activeWriter) {
-              invalid(
-                "writer_locked",
-                `El working tree ya tiene un writer activo: ${activeWriter.sessionId}/${activeWriter.attemptId}.`,
-                activeWriter,
-              );
-            }
-          }
           state = clone(state);
           transitionFromRevision = state.revision;
           transitionFromState = state.lifecycle;
           transition = applyToState(state, command, this.clock);
+          if (
+            command.type === "dispatch-attempt" &&
+            WRITER_ROLES.has(command.payload?.role)
+          ) {
+            const owner = await writerOwner(
+              this.stateStore,
+              state.sessionId,
+              command.payload.attemptId,
+            );
+            const activeWriter = await this.stateStore.findActiveWriter();
+            if (activeWriter && !sameWriterOwner(activeWriter, owner)) {
+              invalid(
+                "writer_locked",
+                `El working tree ya tiene un writer activo: ${activeWriter.session}/${activeWriter.attempt}.`,
+                activeWriter,
+              );
+            }
+            await this.stateStore.acquireWriter(owner, {
+              commandFingerprint: fingerprint,
+              commandId: command.commandId,
+              expectedRevision: command.expectedRevision,
+            });
+          }
+          const terminalAttempt = terminalWriterAttempt(state, command);
+          if (terminalAttempt) {
+            writerToRelease = await writerOwner(
+              this.stateStore,
+              state.sessionId,
+              terminalAttempt.attemptId,
+            );
+          }
         }
 
         const beforeRevision = transitionFromRevision;
@@ -1875,6 +1937,7 @@ export class OrchestrationKernel {
         }
         state.telemetry.pendingEvents[event.eventId] = clone(event);
         await this.stateStore.save(state.sessionId, state);
+        if (writerToRelease) await this.stateStore.releaseWriter(writerToRelease);
         await deliverPendingEvents(this, state, command.commandId, result);
         if (issuedCapability) result.actorCapability = issuedCapability;
         return protectWorkEnvelope(result);

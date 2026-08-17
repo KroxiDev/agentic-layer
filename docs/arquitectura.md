@@ -278,8 +278,11 @@ flowchart TD
     doc --> close["completed + close-session"]
 ```
 
-`StateStore` serializa cada sesión y publica snapshots atómicos;
-`MemoryStateStore` ejecuta la misma suite pública que el adapter de filesystem.
+`StateStore` serializa cada sesión y publica snapshots atómicos.
+`FileSystemStateStore` vuelve a demostrar la contención física antes de crear,
+leer, reemplazar o anexar: rechaza ancestros redirigidos y enlaces ajenos en
+snapshot/event log, y no escribe fuera de `root` ante una ruta ambigua. `MemoryStateStore`
+ejecuta la misma superficie pública que el adapter de filesystem.
 `Clock` separa timestamps UTC de duración monotónica, `EnvironmentProbe`
 comprueba el entorno antes del primer snapshot y `EventSink` conserva el log
 append-only sin prompts, capacidades ni secretos.
@@ -469,16 +472,20 @@ abiertos hayan terminado.
 ### Writer lock, recuperación e idempotencia
 
 El aislamiento writer no es local a una DevSession. El store deriva la
-identidad canónica del working tree y publica por hard link un único archivo
-`.writer-<workingTreeId>.lock`. Su dueño exacto contiene `session`, `attempt` y
-`workingTreeId`, por lo que dos DevSessions del mismo árbol compiten por la
-misma reserva aunque declaren rutas diferentes.
+identidad canónica del working tree, sincroniza un candidato completo y publica
+por hard link un único archivo `.writer-<workingTreeId>.lock`. La reserva
+persistida usa `schemaVersion: 2`; su dueño exacto contiene `session`, `attempt`
+y `workingTreeId`, y su checkpoint conserva comando, fingerprint y revisión.
+Dos DevSessions del mismo árbol compiten por la misma reserva aunque declaren
+rutas diferentes.
 
 Cada transición adquiere el lock correspondiente y valida ownership antes de
-liberarlo. Repetir un comando exacto mantiene la idempotencia sin reclamar ni
-retirar la reserva de un intento sucesor. Los temporales de publicación se
-limpian en la propia adquisición y los residuos ambiguos nunca se borran por
-edad.
+liberarlo. La liberación exige que el snapshot demuestre al mismo intento en
+estado terminal. Repetir un comando exacto repara una reserva propia residual
+sin reclamar ni retirar la de un intento sucesor. Los locks transitorios se
+recuperan sólo cuando su PID ya no está activo; candidatos interrumpidos se
+retiran por identidad, mientras un propietario ambiguo se conserva. Ninguna
+recuperación usa antigüedad.
 
 ### Fan-in y generaciones
 

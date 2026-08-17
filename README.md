@@ -54,10 +54,13 @@ inventario y los únicos overrides admitidos: `contextBudgetBytes` y
 `telemetrySink`.
 
 El estado persistente vive en `.agents/sessions/state/` como snapshot y event
-log. `.agents/sessions/` queda fuera del paquete y del alcance de `update`, salvo
-su asset de ignore. Un `start-session` crea la sesión; cada
-`dispatch-attempt` produce un `WorkEnvelope`; cada rol devuelve un `RoleReport`
-y solo el orquestador lo presenta al kernel.
+log. El adapter de filesystem demuestra la contención física de cada ancestro y
+rechaza redirecciones o enlaces ajenos en los archivos del ledger antes de
+escribir; la reserva writer durable conserva dueño y checkpoint exactos. `.agents/sessions/`
+queda fuera del paquete y del alcance de `update`, salvo su asset de ignore. Un
+`start-session` crea la sesión; cada `dispatch-attempt` produce un
+`WorkEnvelope`; cada rol devuelve un `RoleReport` y solo el orquestador lo
+presenta al kernel.
 
 ## Contexto mínimo
 
