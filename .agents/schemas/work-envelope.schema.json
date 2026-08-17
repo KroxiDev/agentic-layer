@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kroxidev.dev/agentic/work-envelope.schema.json",
+  "title": "WorkEnvelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "sessionId",
+    "attemptId",
+    "acceptanceContractHash",
+    "contractKind",
+    "generation",
+    "sourceRevision",
+    "baseRevision",
+    "threadId",
+    "phase",
+    "role",
+    "permission",
+    "criteria",
+    "ownedPaths",
+    "validationStrategy",
+    "wave",
+    "objective",
+    "rules",
+    "tasks",
+    "findings",
+    "contextManifest",
+    "contextPaths"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 3 },
+    "sessionId": { "type": "string", "minLength": 1 },
+    "attemptId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "acceptanceContractHash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "contractKind": { "enum": ["acceptance", "planning-scope"] },
+    "generation": { "type": "integer", "minimum": 1 },
+    "sourceRevision": { "type": "integer", "minimum": 1 },
+    "baseRevision": { "type": "string", "minLength": 1 },
+    "threadId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "phase": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "role": {
+      "enum": ["documentador", "evaluador", "explorador", "implementador", "planificador", "tester"]
+    },
+    "permission": { "enum": ["read-only", "writer"] },
+    "criteria": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "statement", "oracle"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "statement": { "type": "string", "minLength": 1 },
+          "oracle": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "ownedPaths": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "validationStrategy": {
+      "type": ["string", "null"],
+      "enum": [
+        "distinct-acceptance-check",
+        "independent-rerun",
+        "verified-evidence-reuse",
+        null
+      ]
+    },
+    "wave": { "type": ["integer", "null"], "minimum": 1 },
+    "objective": { "type": "string", "minLength": 1 },
+    "rules": { "type": "string", "minLength": 1 },
+    "tasks": { "type": "string", "minLength": 1 },
+    "findings": { "type": "array" },
+    "contextManifest": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "hash", "bytes"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "bytes": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "contextPaths": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "evaluationAxis": { "enum": ["combined", "specification", "standards"] },
+    "laneId": { "type": "string", "pattern": "^full:[1-9]\\d*$" },
+    "workUnitId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "role": {
+            "enum": ["evaluador", "explorador", "planificador"]
+          }
+        },
+        "required": ["role"]
+      },
+      "then": { "properties": { "permission": { "const": "read-only" } } }
+    },
+    {
+      "if": {
+        "properties": { "role": { "enum": ["documentador", "implementador"] } },
+        "required": ["role"]
+      },
+      "then": { "properties": { "permission": { "const": "writer" } } }
+    },
+    {
+      "if": { "required": ["workUnitId"] },
+      "then": {
+        "properties": {
+          "criteria": { "minItems": 1 },
+          "ownedPaths": { "minItems": 1 },
+          "validationStrategy": { "type": "string" },
+          "wave": { "type": "integer", "minimum": 1 },
+          "role": { "enum": ["implementador", "tester"] }
+        }
+      },
+      "else": {
+        "properties": {
+          "ownedPaths": { "maxItems": 0 },
+          "validationStrategy": { "const": null },
+          "wave": { "const": null }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "role": { "const": "implementador" } },
+        "required": ["role"]
+      },
+      "then": { "required": ["workUnitId"] }
+    },
+    {
+      "if": {
+        "properties": {
+          "role": { "const": "tester" },
+          "permission": { "const": "writer" }
+        },
+        "required": ["role", "permission"]
+      },
+      "then": { "required": ["workUnitId"] }
+    },
+    {
+      "if": { "required": ["laneId"] },
+      "then": {
+        "properties": {
+          "role": { "const": "tester" },
+          "permission": { "const": "read-only" }
+        },
+        "not": {
+          "anyOf": [{ "required": ["workUnitId"] }, { "required": ["evaluationAxis"] }]
+        }
+      }
+    },
+    {
+      "if": { "required": ["evaluationAxis"] },
+      "then": {
+        "properties": {
+          "role": { "const": "evaluador" },
+          "permission": { "const": "read-only" }
+        },
+        "not": {
+          "anyOf": [{ "required": ["workUnitId"] }, { "required": ["laneId"] }]
+        }
+      }
+    }
+  ]
+}

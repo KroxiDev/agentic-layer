@@ -406,17 +406,23 @@ su marcador no los declara.
 ### Unidades, intentos, DAG y gates
 
 El Planificador registra de una a tres unidades verticales en `full`. En
-`light` registra exactamente una unidad writer, sin dependencias y
-con `focusedValidation`. Cada unidad guarda `workUnitId`,
-`acceptanceCriteria`, `dependsOn`, `ownedPaths`, `permission` y `wave`. El
-kernel rechaza contratos incompletos, IDs duplicados, dependencias
-ausentes, ciclos y colisiones antes de crear la DevSession.
+`light` registra exactamente una unidad writer, sin dependencias. Cada unidad
+guarda `workUnitId`, `criterionIds`, `dependsOn`, `ownedPaths`,
+`permission: "writer"` y una `validationStrategy` admitida; el kernel deriva su
+`wave` del DAG. El kernel rechaza contratos incompletos, IDs duplicados,
+dependencias ausentes, ciclos y colisiones antes de crear la DevSession.
 
 La unidad y el intento son identidades distintas. La primera representa el
 trabajo a través de sus retrabajos; el segundo es una ejecución monotónica de
-fase y rol con `baseRevision`, `threadId`, criterios, permiso, causa e intento
-anterior. Un intento terminal es inmutable. Una unidad validada sólo se reabre
-con impacto demostrado.
+fase y rol que declara `baseRevision`, `threadId`, fase, permiso, objetivo,
+reglas, tareas, findings y `contextManifest`, y persiste criterios completos,
+ownership, estrategia, oleada, causa e intento anterior. Un intento terminal
+es inmutable. Una unidad validada sólo se reabre con impacto demostrado.
+
+Explorador, Planificador y Evaluador despachan con permiso `read-only`;
+Implementador y Documentador con `writer`; Tester admite `writer` cuando posee
+una unidad y `read-only` para lane integral o reproducción. El kernel valida la
+combinación con rol, unidad, lane y lifecycle antes de mutar.
 
 En la ruta separada los gates son mecánicos:
 
@@ -444,11 +450,15 @@ ancestro/descendiente, incluidas mayúsculas y aliases terminales de Windows.
 ### Proyección de contexto y traspaso de reportes
 
 La DevSession global es el ledger durable y recuperable. No se carga en cada
-contexto aislado: `dispatch-attempt` proyecta un `WorkEnvelope` autocontenido con
-objetivo, reglas, tareas, hallazgos y una lista ordenada `contextPaths`. El kernel
-calcula `sourceRevision` desde la revisión global vigente, valida rutas relativas
-portables y rechaza índices protegidos, directorios, escapes, aliases y
-duplicados antes de escribir.
+contexto aislado: `dispatch-attempt` recibe `contextManifest` y proyecta un
+`WorkEnvelope` autocontenido con hash y tipo de contrato, identidades de sesión
+e intento, versión, generación, `sourceRevision`, `baseRevision`, `threadId`,
+fase, rol, permiso, criterios completos, `ownedPaths`, `validationStrategy`,
+`wave`, objetivo, reglas, tareas, findings, manifiesto y una lista ordenada
+`contextPaths`. El kernel deriva `sourceRevision` y `contextPaths`, valida rutas
+relativas portables y rechaza índices protegidos, directorios, escapes, aliases
+y duplicados antes de escribir. El sobre nunca contiene capacidades de
+mutación ni el ledger.
 
 El despacho normal contiene únicamente el `WorkEnvelope`, la instrucción breve
 de ejecutar el contrato del rol y acceso a CodeGraph y Engram. El rol lee solo
@@ -457,10 +467,12 @@ copiados. Ante un dato indispensable ausente devuelve la incógnita exacta. El
 orquestador puede fallar el intento y abrir otro con causa y contexto corregido,
 pero nunca reescribe retrospectivamente un sobre activo.
 
-`accept-role-report` incorpora el `RoleReport` estructurado. La vista humana
-global añade una referencia de tamaño acotado con identidad, atribución,
-resultado y hash; el snapshot sigue siendo dueño de revisiones, gates, evidencia
-y evaluación. Por eso `inspect` no necesita interpretar Markdown.
+`accept-role-report` incorpora el `RoleReport` estructurado. Su schema JSON y el
+runtime coinciden: todo finding no informativo exige `reproduction`; un finding
+informativo puede omitirla. La vista humana global añade una referencia de
+tamaño acotado con identidad, atribución, resultado y hash; el snapshot sigue
+siendo dueño de revisiones, gates, evidencia y evaluación. Por eso `inspect` no
+necesita interpretar Markdown.
 
 La política canónica selecciona `contextPaths` mínimos para cada rol. Evaluador
 sigue siendo obligatorio. Documentador se abre después de la aprobación sólo si
@@ -474,10 +486,12 @@ abiertos hayan terminado.
 El aislamiento writer no es local a una DevSession. El store deriva la
 identidad canónica del working tree, sincroniza un candidato completo y publica
 por hard link un único archivo `.writer-<workingTreeId>.lock`. La reserva
-persistida usa `schemaVersion: 2`; su dueño exacto contiene `session`, `attempt`
+persistida usa `schemaVersion: 3`; su dueño exacto contiene `session`, `attempt`
 y `workingTreeId`, y su checkpoint conserva comando, fingerprint y revisión.
 Dos DevSessions del mismo árbol compiten por la misma reserva aunque declaren
-rutas diferentes.
+rutas diferentes. Los snapshots de una versión anterior o los incompletos que
+declaran la versión actual fallan de forma cerrada; no existe negociación de
+formatos ni migración implícita.
 
 Cada transición adquiere el lock correspondiente y valida ownership antes de
 liberarlo. La liberación exige que el snapshot demuestre al mismo intento en

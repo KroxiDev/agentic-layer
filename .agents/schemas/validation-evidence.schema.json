@@ -14,7 +14,7 @@
     "decision"
   ],
   "properties": {
-    "schemaVersion": { "const": 2 },
+    "schemaVersion": { "const": 3 },
     "laneId": { "type": "string", "pattern": "^full:[1-9][0-9]*$" },
     "generation": { "type": "integer", "minimum": 1 },
     "treeFingerprint": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },

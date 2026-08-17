@@ -231,12 +231,13 @@ del impacto la exijan.
 - Formar oleadas deterministas únicamente con unidades listas. Cerrar cada hilo
   después de consolidar su resultado para liberar capacidad.
 
-La planificación `full` puede declarar entre una y tres
-unidades de implementación, cada una con `workUnitId`, `dependsOn`,
-`owned_paths`, permiso y orden. Sus dependencias solo quedan satisfechas por
-validación atribuible del Tester. La estrategia compacta exige una sola unidad
-writer, sin dependencias, con su validación focalizada concreta persistida. No
-repetir una unidad validada salvo impacto demostrado.
+La planificación `full` puede declarar entre una y tres unidades de
+implementación. Cada una declara `workUnitId`, `criterionIds`, `dependsOn`,
+`ownedPaths`, `permission: "writer"` y una `validationStrategy` admitida; el
+kernel deriva su oleada desde el DAG. Sus dependencias solo quedan satisfechas
+por validación atribuible del Tester. La estrategia compacta exige una sola
+unidad writer, sin dependencias, con su validación focalizada concreta
+persistida. No repetir una unidad validada salvo impacto demostrado.
 
 Cada unidad recibe validación focalizada atribuible mediante un caso, patrón o
 procedimiento concreto. El Implementador conserva una comprobación
@@ -246,10 +247,21 @@ sola vez antes de la evaluación final. En la estrategia compacta, el Evaluador
 combinado independiente juzga o ejecuta la señal focalizada y la suite completa
 continúa sin ejecutarse por defecto.
 
-Cada intento declara su propio permiso `read-only` o `writer`; un Tester
-`read-only` puede validar una unidad `writer` sin consumir aislamiento de
-escritor. `baseRevision`, `threadId`, criterios, oleada y fase son obligatorios
-en cada intento planificado.
+Cada `dispatch-attempt` declara `attemptId`, `baseRevision`, `threadId`, `phase`
+y su propio `permission` (`read-only` o `writer`), además de `objective`,
+`rules`, `tasks`, `findings` y `contextManifest` explícitos. Implementador y
+Documentador exigen `writer`; Explorador, Planificador y Evaluador exigen
+`read-only`. Un Tester de unidad puede ser `read-only` o `writer`, pero el
+segundo caso exige el `workUnitId` y el ownership de esa unidad. El Tester del
+lane `full:<generation>` y la reproducción previa sin unidad son siempre
+`read-only`.
+
+El kernel valida permiso, rol, unidad, lane, lifecycle y ownership antes de
+persistir. El `WorkEnvelope` de `schemaVersion: 3` conserva revisión base, hilo,
+fase, permiso, criterios completos, `ownedPaths`, estrategia de validación,
+oleada, objetivo, reglas, tareas, findings y contexto atribuible; calcula
+`sourceRevision` desde la revisión vigente. No contiene capacidad de mutación
+ni una copia del ledger, y un intento abierto nunca se reescribe.
 
 Solo puede existir un solo escritor activo por working tree. Un writer lock
 durable usa la identidad canónica del working tree y se comparte entre todas
@@ -402,11 +414,12 @@ testing y documentación se ejecutan en el orden del workflow.
 
 La DevSession global es el ledger durable y recuperable de coordinación, pero
 no es un artefacto de despacho. Para cada intento nuevo, `dispatch-attempt`
-materializa un `WorkEnvelope` autocontenido como único sobre normal. El caller debe aportar
-`objective`, `rules` y `tasks` como strings no vacíos, `findings` como el
-hallazgo pertinente o `No aplica`, y `contextPaths` como una lista explícita de
-archivos consultables. El kernel calcula `sourceRevision` desde la
-revisión global vigente; el caller no puede imponerla.
+materializa un `WorkEnvelope` autocontenido como único sobre normal. El caller
+debe aportar `objective`, `rules` y `tasks` como strings no vacíos, `findings`
+como lista estructurada y `contextManifest` como lista explícita de archivos
+consultables con ruta, hash y bytes. El kernel deduplica el manifiesto, deriva
+`contextPaths` y calcula `sourceRevision`; el caller no puede imponer ninguno
+de estos dos últimos campos.
 
 `contextPaths` conserva el orden elegido y usa rutas relativas canónicas. Se
 rechazan rutas absolutas, escapes, segmentos ambiguos, aliases por puntos o
@@ -438,6 +451,12 @@ El rol lee su `WorkEnvelope` y únicamente las rutas enumeradas en
 orquestador sin abrir el ledger ni ampliar el contexto. Corregir la selección
 exige cerrar o fallar el intento y abrir uno nuevo con causa y sobre nuevo; un
 sobre abierto no se modifica retrospectivamente.
+
+El `RoleReport` de `schemaVersion: 3` usa la misma forma admitida por el runtime.
+Todo finding no informativo exige `reproduction`; uno informativo puede
+omitirla y el kernel conserva esa ausencia. Un reporte estructuralmente
+inválido produce `invalid_role_report` y deja revisión, intento y gates sin
+cambios.
 
 ## Prioridad de Codex y paridad
 

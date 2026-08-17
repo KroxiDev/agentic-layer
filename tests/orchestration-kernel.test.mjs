@@ -28,6 +28,7 @@ import {
   createBootstrapCapability,
 } from "../.agents/kernel/adapters.mjs";
 import {
+  SCHEMA_VERSION,
   digestObject,
   withAcceptanceContractHash,
 } from "../.agents/kernel/protocol.mjs";
@@ -42,7 +43,7 @@ function commandId(label = "command") {
 
 function acceptanceContract(overrides = {}) {
   const base = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     contractId: "AC-01",
     version: 1,
     userIntent: "Implementar una unidad verificable.",
@@ -69,6 +70,8 @@ function unit(overrides = {}) {
     criterionIds: ["AC-01-C01"],
     dependsOn: [],
     ownedPaths: ["src/unit.mjs"],
+    permission: "writer",
+    validationStrategy: "independent-rerun",
     ...overrides,
   };
 }
@@ -93,7 +96,7 @@ function finding(classification, overrides = {}) {
 
 function roleReport(harness, attempt, role, overrides = {}) {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     sessionId: harness.sessionId,
     attemptId: attempt,
     acceptanceContractHash: harness.contract.hash,
@@ -109,7 +112,7 @@ function roleReport(harness, attempt, role, overrides = {}) {
 
 function validationEvidence(generation, overrides = {}) {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     laneId: `full:${generation}`,
     generation,
     treeFingerprint: digestObject(`tree-${generation}`),
@@ -153,7 +156,7 @@ function createHarness({
 async function apply(harness, type, payload = {}, options = {}) {
   const view = await harness.kernel.inspect(harness.sessionId).catch(() => ({ revision: 0 }));
   return harness.kernel.apply({
-    schemaVersion: 2,
+    schemaVersion: 3,
     commandId: options.commandId ?? commandId(type),
     sessionId: harness.sessionId,
     expectedRevision: options.expectedRevision ?? view.revision,
@@ -166,7 +169,7 @@ async function apply(harness, type, payload = {}, options = {}) {
 async function start(harness, overrides = {}, options = {}) {
   const { lightStrategy, mode = "light", ...startOverrides } = overrides;
   const result = await harness.kernel.apply({
-    schemaVersion: 2,
+    schemaVersion: 3,
     commandId: options.commandId ?? commandId("start"),
     sessionId: harness.sessionId,
     expectedRevision: 0,
@@ -198,12 +201,16 @@ async function plan(harness, overrides = {}) {
 async function dispatchAndReport(harness, { role, attempt = commandId(role), report = {}, ...payload }) {
   const dispatched = await apply(harness, "dispatch-attempt", {
     attemptId: attempt,
+    baseRevision: "git:test-base",
     contextManifest: [],
     findings: [],
     objective: `Ejecutar ${role}.`,
+    permission: ["documentador", "implementador"].includes(role) ? "writer" : "read-only",
+    phase: `${role}-phase`,
     role,
     rules: "Aplicar el contrato.",
     tasks: "Completar el intento.",
+    threadId: `thread-${attempt}`,
     ...payload,
   });
   const accepted = await apply(harness, "accept-role-report", {
@@ -219,12 +226,16 @@ async function dispatchWriter(harness, attemptId, options = {}) {
     "dispatch-attempt",
     {
       attemptId,
+      baseRevision: "git:test-base",
       contextManifest: [],
       findings: [],
       objective: "Implementar la unidad writer.",
+      permission: "writer",
+      phase: "implementation",
       role: "implementador",
       rules: "Aplicar el contrato.",
       tasks: "Completar la unidad.",
+      threadId: `thread-${attemptId}`,
       workUnitId: "unit-1",
     },
     options,
@@ -266,13 +277,17 @@ async function evaluate(harness, reports, strategy = "combined") {
     const attempt = commandId(`evaluate-${axis}`);
     await apply(harness, "dispatch-attempt", {
       attemptId: attempt,
+      baseRevision: "git:test-base",
       contextManifest: [],
       evaluationAxis: axis,
       findings: [],
       objective: `Evaluar ${axis}.`,
+      permission: "read-only",
+      phase: "evaluation",
       role: "evaluador",
       rules: "Aplicar aceptación congelada.",
       tasks: "Emitir RoleReport.",
+      threadId: `thread-${attempt}`,
     });
     attempts.push({ attempt, axis });
   }
@@ -328,6 +343,376 @@ test("el kernel expone únicamente apply e inspect y la prosa no decide el estad
   }
 });
 
+test("dispatch-attempt exige permiso explícito antes de persistir", async () => {
+  const harness = createHarness();
+  await start(harness, { mode: "full" });
+  await plan(harness);
+  const before = await harness.kernel.inspect(harness.sessionId);
+
+  await assert.rejects(
+    apply(harness, "dispatch-attempt", {
+      attemptId: commandId("missing-permission"),
+      contextManifest: [],
+      findings: [],
+      objective: "Implementar.",
+      role: "implementador",
+      rules: "Contrato.",
+      tasks: "Unidad.",
+      workUnitId: "unit-1",
+    }),
+    { code: "invalid_attempt_permission" },
+  );
+
+  const after = await harness.kernel.inspect(harness.sessionId);
+  assert.equal(after.revision, before.revision);
+  assert.deepEqual(after.attempts, before.attempts);
+});
+
+test("dispatch-attempt rechaza manifiesto o findings ausentes sin mutar", async () => {
+  for (const missing of ["contextManifest", "findings"]) {
+    const harness = createHarness();
+    await start(harness, { mode: "full" });
+    await plan(harness);
+    const before = await harness.kernel.inspect(harness.sessionId);
+    const payload = {
+      attemptId: commandId(`missing-${missing}`),
+      baseRevision: "git:test-base",
+      contextManifest: [],
+      findings: [],
+      objective: "Implementar.",
+      permission: "writer",
+      phase: "implementation",
+      role: "implementador",
+      rules: "Contrato.",
+      tasks: "Unidad.",
+      threadId: `thread-missing-${missing}`,
+      workUnitId: "unit-1",
+    };
+    delete payload[missing];
+    await assert.rejects(apply(harness, "dispatch-attempt", payload), {
+      code: "invalid_attempt_contract",
+    });
+    assert.deepEqual(await harness.kernel.inspect(harness.sessionId), before);
+  }
+});
+
+test("el plan exige y conserva permiso y estrategia de validación por unidad", async () => {
+  const incomplete = createHarness();
+  await start(incomplete, { mode: "full" });
+  const before = await incomplete.kernel.inspect(incomplete.sessionId);
+  await assert.rejects(
+    plan(incomplete, {
+      workUnits: [
+        {
+          workUnitId: "unit-1",
+          criterionIds: ["AC-01-C01"],
+          dependsOn: [],
+          ownedPaths: ["src/unit.mjs"],
+        },
+      ],
+    }),
+    { code: "invalid_plan" },
+  );
+  assert.deepEqual(await incomplete.kernel.inspect(incomplete.sessionId), before);
+
+  const complete = createHarness();
+  await start(complete, { mode: "full" });
+  await plan(complete, {
+    workUnits: [
+      {
+        workUnitId: "unit-1",
+        criterionIds: ["AC-01-C01"],
+        dependsOn: [],
+        ownedPaths: ["src/unit.mjs"],
+        permission: "writer",
+        validationStrategy: "independent-rerun",
+      },
+    ],
+  });
+  const planned = await complete.kernel.inspect(complete.sessionId);
+  assert.equal(planned.workUnits["unit-1"].permission, "writer");
+  assert.equal(planned.workUnits["unit-1"].validationStrategy, "independent-rerun");
+  assert.equal(planned.workUnits["unit-1"].wave, 1);
+});
+
+test("WorkEnvelope conserva el contrato completo y limita el permiso por contexto", async () => {
+  const envelopeSchema = JSON.parse(
+    await readFile(join(ROOT, ".agents", "schemas", "work-envelope.schema.json"), "utf8"),
+  );
+  assert.equal(envelopeSchema.additionalProperties, false);
+  for (const field of [
+    "baseRevision",
+    "threadId",
+    "permission",
+    "criteria",
+    "ownedPaths",
+    "validationStrategy",
+    "wave",
+    "objective",
+    "rules",
+    "tasks",
+    "findings",
+    "contextManifest",
+    "contextPaths",
+  ]) {
+    assert.equal(envelopeSchema.required.includes(field), true, `Falta ${field} en el schema.`);
+  }
+
+  const readOnly = createHarness();
+  await start(readOnly, { mode: "full" });
+  await plan(readOnly);
+  await dispatchAndReport(readOnly, { role: "implementador", workUnitId: "unit-1" });
+  const sourceRevision = (await readOnly.kernel.inspect(readOnly.sessionId)).revision;
+  const attemptId = commandId("tester-read-only");
+  const dispatched = await apply(readOnly, "dispatch-attempt", {
+    attemptId,
+    baseRevision: "git:abc123",
+    contextManifest: [{ path: "src/unit.mjs", hash: digestObject("unit"), bytes: 4 }],
+    findings: [],
+    objective: "Validar la unidad.",
+    permission: "read-only",
+    phase: "unit-validation",
+    role: "tester",
+    rules: "Aplicar aceptación.",
+    tasks: "Ejecutar la validación focalizada.",
+    threadId: "thread-tester-read-only",
+    workUnitId: "unit-1",
+  });
+
+  assert.deepEqual(dispatched.envelope.criteria, readOnly.contract.criteria);
+  assert.deepEqual(dispatched.envelope.ownedPaths, ["src/unit.mjs"]);
+  assert.equal(dispatched.envelope.validationStrategy, "independent-rerun");
+  assert.equal(dispatched.envelope.wave, 1);
+  assert.equal(dispatched.envelope.baseRevision, "git:abc123");
+  assert.equal(dispatched.envelope.threadId, "thread-tester-read-only");
+  assert.equal(dispatched.envelope.permission, "read-only");
+  assert.equal(dispatched.envelope.sourceRevision, sourceRevision);
+  assert.equal(Object.isFrozen(dispatched.envelope), true);
+  assert.equal(Object.isFrozen(dispatched.envelope.criteria), true);
+  assert.equal("actorCapability" in dispatched.envelope, false);
+  assert.equal("ledger" in dispatched.envelope, false);
+
+  let inspected = await readOnly.kernel.inspect(readOnly.sessionId);
+  assert.equal(inspected.attempts[attemptId].baseRevision, "git:abc123");
+  assert.equal(inspected.attempts[attemptId].threadId, "thread-tester-read-only");
+  inspected.attempts[attemptId].envelope.tasks = "alterado fuera del kernel";
+  inspected = await readOnly.kernel.inspect(readOnly.sessionId);
+  assert.equal(inspected.attempts[attemptId].envelope.tasks, "Ejecutar la validación focalizada.");
+
+  await apply(readOnly, "accept-role-report", {
+    attemptId,
+    report: roleReport(readOnly, attemptId, "tester"),
+  });
+  const beforeLane = await readOnly.kernel.inspect(readOnly.sessionId);
+  await assert.rejects(
+    apply(readOnly, "dispatch-attempt", {
+      attemptId: commandId("full-lane-writer"),
+      baseRevision: "git:def456",
+      contextManifest: [],
+      findings: [],
+      laneId: `full:${beforeLane.generation}`,
+      objective: "Validar el fan-in.",
+      permission: "writer",
+      phase: "full-validation",
+      role: "tester",
+      rules: "No modificar el resultado integrado.",
+      tasks: "Ejecutar la suite completa.",
+      threadId: "thread-full-writer",
+    }),
+    { code: "invalid_attempt_permission" },
+  );
+  assert.deepEqual(await readOnly.kernel.inspect(readOnly.sessionId), beforeLane);
+
+  const laneAttempt = commandId("full-lane-read-only");
+  const lane = await apply(readOnly, "dispatch-attempt", {
+    attemptId: laneAttempt,
+    baseRevision: "git:def456",
+    contextManifest: [],
+    findings: [],
+    laneId: `full:${beforeLane.generation}`,
+    objective: "Validar el fan-in.",
+    permission: "read-only",
+    phase: "full-validation",
+    role: "tester",
+    rules: "No modificar el resultado integrado.",
+    tasks: "Ejecutar la suite completa.",
+    threadId: "thread-full-read-only",
+  });
+  assert.deepEqual(lane.envelope.criteria, readOnly.contract.criteria);
+
+  const writer = createHarness();
+  await start(writer, { mode: "full" });
+  await plan(writer);
+  await dispatchAndReport(writer, { role: "implementador", workUnitId: "unit-1" });
+  const writerAttempt = commandId("tester-writer");
+  await apply(writer, "dispatch-attempt", {
+    attemptId: writerAttempt,
+    baseRevision: "git:789abc",
+    contextManifest: [],
+    findings: [],
+    objective: "Añadir una regresión autorizada.",
+    permission: "writer",
+    phase: "unit-validation",
+    role: "tester",
+    rules: "Editar solo el ownership de la unidad.",
+    tasks: "Crear y ejecutar el test.",
+    threadId: "thread-tester-writer",
+    workUnitId: "unit-1",
+  });
+  assert.equal(
+    (await writer.kernel.inspect(writer.sessionId)).attempts[writerAttempt].permission,
+    "writer",
+  );
+});
+
+test("rechaza permisos incompatibles con rol y ownership sin mutar la sesión", async () => {
+  const implementation = createHarness();
+  await start(implementation, { mode: "full" });
+  await plan(implementation);
+  const beforeImplementation = await implementation.kernel.inspect(implementation.sessionId);
+  await assert.rejects(
+    apply(implementation, "dispatch-attempt", {
+      attemptId: commandId("explorer-after-plan"),
+      baseRevision: "git:base",
+      contextManifest: [],
+      findings: [],
+      objective: "Explorar fuera de planning.",
+      permission: "read-only",
+      phase: "feature-explore",
+      role: "explorador",
+      rules: "Respetar el lifecycle.",
+      tasks: "No abrir el intento.",
+      threadId: "thread-explorer-after-plan",
+    }),
+    { code: "invalid_transition" },
+  );
+  assert.deepEqual(
+    await implementation.kernel.inspect(implementation.sessionId),
+    beforeImplementation,
+  );
+  await assert.rejects(
+    apply(implementation, "dispatch-attempt", {
+      attemptId: commandId("implementer-read-only"),
+      baseRevision: "git:base",
+      contextManifest: [],
+      findings: [],
+      objective: "Implementar.",
+      permission: "read-only",
+      phase: "implementation",
+      role: "implementador",
+      rules: "Contrato.",
+      tasks: "Unidad.",
+      threadId: "thread-implementer-read-only",
+      workUnitId: "unit-1",
+    }),
+    { code: "invalid_attempt_permission" },
+  );
+  assert.deepEqual(
+    await implementation.kernel.inspect(implementation.sessionId),
+    beforeImplementation,
+  );
+
+  await dispatchAndReport(implementation, { role: "implementador", workUnitId: "unit-1" });
+  const beforeInvalidLane = await implementation.kernel.inspect(implementation.sessionId);
+  await assert.rejects(
+    apply(implementation, "dispatch-attempt", {
+      attemptId: commandId("tester-invalid-lane"),
+      baseRevision: "git:base",
+      contextManifest: [],
+      findings: [],
+      laneId: "unit-lane",
+      objective: "Validar una unidad.",
+      permission: "read-only",
+      phase: "unit-validation",
+      role: "tester",
+      rules: "No mezclar lane y ownership.",
+      tasks: "No abrir el intento.",
+      threadId: "thread-tester-invalid-lane",
+      workUnitId: "unit-1",
+    }),
+    { code: "invalid_attempt_contract" },
+  );
+  assert.deepEqual(
+    await implementation.kernel.inspect(implementation.sessionId),
+    beforeInvalidLane,
+  );
+  await assert.rejects(
+    apply(implementation, "dispatch-attempt", {
+      attemptId: commandId("implementer-with-lane"),
+      baseRevision: "git:base",
+      contextManifest: [],
+      findings: [],
+      laneId: "full:1",
+      objective: "Implementar.",
+      permission: "writer",
+      phase: "implementation",
+      role: "implementador",
+      rules: "Contrato.",
+      tasks: "Unidad.",
+      threadId: "thread-implementer-with-lane",
+      workUnitId: "unit-1",
+    }),
+    { code: "invalid_attempt_contract" },
+  );
+  assert.deepEqual(
+    await implementation.kernel.inspect(implementation.sessionId),
+    beforeInvalidLane,
+  );
+
+  const reproduction = createHarness();
+  await start(reproduction, { mode: "light", lightStrategy: "compact", workflow: "bugfix" });
+  const beforeReproduction = await reproduction.kernel.inspect(reproduction.sessionId);
+  await assert.rejects(
+    apply(reproduction, "dispatch-attempt", {
+      attemptId: commandId("unowned-reproduction-writer"),
+      baseRevision: "git:base",
+      contextManifest: [],
+      findings: [],
+      objective: "Reproducir.",
+      permission: "writer",
+      phase: "bugfix-reproduce",
+      role: "tester",
+      rules: "No escribir sin ownership.",
+      tasks: "Ejecutar la reproducción.",
+      threadId: "thread-unowned-reproduction-writer",
+    }),
+    { code: "invalid_attempt_permission" },
+  );
+  assert.deepEqual(await reproduction.kernel.inspect(reproduction.sessionId), beforeReproduction);
+
+  const documentation = createHarness();
+  await start(documentation);
+  await plan(documentation, {
+    documentationRequired: true,
+    documentationReason: "El contrato público cambia.",
+  });
+  await dispatchAndReport(documentation, { role: "implementador", workUnitId: "unit-1" });
+  await evaluate(documentation, [{ decision: "pass" }]);
+  const beforeDocumentation = await documentation.kernel.inspect(documentation.sessionId);
+  assert.equal(beforeDocumentation.lifecycle, "documenting");
+  await assert.rejects(
+    apply(documentation, "dispatch-attempt", {
+      attemptId: commandId("documenter-with-unit"),
+      baseRevision: "git:base",
+      contextManifest: [],
+      findings: [],
+      objective: "Documentar sin apropiarse de una unidad.",
+      permission: "writer",
+      phase: "feature-document",
+      role: "documentador",
+      rules: "No heredar ownership de implementación.",
+      tasks: "No abrir el intento.",
+      threadId: "thread-documenter-with-unit",
+      workUnitId: "unit-1",
+    }),
+    { code: "invalid_attempt_contract" },
+  );
+  assert.deepEqual(
+    await documentation.kernel.inspect(documentation.sessionId),
+    beforeDocumentation,
+  );
+});
+
 test("rechaza reportes contradictorios sin mutar y persiste un fallo estructurado", async () => {
   const harness = createHarness();
   await start(harness, { mode: "full" });
@@ -336,12 +721,16 @@ test("rechaza reportes contradictorios sin mutar y persiste un fallo estructurad
   const attempt = commandId("tester");
   await apply(harness, "dispatch-attempt", {
     attemptId: attempt,
+    baseRevision: "git:test-base",
     contextManifest: [],
     findings: [],
     objective: "Validar.",
+    permission: "read-only",
+    phase: "unit-validation",
     role: "tester",
     rules: "Contrato.",
     tasks: "Probar.",
+    threadId: `thread-${attempt}`,
     workUnitId: "unit-1",
   });
   const revision = (await harness.kernel.inspect(harness.sessionId)).revision;
@@ -374,6 +763,62 @@ test("rechaza reportes contradictorios sin mutar y persiste un fallo estructurad
   assert.equal(Object.keys(view.findings).length, 1);
 });
 
+test("RoleReport exige reproducción accionable con paridad entre schema y runtime", async () => {
+  const schema = JSON.parse(
+    await readFile(join(ROOT, ".agents", "schemas", "role-report.schema.json"), "utf8"),
+  );
+  const reproductionRule = schema.properties.findings.items.allOf?.find((rule) =>
+    rule.then?.required?.includes("reproduction"),
+  );
+  assert.deepEqual(reproductionRule?.if?.properties?.classification?.enum, [
+    "acceptance_violation",
+    "transversal_policy_violation",
+    "novel_adversarial_finding",
+  ]);
+
+  const harness = createHarness();
+  await start(harness, { mode: "full" });
+  await plan(harness);
+  await dispatchAndReport(harness, { role: "implementador", workUnitId: "unit-1" });
+  const attemptId = commandId("schema-runtime-parity");
+  await apply(harness, "dispatch-attempt", {
+    attemptId,
+    baseRevision: "git:test-base",
+    contextManifest: [],
+    findings: [],
+    objective: "Validar paridad.",
+    permission: "read-only",
+    phase: "unit-validation",
+    role: "tester",
+    rules: "Aplicar el mismo contrato estructural.",
+    tasks: "Emitir un RoleReport.",
+    threadId: `thread-${attemptId}`,
+    workUnitId: "unit-1",
+  });
+  const before = await harness.kernel.inspect(harness.sessionId);
+  await assert.rejects(
+    apply(harness, "accept-role-report", {
+      attemptId,
+      report: roleReport(harness, attemptId, "tester", {
+        decision: "fail",
+        findings: [finding("acceptance_violation", { reproduction: undefined })],
+      }),
+    }),
+    { code: "invalid_role_report" },
+  );
+  assert.deepEqual(await harness.kernel.inspect(harness.sessionId), before);
+
+  await apply(harness, "accept-role-report", {
+    attemptId,
+    report: roleReport(harness, attemptId, "tester", {
+      findings: [finding("informational")],
+    }),
+  });
+  const accepted = (await harness.kernel.inspect(harness.sessionId)).attempts[attemptId].report;
+  assert.equal(Object.hasOwn(accepted.findings[0], "reproduction"), false);
+  assert.equal(Object.hasOwn(accepted.findings[0], "fingerprint"), false);
+});
+
 test("completion needs_input pausa sin convertir la consulta en fallo y reanuda la fase", async () => {
   const harness = createHarness();
   await start(harness, { mode: "full" });
@@ -381,12 +826,16 @@ test("completion needs_input pausa sin convertir la consulta en fallo y reanuda 
   const attempt = commandId("needs-input");
   await apply(harness, "dispatch-attempt", {
     attemptId: attempt,
+    baseRevision: "git:test-base",
     contextManifest: [],
     findings: [],
     objective: "Implementar.",
+    permission: "writer",
+    phase: "implementation",
     role: "implementador",
     rules: "Contrato.",
     tasks: "Unidad.",
+    threadId: `thread-${attempt}`,
     workUnitId: "unit-1",
   });
   const paused = await apply(harness, "accept-role-report", {
@@ -411,7 +860,7 @@ test("la capacidad única protege ownership, idempotencia y CAS sin filtrarse al
   const harness = createHarness();
   const startId = commandId("start-idempotent");
   const startCommand = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     commandId: startId,
     sessionId: harness.sessionId,
     expectedRevision: 0,
@@ -432,7 +881,7 @@ test("la capacidad única protege ownership, idempotencia y CAS sin filtrarse al
   );
   await assert.rejects(
     harness.kernel.apply({
-      schemaVersion: 2,
+      schemaVersion: 3,
       commandId: commandId("role-mutation"),
       sessionId: harness.sessionId,
       expectedRevision: 1,
@@ -451,12 +900,16 @@ test("la capacidad única protege ownership, idempotencia y CAS sin filtrarse al
   const attempt = commandId("envelope");
   const dispatched = await apply(harness, "dispatch-attempt", {
     attemptId: attempt,
+    baseRevision: "git:test-base",
     contextManifest: [],
     findings: [],
     objective: "Implementar.",
+    permission: "writer",
+    phase: "implementation",
     role: "implementador",
     rules: "Contrato.",
     tasks: "Unidad.",
+    threadId: `thread-${attempt}`,
     workUnitId: "unit-1",
   });
   assert.equal("actorCapability" in dispatched.envelope, false);
@@ -477,7 +930,7 @@ test("un host reiniciado recupera capacidad solo mediante el retry exacto de sta
   const startId = commandId("recoverable-start");
   const payload = { mode: "light", lightStrategy: "compact", workflow: "feature" };
   const first = await original.kernel.apply({
-    schemaVersion: 2,
+    schemaVersion: 3,
     commandId: startId,
     sessionId: original.sessionId,
     expectedRevision: 0,
@@ -488,7 +941,7 @@ test("un host reiniciado recupera capacidad solo mediante el retry exacto de sta
   clock.advance(6);
   await assert.rejects(
     original.kernel.apply({
-      schemaVersion: 2,
+      schemaVersion: 3,
       commandId: commandId("expired"),
       sessionId: original.sessionId,
       expectedRevision: 1,
@@ -518,7 +971,7 @@ test("un host reiniciado recupera capacidad solo mediante el retry exacto de sta
   assert.equal(recovered.revision, 1);
   await assert.rejects(
     recoveredKernel.apply({
-      schemaVersion: 2,
+      schemaVersion: 3,
       commandId: startId,
       sessionId: original.sessionId,
       expectedRevision: 0,
@@ -575,13 +1028,17 @@ test("clasifica violaciones vigentes, findings nuevos y referencias inválidas",
   const attempt = commandId("invalid-reference");
   await apply(invalidReference, "dispatch-attempt", {
     attemptId: attempt,
+    baseRevision: "git:test-base",
     contextManifest: [],
     evaluationAxis: "combined",
     findings: [],
     objective: "Evaluar.",
+    permission: "read-only",
+    phase: "evaluation",
     role: "evaluador",
     rules: "Contrato.",
     tasks: "Criterios.",
+    threadId: `thread-${attempt}`,
   });
   const before = await invalidReference.kernel.inspect(invalidReference.sessionId);
   await assert.rejects(
@@ -626,12 +1083,16 @@ test("congela aceptación, exige threat model destructivo y registra amendments 
   const tester = commandId("contract-mismatch");
   await apply(harness, "dispatch-attempt", {
     attemptId: tester,
+    baseRevision: "git:test-base",
     contextManifest: [],
     findings: [],
     objective: "Validar.",
+    permission: "read-only",
+    phase: "unit-validation",
     role: "tester",
     rules: "Contrato.",
     tasks: "Probar.",
+    threadId: `thread-${tester}`,
     workUnitId: "unit-1",
   });
   await assert.rejects(
@@ -838,7 +1299,7 @@ test("el kernel usa el EnvironmentProbe real por defecto", async () => {
   });
   await assert.rejects(
     kernel.apply({
-      schemaVersion: 2,
+      schemaVersion: 3,
       commandId: commandId("default-environment-probe"),
       sessionId: "default-environment-probe",
       expectedRevision: 0,
@@ -867,6 +1328,7 @@ test("telemetría atribuye actor, tiempos, contexto y degradación sin secretos"
   const attempt = commandId("context");
   await apply(harness, "dispatch-attempt", {
     attemptId: attempt,
+    baseRevision: "git:test-base",
     contextManifest: [
       { path: "src/a.mjs", hash: digestObject("a"), bytes: 10 },
       { path: "SRC/A.mjs", hash: digestObject("a"), bytes: 10 },
@@ -875,9 +1337,12 @@ test("telemetría atribuye actor, tiempos, contexto y degradación sin secretos"
     findings: [],
     objective: "Implementar.",
     retryCause: "timeout",
+    permission: "writer",
+    phase: "implementation",
     role: "implementador",
     rules: "Contrato.",
     tasks: "Unidad.",
+    threadId: `thread-${attempt}`,
     workUnitId: "unit-1",
   });
   assert.equal(eventSink.events.every((event) => event.actor === "orchestrator"), true);
@@ -906,12 +1371,16 @@ test("el presupuesto de contexto rechaza exceso y deduplica referencias portable
   await assert.rejects(
     apply(harness, "dispatch-attempt", {
       attemptId: commandId("too-large"),
+      baseRevision: "git:test-base",
       contextManifest: [{ path: "src/large.mjs", hash: digestObject("large"), bytes: 13 }],
       findings: [],
       objective: "Implementar.",
+      permission: "writer",
+      phase: "implementation",
       role: "implementador",
       rules: "Contrato.",
       tasks: "Unidad.",
+      threadId: "thread-too-large",
       workUnitId: "unit-1",
     }),
     { code: "context_budget_exceeded" },
@@ -920,12 +1389,16 @@ test("el presupuesto de contexto rechaza exceso y deduplica referencias portable
   await assert.rejects(
     apply(harness, "dispatch-attempt", {
       attemptId: commandId("protected-context"),
+      baseRevision: "git:test-base",
       contextManifest: [{ path: ".engram/private.db", hash: digestObject("private"), bytes: 1 }],
       findings: [],
       objective: "Implementar.",
+      permission: "writer",
+      phase: "implementation",
       role: "implementador",
       rules: "Contrato.",
       tasks: "Unidad.",
+      threadId: "thread-protected-context",
       workUnitId: "unit-1",
     }),
     { code: "invalid_context_manifest" },
@@ -933,12 +1406,16 @@ test("el presupuesto de contexto rechaza exceso y deduplica referencias portable
   await assert.rejects(
     apply(harness, "dispatch-attempt", {
       attemptId: commandId("aliased-context"),
+      baseRevision: "git:test-base",
       contextManifest: [{ path: "src/file.mjs. ", hash: digestObject("alias"), bytes: 1 }],
       findings: [],
       objective: "Implementar.",
+      permission: "writer",
+      phase: "implementation",
       role: "implementador",
       rules: "Contrato.",
       tasks: "Unidad.",
+      threadId: "thread-aliased-context",
       workUnitId: "unit-1",
     }),
     { code: "invalid_context_manifest" },
@@ -946,7 +1423,8 @@ test("el presupuesto de contexto rechaza exceso y deduplica referencias portable
 });
 
 test("solo admite el schemaVersion actual y rechaza overrides de protocolo", async () => {
-  for (const schemaVersion of [1, 3]) {
+  assert.equal(SCHEMA_VERSION, 3);
+  for (const schemaVersion of [1, 2, 4]) {
     const harness = createHarness();
     await assert.rejects(
       harness.kernel.apply({
@@ -982,9 +1460,56 @@ test("solo admite el schemaVersion actual y rechaza overrides de protocolo", asy
   const corrupted = createHarness({ sessionId: "corrupted-snapshot" });
   await start(corrupted);
   const snapshot = await corrupted.stateStore.load(corrupted.sessionId);
-  snapshot.schemaVersion = 1;
+  snapshot.schemaVersion = 2;
   await corrupted.stateStore.save(corrupted.sessionId, snapshot);
   await assert.rejects(corrupted.kernel.inspect(corrupted.sessionId), {
+    code: "state_protocol_mismatch",
+  });
+
+  const incompleteAttempt = createHarness();
+  await start(incompleteAttempt);
+  await plan(incompleteAttempt);
+  const completed = await dispatchAndReport(incompleteAttempt, {
+    role: "implementador",
+    workUnitId: "unit-1",
+  });
+  const incompleteSnapshot = await incompleteAttempt.stateStore.load(incompleteAttempt.sessionId);
+  delete incompleteSnapshot.attempts[completed.attempt].threadId;
+  await incompleteAttempt.stateStore.save(incompleteAttempt.sessionId, incompleteSnapshot);
+  await assert.rejects(incompleteAttempt.kernel.inspect(incompleteAttempt.sessionId), {
+    code: "state_protocol_mismatch",
+  });
+
+  const contradictoryAttempt = createHarness({ sessionId: "contradictory-attempt" });
+  await start(contradictoryAttempt);
+  await plan(contradictoryAttempt);
+  const contradictory = await dispatchAndReport(contradictoryAttempt, {
+    role: "implementador",
+    workUnitId: "unit-1",
+  });
+  const contradictorySnapshot = await contradictoryAttempt.stateStore.load(
+    contradictoryAttempt.sessionId,
+  );
+  contradictorySnapshot.attempts[contradictory.attempt].envelope.sessionId = "another-session";
+  await contradictoryAttempt.stateStore.save(
+    contradictoryAttempt.sessionId,
+    contradictorySnapshot,
+  );
+  await assert.rejects(contradictoryAttempt.kernel.inspect(contradictoryAttempt.sessionId), {
+    code: "state_protocol_mismatch",
+  });
+
+  const capabilityLeak = createHarness({ sessionId: "capability-leak" });
+  await start(capabilityLeak);
+  await plan(capabilityLeak);
+  const leaked = await dispatchAndReport(capabilityLeak, {
+    role: "implementador",
+    workUnitId: "unit-1",
+  });
+  const leakedSnapshot = await capabilityLeak.stateStore.load(capabilityLeak.sessionId);
+  leakedSnapshot.attempts[leaked.attempt].envelope.mutationCapability = "forbidden";
+  await capabilityLeak.stateStore.save(capabilityLeak.sessionId, leakedSnapshot);
+  await assert.rejects(capabilityLeak.kernel.inspect(capabilityLeak.sessionId), {
     code: "state_protocol_mismatch",
   });
 });
@@ -998,7 +1523,7 @@ test("los validadores de runtime rechazan drift de schema y ciclos sin mutar", a
   await start(harness);
   await assert.rejects(
     harness.kernel.apply({
-      schemaVersion: 2,
+      schemaVersion: 3,
       commandId: commandId("unexpected-command-field"),
       sessionId: harness.sessionId,
       expectedRevision: 1,
@@ -1069,12 +1594,16 @@ test("los validadores de runtime rechazan drift de schema y ciclos sin mutar", a
   const attempt = commandId("strict-report");
   await apply(harness, "dispatch-attempt", {
     attemptId: attempt,
+    baseRevision: "git:test-base",
     contextManifest: [],
     findings: [],
     objective: "Implementar.",
+    permission: "writer",
+    phase: "implementation",
     role: "implementador",
     rules: "Contrato.",
     tasks: "Unidad.",
+    threadId: `thread-${attempt}`,
     workUnitId: "unit-1",
   });
   const before = await harness.kernel.inspect(harness.sessionId);
@@ -1129,25 +1658,33 @@ test("una evaluación no admite dos intentos activos para el mismo eje y generac
   const firstAttempt = commandId("axis-active");
   await apply(harness, "dispatch-attempt", {
     attemptId: firstAttempt,
+    baseRevision: "git:test-base",
     contextManifest: [],
     findings: [],
     objective: "Evaluar especificación.",
     evaluationAxis: "specification",
+    permission: "read-only",
+    phase: "evaluation",
     role: "evaluador",
     rules: "Contrato.",
     tasks: "Evaluación independiente.",
+    threadId: `thread-${firstAttempt}`,
   });
   const beforeConflict = await harness.kernel.inspect(harness.sessionId);
   await assert.rejects(
     apply(harness, "dispatch-attempt", {
       attemptId: commandId("axis-duplicate"),
+      baseRevision: "git:test-base",
       contextManifest: [],
       findings: [],
       objective: "Duplicar evaluación.",
       evaluationAxis: "specification",
+      permission: "read-only",
+      phase: "evaluation",
       role: "evaluador",
       rules: "Contrato.",
       tasks: "No debe abrir.",
+      threadId: "thread-axis-duplicate",
     }),
     { code: "evaluation_axis_active" },
   );
@@ -1160,7 +1697,7 @@ test("un comando retirado se rechaza y start-session es la única entrada de cre
 
   await assert.rejects(
     harness.kernel.apply({
-      schemaVersion: 2,
+      schemaVersion: 3,
       commandId: commandId("retired-command"),
       sessionId: harness.sessionId,
       expectedRevision: 0,
@@ -1175,7 +1712,7 @@ test("un comando retirado se rechaza y start-session es la única entrada de cre
 
   const started = await start(harness);
   assert.equal(started.decision, "started");
-  assert.equal((await harness.kernel.inspect(harness.sessionId)).schemaVersion, 2);
+  assert.equal((await harness.kernel.inspect(harness.sessionId)).schemaVersion, 3);
 });
 
 test("MemoryStateStore y FileSystemStateStore cumplen la misma superficie pública", async (t) => {
@@ -1206,7 +1743,7 @@ test("MemoryStateStore y FileSystemStateStore cumplen la misma superficie públi
     await start(harness);
     await plan(harness);
     const view = await harness.kernel.inspect(harness.sessionId);
-    assert.equal(view.schemaVersion, 2);
+    assert.equal(view.schemaVersion, 3);
     assert.equal(view.revision, 2);
     assert.equal(view.lifecycle, "executing");
     assert.equal(view.acceptanceContractHash, harness.contract.hash);
@@ -1225,7 +1762,7 @@ test("FileSystemStateStore compone snapshot atómico y event log JSONL append-on
     stateStore,
   });
   const result = await kernel.apply({
-    schemaVersion: 2,
+    schemaVersion: 3,
     commandId: commandId("filesystem-start"),
     sessionId: "filesystem-session",
     expectedRevision: 0,
@@ -1241,7 +1778,7 @@ test("FileSystemStateStore compone snapshot atómico y event log JSONL append-on
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line));
-  assert.equal(snapshot.schemaVersion, 2);
+  assert.equal(snapshot.schemaVersion, 3);
   assert.equal(events.length, 1);
   assert.equal(events[0].actor, "orchestrator");
   assert.equal(events[0].commandType, "start-session");
@@ -1263,7 +1800,7 @@ test("FileSystemStateStore compone snapshot atómico y event log JSONL append-on
     "filesystem-session",
     "snapshot.json",
   );
-  await writeFile(snapshotPath, '{"schemaVersion":2', "utf8");
+  await writeFile(snapshotPath, '{"schemaVersion":3', "utf8");
   await assert.rejects(kernel.inspect("filesystem-session"), (error) => {
     assert.equal(error.code, "state_snapshot_invalid");
     assert.equal(error.details.operation, "parse-snapshot");
@@ -1483,13 +2020,16 @@ test("bugfix compact permite reproducción y planificación trazables antes del 
     const attemptId = commandId(phase);
     const dispatched = await apply(harness, "dispatch-attempt", {
       attemptId,
+      baseRevision: "git:test-base",
       contextManifest: [],
       findings: [],
       objective: `Ejecutar ${phase}.`,
       phase,
+      permission: "read-only",
       role,
       rules: "Scope inicial inmutable.",
       tasks: "Devolver reporte estructurado.",
+      threadId: `thread-${attemptId}`,
     });
     assert.equal(dispatched.envelope.contractKind, "planning-scope");
     planningHash ??= dispatched.envelope.acceptanceContractHash;
@@ -1564,7 +2104,7 @@ test("un retrabajo legítimo invalida evidencia y resuelve el finding con identi
 test("un timeout concurrente tiene un solo efecto y el comando distinto queda stale", async () => {
   const harness = createHarness();
   const startCommand = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     commandId: commandId("concurrent-start"),
     sessionId: harness.sessionId,
     expectedRevision: 0,
@@ -1586,7 +2126,7 @@ test("un timeout concurrente tiene un solo efecto y el comando distinto queda st
     workUnits: [unit()],
   };
   const commands = ["a", "b"].map((suffix) => ({
-    schemaVersion: 2,
+    schemaVersion: 3,
     commandId: commandId(`concurrent-${suffix}`),
     sessionId: harness.sessionId,
     expectedRevision: 1,
@@ -1794,23 +2334,31 @@ test("la reserva de writer es única entre sesiones del mismo StateStore", async
   const firstAttempt = commandId("writer-first");
   await apply(first, "dispatch-attempt", {
     attemptId: firstAttempt,
+    baseRevision: "git:test-base",
     contextManifest: [],
     findings: [],
     objective: "Implementar A.",
+    permission: "writer",
+    phase: "implementation",
     role: "implementador",
     rules: "Contrato.",
     tasks: "Unidad.",
+    threadId: `thread-${firstAttempt}`,
     workUnitId: "unit-1",
   });
   await assert.rejects(
     apply(second, "dispatch-attempt", {
       attemptId: commandId("writer-blocked"),
+      baseRevision: "git:test-base",
       contextManifest: [],
       findings: [],
       objective: "Implementar B.",
+      permission: "writer",
+      phase: "implementation",
       role: "implementador",
       rules: "Contrato.",
       tasks: "Unidad.",
+      threadId: "thread-writer-blocked",
       workUnitId: "unit-1",
     }),
     { code: "writer_locked" },
@@ -1821,12 +2369,16 @@ test("la reserva de writer es única entre sesiones del mismo StateStore", async
   });
   const released = await apply(second, "dispatch-attempt", {
     attemptId: commandId("writer-after-release"),
+    baseRevision: "git:test-base",
     contextManifest: [],
     findings: [],
     objective: "Implementar B.",
+    permission: "writer",
+    phase: "implementation",
     role: "implementador",
     rules: "Contrato.",
     tasks: "Unidad.",
+    threadId: "thread-writer-after-release",
     workUnitId: "unit-1",
   });
   assert.equal(released.envelope.role, "implementador");
@@ -1839,12 +2391,16 @@ test("una interrupción cierra el intento sin fabricar RoleReport y libera el wr
   const interruptedAttempt = commandId("writer-interrupted");
   await apply(harness, "dispatch-attempt", {
     attemptId: interruptedAttempt,
+    baseRevision: "git:test-base",
     contextManifest: [],
     findings: [],
     objective: "Implementar.",
+    permission: "writer",
+    phase: "implementation",
     role: "implementador",
     rules: "Contrato.",
     tasks: "Unidad.",
+    threadId: `thread-${interruptedAttempt}`,
     workUnitId: "unit-1",
   });
   const failed = await apply(harness, "record-attempt-failure", {
@@ -1859,13 +2415,17 @@ test("una interrupción cierra el intento sin fabricar RoleReport y libera el wr
   assert.equal(view.workUnits["unit-1"].status, "needs_rework");
   const retry = await apply(harness, "dispatch-attempt", {
     attemptId: commandId("writer-retry"),
+    baseRevision: "git:test-base",
     contextManifest: [],
     findings: [],
     objective: "Reintentar implementación.",
     retryCause: "timeout",
+    permission: "writer",
+    phase: "implementation",
     role: "implementador",
     rules: "Contrato.",
     tasks: "Unidad.",
+    threadId: "thread-writer-retry",
     workUnitId: "unit-1",
   });
   assert.equal(retry.envelope.role, "implementador");
@@ -2095,7 +2655,7 @@ test("la conformidad exige inventario, schemas y marcadores canónicos", async (
     root: ROOT,
     overrides: { contextBudgetBytes: 64_000, telemetrySink: "jsonl-local" },
   });
-  assert.equal(canonical.schemaVersion, 2);
+  assert.equal(canonical.schemaVersion, 3);
   assert.equal(canonical.distributionVersion, "0.2.0");
   assert.match(canonical.artifactHash, /^sha256:[0-9a-f]{64}$/);
   await assert.rejects(
@@ -2115,7 +2675,7 @@ test("la conformidad exige inventario, schemas y marcadores canónicos", async (
     "utf8",
   );
   await writeFile(join(fixtureRoot, ".agents", "VERSION"), "0.2.0\n", "utf8");
-  assert.equal((await assertProtocolConformance({ root: fixtureRoot })).schemaVersion, 2);
+  assert.equal((await assertProtocolConformance({ root: fixtureRoot })).schemaVersion, 3);
   const rolePath = join(fixtureRoot, ".agents", "roles", "tester.md");
   const roleSource = await readFile(rolePath, "utf8");
   await writeFile(rolePath, roleSource.replace("<!-- agentic-role-report -->", ""), "utf8");

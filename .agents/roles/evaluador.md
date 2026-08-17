@@ -13,8 +13,9 @@ efectivas sin regresiones conocidas.
 - Rutas enumeradas en `contextPaths`: especificación, diff y únicamente los
   sobres vigentes de Implementador y Tester para la generación o eje actual;
   en compacto, el Implementador y la validación focalizada de la única unidad.
-- Reglas, estrategia, eje, generación, permiso `read-only`, revisión base e hilo
-  materializados en el sobre conforme a la
+- Reglas, estrategia, eje, generación, permiso `read-only`, revisión base,
+  hilo, fase y criterios completos materializados en el sobre; ownership,
+  estrategia de unidad y oleada son `[]`, `null` y `null`, conforme a la
   [política de orquestación](../policies/orquestacion.md).
 
 ## Proceso

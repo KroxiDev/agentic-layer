@@ -12,6 +12,7 @@ const SCHEMAS = [
   "role-report.schema.json",
   "session-event.schema.json",
   "validation-evidence.schema.json",
+  "work-envelope.schema.json",
 ];
 const ARTIFACT_GROUPS = [
   "adapters",
@@ -51,8 +52,8 @@ export async function assertProtocolConformance({ root, overrides = {} }) {
   } catch (error) {
     throw new KernelError("conformance_invalid_manifest", `protocol.json inválido: ${error.message}`);
   }
-  if (protocol.schemaVersion !== 2) {
-    throw new KernelError("conformance_version_mismatch", "La distribución debe declarar schemaVersion 2.");
+  if (protocol.schemaVersion !== 3) {
+    throw new KernelError("conformance_version_mismatch", "La distribución debe declarar schemaVersion 3.");
   }
   if (JSON.stringify(protocol.artifacts) !== JSON.stringify(ARTIFACT_GROUPS)) {
     throw new KernelError(
@@ -195,8 +196,8 @@ export async function assertProtocolConformance({ root, overrides = {} }) {
     const path = `.agents/schemas/${schema}`;
     artifacts[path] = await source(projectRoot, path);
     const parsed = JSON.parse(artifacts[path]);
-    if (parsed.properties?.schemaVersion?.const !== 2) {
-      throw new KernelError("conformance_version_mismatch", `${path} no fija schemaVersion 2.`);
+    if (parsed.properties?.schemaVersion?.const !== 3) {
+      throw new KernelError("conformance_version_mismatch", `${path} no fija schemaVersion 3.`);
     }
   }
   for (const [relativePath, expectedMarker] of [

@@ -6,7 +6,7 @@
 > `RoleReport` estructurado; ninguna prosa de esta vista decide transiciones.
 
 - Sesión: `<session-slug>`
-- Protocolo: `2`
+- Protocolo: `3`
 - Hash de `AcceptanceContract`: `<acceptance-contract-hash>`
 - Fase: `<phase-id>`
 - Rol: `<role>`
@@ -17,6 +17,10 @@
 - Revisión base: `<base-revision>`
 - Revisión fuente: `<source-revision>`
 - Hilo: `<thread-id>`
+- Criterios: `<criteria>`
+- Ownership (`ownedPaths`): `<owned-paths>`
+- Estrategia de validación: `<validation-strategy-or-null>`
+- `contextManifest` de entrada; `contextPaths` derivados por el kernel: Pendiente
 - Estado: `active`
 
 ## Objetivo específico
@@ -39,9 +43,14 @@
 
 <context-paths>
 
+## Manifiesto de contexto atribuible
+
+<context-manifest-path-hash-bytes>
+
 ## Contrato de salida esperado
 
-<contract>
+`RoleReport` de protocolo `3`; todo finding no informativo incluye
+`reproduction`. Un finding informativo puede omitirla.
 
 ## Reporte contractual producido
 

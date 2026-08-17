@@ -12,9 +12,11 @@ evidencia observable.
 - `WorkEnvelope` vigente como único sobre normal de despacho.
 - Rutas enumeradas en `contextPaths`: especificación, diff o archivos
   modificados, reporte vigente del Implementador y contrato de validación.
-- Workflow, modo, reglas, `workUnitId`, criterios, evidencia focalizada,
-  permiso, revisión base, hilo y estrategia de validación materializados en el
-  sobre conforme a la
+- Workflow, modo, reglas, `workUnitId`, criterios completos, ownership,
+  evidencia focalizada, revisión base, hilo, fase, estrategia de validación y
+  oleada materializados en el sobre. El permiso puede ser `read-only` o
+  `writer` para una unidad; `writer` exige su ownership. El lane integral y la
+  reproducción previa sin unidad usan `read-only`, conforme a la
   [política de orquestación](../policies/orquestacion.md). En `bugfix` compacto
   previo a la planificación, el sobre contiene objetivo y seam de reproducción.
 

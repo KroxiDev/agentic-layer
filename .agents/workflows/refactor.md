@@ -32,3 +32,9 @@ workflow. Dependencias, ownership, testing, retrabajo y cierre consumen los
 contratos de la política canónica sin redefinirlos aquí. Cada fase devuelve un
 `RoleReport` y solo el orquestador lo entrega a
 `OrchestrationKernel.apply`.
+
+Los intentos de Explorador, Planificador y Evaluador son `read-only`; el de
+Implementador es `writer`. El Tester de unidad declara `read-only` o `writer`
+según necesite editar dentro del ownership, mientras el lane integral es
+siempre `read-only`. Documentador declara `writer`. Todos consumen el
+`WorkEnvelope` completo de la política canónica.

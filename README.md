@@ -47,7 +47,7 @@ solo agente, conservando seguridad y todas las validaciones.
 - `apply(command)`, única superficie de mutación;
 - `inspect(sessionId)`, vista de solo lectura sin capacidades.
 
-El contrato base está en `.agents/kernel/protocol.mjs`. `schemaVersion` vale `2`
+El contrato base está en `.agents/kernel/protocol.mjs`. `schemaVersion` vale `3`
 y describe el formato actual; no existe negociación entre formatos. Los
 schemas JSON tienen nombres estables y `.agents/protocol.json` declara el
 inventario y los únicos overrides admitidos: `contextBudgetBytes` y
@@ -58,17 +58,31 @@ log. El adapter de filesystem demuestra la contención física de cada ancestro 
 rechaza redirecciones o enlaces ajenos en los archivos del ledger antes de
 escribir; la reserva writer durable conserva dueño y checkpoint exactos. `.agents/sessions/`
 queda fuera del paquete y del alcance de `update`, salvo su asset de ignore. Un
-`start-session` crea la sesión; cada `dispatch-attempt` produce un
-`WorkEnvelope`; cada rol devuelve un `RoleReport` y solo el orquestador lo
-presenta al kernel.
+`start-session` crea la sesión. Cada `dispatch-attempt` declara
+`baseRevision`, `threadId`, fase, rol, permiso, objetivo, reglas, tareas,
+`findings` y `contextManifest`; el kernel valida lifecycle, unidad, lane,
+ownership y compatibilidad del permiso antes de persistir. Explorador,
+Planificador y Evaluador son `read-only`; Implementador y Documentador son
+`writer`; Tester admite ambos según el contexto. El resultado es un
+`WorkEnvelope` inmutable y autocontenido. Cada rol devuelve un `RoleReport` y
+solo el orquestador lo presenta al kernel.
 
 ## Contexto mínimo
 
-La DevSession es el ledger de coordinación, no el prompt de un rol. Cada
-`WorkEnvelope` selecciona rutas concretas en `contextPaths`, conserva su
-`sourceRevision` y evita copiar el historial completo. El rol consulta solo
-esas rutas. Si falta un dato indispensable, devuelve la incógnita exacta al
-orquestador para abrir un intento nuevo con un sobre corregido.
+La DevSession es el ledger de coordinación, no el prompt de un rol. El caller
+declara un `contextManifest` atribuible y el kernel deriva `contextPaths` y
+`sourceRevision`. El `WorkEnvelope` conserva además hash y tipo de contrato,
+identidades de sesión e intento, versión, generación, revisión base, hilo,
+fase, rol, permiso, criterios completos, ownership, estrategia de validación,
+oleada, objetivo, reglas, tareas y findings. No contiene capacidades de
+mutación ni el ledger. El rol consulta solo las rutas seleccionadas. Si falta
+un dato indispensable, devuelve la incógnita exacta al orquestador para abrir
+un intento nuevo con un sobre corregido.
+
+El schema y el runtime de `RoleReport` comparten las mismas invariantes. Todo
+finding accionable incluye `reproduction`; uno meramente informativo puede
+omitirla. Los snapshots de formatos anteriores o incompletos fallan de forma
+cerrada: no hay negociación ni migración implícita.
 
 ## Tareas anteriores explícitas
 

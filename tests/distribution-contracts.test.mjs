@@ -376,6 +376,154 @@ test("los contratos proyectan el contexto mínimo mediante un único sobre", asy
   assert.equal(adoption.status, SIN_HERRAMIENTAS, adoption.stderr || adoption.stdout);
 });
 
+test("la distribución conserva el contrato completo de intentos en protocolo y prosa", async () => {
+  const read = (relativePath) =>
+    readFile(join(ROOT, ...relativePath.split("/")), "utf8");
+  const roleNames = [
+    "documentador",
+    "evaluador",
+    "explorador",
+    "implementador",
+    "planificador",
+    "tester",
+  ];
+  const workflowNames = ["architecture", "bugfix", "feature", "refactor"];
+  const [
+    envelopeSource,
+    roleReportSource,
+    policy,
+    skill,
+    devSession,
+    subdevSession,
+    readme,
+    internalReadme,
+    context,
+    architecture,
+    ...roleAndWorkflowSources
+  ] = await Promise.all([
+    read(".agents/schemas/work-envelope.schema.json"),
+    read(".agents/schemas/role-report.schema.json"),
+    read(".agents/policies/orquestacion.md"),
+    read(".agents/skills/orquestar/SKILL.md"),
+    read(".agents/templates/dev-session.md"),
+    read(".agents/templates/subdev-session.md"),
+    read("README.md"),
+    read(".agents/README.md"),
+    read("CONTEXT.md"),
+    read("docs/arquitectura.md"),
+    ...roleNames.map((role) => read(`.agents/roles/${role}.md`)),
+    ...workflowNames.map((workflow) => read(`.agents/workflows/${workflow}.md`)),
+  ]);
+  const envelope = JSON.parse(envelopeSource);
+  const roleReport = JSON.parse(roleReportSource);
+
+  assert.equal(envelope.additionalProperties, false);
+  assert.deepEqual(envelope.required, [
+    "schemaVersion",
+    "sessionId",
+    "attemptId",
+    "acceptanceContractHash",
+    "contractKind",
+    "generation",
+    "sourceRevision",
+    "baseRevision",
+    "threadId",
+    "phase",
+    "role",
+    "permission",
+    "criteria",
+    "ownedPaths",
+    "validationStrategy",
+    "wave",
+    "objective",
+    "rules",
+    "tasks",
+    "findings",
+    "contextManifest",
+    "contextPaths",
+  ]);
+  assert.equal(envelope.properties.schemaVersion.const, 3);
+  assert.deepEqual(envelope.properties.permission.enum, ["read-only", "writer"]);
+  assert.equal(Object.hasOwn(envelope.properties, "actorCapability"), false);
+  assert.equal(Object.hasOwn(envelope.properties, "ledger"), false);
+  assert.equal(roleReport.properties.schemaVersion.const, 3);
+  assert.ok(
+    roleReport.properties.findings.items.allOf.some((rule) =>
+      rule.then?.required?.includes("reproduction"),
+    ),
+  );
+
+  for (const field of [
+    "`baseRevision`",
+    "`threadId`",
+    "`permission`",
+    "`contextManifest`",
+    "`ownedPaths`",
+    "`validationStrategy`",
+    "`sourceRevision`",
+    "`contextPaths`",
+  ]) {
+    assert.ok(policy.includes(field), `La política omite ${field}.`);
+    assert.ok(skill.includes(field), `La skill omite ${field}.`);
+  }
+  assert.match(policy, /Explorador, Planificador y Evaluador exigen\s+`read-only`/);
+  assert.match(policy, /Implementador y\s+Documentador exigen `writer`/);
+  assert.match(policy, /finding no informativo exige `reproduction`/);
+
+  for (const field of [
+    "`criterionIds`",
+    "`dependsOn`",
+    "`ownedPaths`",
+    "`validationStrategy`",
+    "`contextManifest`",
+    "`contextPaths`",
+  ]) {
+    assert.ok(devSession.includes(field), `La DevSession omite ${field}.`);
+  }
+  for (const placeholder of [
+    "<base-revision>",
+    "<thread-id>",
+    "<permission>",
+    "<criteria>",
+    "<owned-paths>",
+    "<validation-strategy-or-null>",
+    "<wave>",
+  ]) {
+    assert.ok(subdevSession.includes(placeholder), `La SubDevSession omite ${placeholder}.`);
+  }
+  assert.ok(subdevSession.includes("`contextManifest`"));
+  assert.ok(subdevSession.includes("`contextPaths`"));
+
+  const roleSources = roleAndWorkflowSources.slice(0, roleNames.length);
+  const expectedPermissions = {
+    documentador: ["`writer`"],
+    evaluador: ["`read-only`"],
+    explorador: ["`read-only`"],
+    implementador: ["`writer`"],
+    planificador: ["`read-only`"],
+    tester: ["`read-only`", "`writer`"],
+  };
+  for (let index = 0; index < roleNames.length; index += 1) {
+    const source = roleSources[index];
+    assert.ok(source.includes("`WorkEnvelope` vigente"));
+    for (const permission of expectedPermissions[roleNames[index]]) {
+      assert.ok(source.includes(permission), `${roleNames[index]} omite ${permission}.`);
+    }
+  }
+
+  for (const source of roleAndWorkflowSources.slice(roleNames.length)) {
+    assert.ok(source.includes("`WorkEnvelope` completo"));
+    assert.ok(source.includes("`read-only`"));
+    assert.ok(source.includes("`writer`"));
+  }
+  for (const source of [readme, internalReadme, context, architecture]) {
+    assert.ok(source.includes("`contextManifest`"));
+    assert.ok(source.includes("`contextPaths`"));
+    assert.ok(source.includes("`RoleReport`"));
+    assert.ok(source.includes("schemaVersion"));
+  }
+});
+
 test("la documentación distingue ledger y sobre de contexto mínimo", async () => {
   const [readme, internalReadme, context, architecture] = await Promise.all([
     readFile(join(ROOT, "README.md"), "utf8"),

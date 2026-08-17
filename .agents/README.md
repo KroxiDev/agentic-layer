@@ -117,16 +117,20 @@ canónicos. No contienen workflows ni políticas completas.
 ## Modelo de ejecución por unidades
 
 El Planificador registra en la DevSession un DAG de una a tres unidades
-verticales. Una unidad es estado durable de trabajo: `workUnitId`, criterios,
-dependencias, oleada, permiso y `ownedPaths`. Un intento es una ejecución
-monotónica de fase y rol asociada a esa unidad, carril o eje; conserva su propio
-`baseRevision`, `threadId`, permiso, criterios, causa de retrabajo y evidencia.
-Reintentar no crea otra unidad ni reactiva un intento terminal.
+verticales. Una unidad es estado durable de trabajo: `workUnitId`,
+`criterionIds`, `dependsOn`, `ownedPaths`, `permission: "writer"`, una
+`validationStrategy` admitida y una `wave` derivada por el kernel. Un intento
+es una ejecución monotónica de fase y rol asociada a esa unidad, carril o eje;
+declara `baseRevision`, `threadId`, fase, rol, permiso, objetivo, reglas,
+tareas, findings y `contextManifest`, y conserva criterios completos,
+ownership, estrategia, oleada, causa de retrabajo y evidencia. Reintentar no
+crea otra unidad ni reactiva un intento terminal.
 
 `OrchestrationKernel` concentra las invariantes mecánicas detrás de
 `apply/inspect`:
 
-1. valida DAG, ciclos, dependencias y ownership portable antes de despachar;
+1. valida DAG, ciclos, dependencias, ownership portable y compatibilidad entre
+   rol, permiso, unidad, lane y lifecycle antes de despachar;
 2. abre sólo unidades listas y hace cumplir los gates `implemented` →
    `validated` → `consolidated`; en compacto, el Evaluador combinado realiza
    los dos últimos de forma atómica;
@@ -150,10 +154,11 @@ tests inyectan `MemoryStateStore`. El `EnvironmentProbe` predeterminado es el
 adapter real.
 
 `accept-role-report` conserva el reporte estructurado atribuible al intento y
-el snapshot mantiene el estado de coordinación que devuelve `inspect`. Una
-vista Markdown puede representar ese estado, pero no se parsea para decidir
-gates. El orquestador entrega al Evaluador y al Documentador solo los sobres
-pertinentes.
+el snapshot mantiene el estado de coordinación que devuelve `inspect`. El
+schema JSON y el runtime comparten las mismas reglas: todo finding accionable
+requiere `reproduction`; uno informativo puede omitirla. Una vista Markdown
+puede representar ese estado, pero no se parsea para decidir gates. El
+orquestador entrega al Evaluador y al Documentador solo los sobres pertinentes.
 
 La telemetría usa un outbox en `telemetry.pendingEvents`: snapshot, resultado e
 evento pendiente se comprometen juntos. Un retry exacto entrega el evento sin
@@ -166,9 +171,13 @@ sobre; el orquestador nunca sintetiza un `RoleReport` en nombre del rol.
 
 El snapshot y el event log forman el ledger durable, no un input de despacho.
 Antes de cada fase, `dispatch-attempt` crea el único `WorkEnvelope` normal con
-objetivo, reglas, tareas, findings, `contextPaths` ordenados, `sourceRevision` y
-hash de aceptación. El rol consulta únicamente los archivos seleccionados. Si
-el sobre resulta insuficiente, devuelve la incógnita exacta; el orquestador
+hash y tipo de contrato, identidades, versión, generación, revisión base, hilo,
+fase, rol, permiso, criterios completos, `ownedPaths`, estrategia de
+validación, oleada, objetivo, reglas, tareas, findings, `contextManifest`,
+`contextPaths` y `sourceRevision`. El caller aporta el manifiesto; el kernel
+deriva las rutas y la revisión fuente. El sobre no contiene capacidad de
+mutación ni el ledger. El rol consulta únicamente los archivos seleccionados.
+Si el sobre resulta insuficiente, devuelve la incógnita exacta; el orquestador
 cierra el intento y abre otro sin modificar retrospectivamente un sobre activo.
 
 Antes de aceptar el plan, los sobres de Explorador, Planificador y la
@@ -186,7 +195,7 @@ estado y los gates ejecutables; Planificador, Tester, Evaluador y Documentador
 aplican sus contratos de rol mediante esa referencia.
 
 La adquisición del writer lock sincroniza un candidato completo y lo publica
-por hard link. La reserva usa `schemaVersion: 2`, conserva el dueño exacto
+por hard link. La reserva usa `schemaVersion: 3`, conserva el dueño exacto
 `{session, attempt, workingTreeId}` y un checkpoint de `commandId`, fingerprint
 y revisión esperada. Una transición terminal la libera sólo cuando el snapshot
 demuestra ese mismo intento terminado. Si un intento sucesor ya la adquirió, el
@@ -195,10 +204,12 @@ transitorios global y de sesión registran `{pid, token}`: únicamente se recupe
 un propietario demostrablemente terminado; un contenido ambiguo se conserva y
 nunca se limpia por antigüedad.
 
-El kernel acepta únicamente snapshots con `schemaVersion: 2`. Una sesión
-`light` persiste `lightStrategy: "compact"`; `full` usa el lane integral de su
-generación. Un estado ausente o inválido falla de forma cerrada y no se
-reinterpreta desde Markdown.
+El kernel acepta únicamente snapshots completos con `schemaVersion: 3`; un
+snapshot anterior o uno que declare la versión actual sin sus campos
+obligatorios falla con `state_protocol_mismatch`. Una sesión `light` persiste
+`lightStrategy: "compact"`; `full` usa el lane integral de su generación. Un
+estado ausente o inválido falla de forma cerrada y no se reinterpreta desde
+Markdown.
 
 ## Invariantes
 

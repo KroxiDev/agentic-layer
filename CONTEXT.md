@@ -52,15 +52,24 @@ _Evitar_: paso, etapa, iteración.
 
 **Unidad de implementación**:
 Una rebanada vertical durable del trabajo, identificada por `workUnitId`, con
-criterios, dependencias, oleada, permiso y rutas propias. Puede recibir varios
-intentos sin dejar de ser la misma unidad.
+`criterionIds`, `dependsOn`, `ownedPaths`, `permission: "writer"`, una
+`validationStrategy` admitida y una `wave` derivada del DAG. Puede recibir
+varios intentos sin dejar de ser la misma unidad.
 _Evitar_: subagente, fase, tarea técnica, intento.
 
 **Intento**:
 Una ejecución monotónica de una fase y un rol, asociada a una unidad, carril o
-eje. Tiene revisión base, hilo, permiso, criterios y evidencia propios; un
-retrabajo siempre crea otro intento.
+eje. Declara revisión base, hilo, fase, permiso, objetivo, reglas, tareas,
+findings y manifiesto de contexto; conserva criterios, ownership, estrategia,
+oleada y evidencia propios. Un retrabajo siempre crea otro intento.
 _Evitar_: unidad, reintento sobreescrito, ejecución (a secas).
+
+**Permiso de intento**:
+La clasificación explícita `read-only` o `writer` validada contra rol, unidad,
+lane y lifecycle antes de persistir. Explorador, Planificador y Evaluador son
+de solo lectura; Implementador y Documentador escriben; Tester admite ambos
+según su ownership y contexto.
+_Evitar_: capacidad del orquestador, permiso implícito por rol, herramienta.
 
 **DAG de unidades**:
 El grafo acíclico dirigido que relaciona unidades mediante `dependsOn`. Una
@@ -156,8 +165,10 @@ _Evitar_: sesión, contexto compartido, scratchpad, memoria de trabajo.
 
 **Sobre de despacho**:
 El `WorkEnvelope` autocontenido que recibe un rol para un intento. Materializa
-objetivo, reglas, tareas y hallazgos, enumera `contextPaths` y registra la
-`sourceRevision`; no copia el ledger ni el contenido de las referencias.
+identidades, revisiones, hilo, fase, rol, permiso, criterios, ownership,
+estrategia, oleada, objetivo, reglas, tareas, findings y contexto. El caller
+aporta `contextManifest`; el kernel deriva `contextPaths` y `sourceRevision`.
+No copia el ledger, capacidades de mutación ni el contenido de las referencias.
 _Evitar_: DevSession global, prompt completo, copia de la especificación.
 
 **Reporte contractual**:
@@ -245,14 +256,19 @@ un `ScopeAmendment` atribuible.
 _Evitar_: especificación mutable, criterios narrativos, moving target.
 
 **WorkEnvelope**:
-Sobre inmutable de un intento. Contiene hash de aceptación, generación,
-objetivo, reglas, tareas, findings y manifiesto deduplicado de contexto; nunca
-contiene capacidad de mutación.
+Sobre inmutable de un intento. Contiene hash y tipo de contrato, identidades de
+sesión e intento, `schemaVersion`, generación, `sourceRevision`,
+`baseRevision`, `threadId`, fase, rol, permiso, criterios completos,
+`ownedPaths`, `validationStrategy`, `wave`, objetivo, reglas, tareas, findings,
+`contextManifest` y `contextPaths`; nunca contiene capacidad de mutación ni el
+ledger.
 _Evitar_: DevSession completa, prompt libre, ledger.
 
 **RoleReport**:
 Reporte con `completion`, `decision`, `findings` y `evidence` estructurados.
-`humanSummary` es una vista humana y no decide transiciones.
+Todo finding no informativo requiere `reproduction`; uno informativo puede
+omitirla. El schema JSON y el runtime aplican la misma regla. `humanSummary` es
+una vista humana y no decide transiciones.
 _Evitar_: veredicto inferido por regex, commit del rol, prosa autoritativa.
 
 **Lane integral**:

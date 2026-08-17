@@ -24,9 +24,13 @@ description: Orquesta tareas de desarrollo mediante roles aislados, DevSession y
    listas. En compacto, exigir una sola unidad y su validación focalizada antes
    de abrir implementación.
 5. Antes de cada `dispatch-attempt`, aplicar la selección mínima de la política
-   y materializar un `WorkEnvelope` inmutable con objetivo, reglas, tareas,
-   findings, manifiesto de `contextPaths` y hash de aceptación. Despachar solo el
-   sobre y la instrucción breve de ejecutar el contrato del rol.
+   y declarar rol, `permission`, `baseRevision`, `threadId`, fase, objetivo,
+   reglas, tareas, `findings` y `contextManifest`. El kernel materializa un
+   `WorkEnvelope` inmutable con hash y tipo de contrato, identidades, versión,
+   generación, `sourceRevision`, criterios completos, `ownedPaths`,
+   `validationStrategy`, `wave` y `contextPaths`. Despachar solo el sobre y la
+   instrucción breve de ejecutar el contrato del rol; nunca una capacidad o el
+   ledger.
 6. Recibir un `RoleReport` estructurado y presentarlo al kernel con
    `accept-role-report`. Los roles nunca reciben capacidad ni mutan estado. Usar
    `record-attempt-failure` para cerrar interrupciones sin fabricar reportes, y

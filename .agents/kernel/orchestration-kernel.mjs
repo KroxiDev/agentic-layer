@@ -43,7 +43,15 @@ const ROLES = new Set([
   "tester",
 ]);
 const WORKFLOWS = new Set(["architecture", "bugfix", "feature", "refactor"]);
-const WRITER_ROLES = new Set(["documentador", "implementador", "tester"]);
+const ATTEMPT_PERMISSIONS = new Set(["read-only", "writer"]);
+const ROLE_PERMISSIONS = new Map([
+  ["documentador", new Set(["writer"])],
+  ["evaluador", new Set(["read-only"])],
+  ["explorador", new Set(["read-only"])],
+  ["implementador", new Set(["writer"])],
+  ["planificador", new Set(["read-only"])],
+  ["tester", ATTEMPT_PERMISSIONS],
+]);
 const WRITER_TERMINAL_COMMANDS = new Set(["accept-role-report", "record-attempt-failure"]);
 const WRITER_TERMINAL_STATES = new Set(["completed", "failed"]);
 const EVALUATION_RISKS = new Set([
@@ -60,6 +68,11 @@ const FINDING_CLASSIFICATIONS = new Set([
 ]);
 const SEVERITIES = new Set(["low", "medium", "high", "critical"]);
 const RETRY_CAUSES = new Set(["evaluation-rework", "interruption", "stale-read", "timeout"]);
+const VALIDATION_STRATEGIES = new Set([
+  "distinct-acceptance-check",
+  "independent-rerun",
+  "verified-evidence-reuse",
+]);
 const COMMAND_PAYLOAD_KEYS = {
   "accept-plan": new Set([
     "acceptanceContract",
@@ -74,17 +87,20 @@ const COMMAND_PAYLOAD_KEYS = {
   "close-session": new Set(),
   "dispatch-attempt": new Set([
     "attemptId",
+    "baseRevision",
     "contextManifest",
     "elevation",
     "evaluationAxis",
     "findings",
     "laneId",
     "objective",
+    "permission",
     "phase",
     "retryCause",
     "role",
     "rules",
     "tasks",
+    "threadId",
     "workUnitId",
   ]),
   "record-attempt-failure": new Set(["attemptId", "reason", "retryCause"]),
@@ -242,7 +258,7 @@ function validateAcceptanceContract(input) {
     "invalid_acceptance_contract",
   );
   if (input.schemaVersion !== SCHEMA_VERSION) {
-    invalid("invalid_acceptance_contract", "AcceptanceContract debe usar schemaVersion 2.");
+    invalid("invalid_acceptance_contract", "AcceptanceContract debe usar schemaVersion 3.");
   }
   if (Object.hasOwn(input, "destructive") && typeof input.destructive !== "boolean") {
     invalid("invalid_acceptance_contract", "destructive debe ser booleano.");
@@ -455,7 +471,14 @@ function normalizeWorkUnits(input, contract, { allowEmpty = false } = {}) {
     assertRecord(unit, "workUnit", "invalid_plan");
     assertExactKeys(
       unit,
-      new Set(["criterionIds", "dependsOn", "ownedPaths", "workUnitId"]),
+      new Set([
+        "criterionIds",
+        "dependsOn",
+        "ownedPaths",
+        "permission",
+        "validationStrategy",
+        "workUnitId",
+      ]),
       "workUnit",
       "invalid_plan",
     );
@@ -465,6 +488,12 @@ function normalizeWorkUnits(input, contract, { allowEmpty = false } = {}) {
     }
     if (Object.hasOwn(units, unit.workUnitId)) {
       invalid("invalid_plan", `Unidad duplicada: ${unit.workUnitId}.`);
+    }
+    if (unit.permission !== "writer") {
+      invalid("invalid_plan", `${unit.workUnitId} debe declarar permission=writer.`);
+    }
+    if (!VALIDATION_STRATEGIES.has(unit.validationStrategy)) {
+      invalid("invalid_plan", `${unit.workUnitId} no declara una validationStrategy admitida.`);
     }
     if (!Array.isArray(unit.criterionIds) || !unit.criterionIds.length) {
       invalid("invalid_plan", `${unit.workUnitId} no declara criterionIds.`);
@@ -507,8 +536,10 @@ function normalizeWorkUnits(input, contract, { allowEmpty = false } = {}) {
       criterionIds: [...unit.criterionIds],
       dependsOn: [...unit.dependsOn],
       ownedPaths: normalizedOwnedPaths,
+      permission: unit.permission,
       status: "pending",
       validated: false,
+      validationStrategy: unit.validationStrategy,
     };
   }
   for (const unit of Object.values(units)) {
@@ -529,6 +560,17 @@ function normalizeWorkUnits(input, contract, { allowEmpty = false } = {}) {
     visited.add(workUnitId);
   }
   for (const workUnitId of Object.keys(units)) visit(workUnitId);
+  const waves = new Map();
+  function waveFor(workUnitId) {
+    if (waves.has(workUnitId)) return waves.get(workUnitId);
+    const dependencies = units[workUnitId].dependsOn;
+    const wave = dependencies.length
+      ? Math.max(...dependencies.map((dependency) => waveFor(dependency))) + 1
+      : 1;
+    waves.set(workUnitId, wave);
+    return wave;
+  }
+  for (const [workUnitId, unit] of Object.entries(units)) unit.wave = waveFor(workUnitId);
   return units;
 }
 
@@ -681,9 +723,11 @@ function validateFinding(input, state) {
     criterionIds,
     findingId: input.findingId,
     policyIds,
-    reproduction: clone(input.reproduction ?? {}),
     severity: input.severity,
     summary: input.summary,
+    ...(Object.hasOwn(input, "reproduction")
+      ? { reproduction: clone(input.reproduction) }
+      : {}),
   };
   normalized.fingerprint = digestObject({
     classification: normalized.classification,
@@ -715,7 +759,7 @@ function validateRoleReport(report, state, attempt) {
     "invalid_role_report",
   );
   if (report.schemaVersion !== SCHEMA_VERSION) {
-    invalid("invalid_role_report", "RoleReport debe usar schemaVersion 2.");
+    invalid("invalid_role_report", "RoleReport debe usar schemaVersion 3.");
   }
   if (report.sessionId !== state.sessionId || report.attemptId !== attempt.attemptId) {
     invalid("invalid_role_report", "El reporte no pertenece al intento activo.");
@@ -799,7 +843,7 @@ function validateValidationEvidence(evidence, state) {
     "invalid_validation_evidence",
   );
   if (evidence.schemaVersion !== SCHEMA_VERSION) {
-    invalid("invalid_validation_evidence", "ValidationEvidence debe usar schemaVersion 2.");
+    invalid("invalid_validation_evidence", "ValidationEvidence debe usar schemaVersion 3.");
   }
   const laneId = `full:${state.generation}`;
   if (evidence.laneId !== laneId || evidence.generation !== state.generation) {
@@ -876,7 +920,9 @@ function completeAttempt(attempt, report, clock) {
   attempt.closedAt = clock.nowUtc();
   attempt.closedMonotonic = clock.nowMonotonic();
   attempt.durationMs = Math.max(0, attempt.closedMonotonic - attempt.openedMonotonic);
-  attempt.report = clone(report);
+  const storedReport = clone(report);
+  for (const finding of storedReport.findings) delete finding.fingerprint;
+  attempt.report = storedReport;
   attempt.state = "completed";
 }
 
@@ -985,20 +1031,34 @@ function finishEvaluation(state) {
 
 function makeEnvelope(state, payload, manifest) {
   const contractHash = state.acceptanceContractHash ?? state.planningScopeHash;
+  const unit = payload.workUnitId ? state.workUnits[payload.workUnitId] : undefined;
+  const criteriaById = new Map(
+    (state.acceptanceContract?.criteria ?? []).map((criterion) => [criterion.id, criterion]),
+  );
+  const criterionIds =
+    unit?.criterionIds ?? (state.acceptanceContract?.criteria ?? []).map((criterion) => criterion.id);
+  const criteria = criterionIds.map((criterionId) => criteriaById.get(criterionId));
   return deepFreeze({
     acceptanceContractHash: contractHash,
+    baseRevision: payload.baseRevision,
     contractKind: state.acceptanceContractHash ? "acceptance" : "planning-scope",
     contextManifest: manifest.entries,
     contextPaths: manifest.entries.map((entry) => entry.path),
+    criteria: clone(criteria),
     findings: clone(payload.findings ?? []),
     generation: state.generation,
     objective: payload.objective,
+    ownedPaths: clone(unit?.ownedPaths ?? []),
+    permission: payload.permission,
     role: payload.role,
     rules: payload.rules,
     schemaVersion: SCHEMA_VERSION,
     sessionId: state.sessionId,
     sourceRevision: state.revision,
     tasks: payload.tasks,
+    threadId: payload.threadId,
+    validationStrategy: unit?.validationStrategy ?? null,
+    wave: unit?.wave ?? null,
     ...(payload.attemptId ? { attemptId: payload.attemptId } : {}),
     ...(payload.evaluationAxis ? { evaluationAxis: payload.evaluationAxis } : {}),
     ...(payload.laneId ? { laneId: payload.laneId } : {}),
@@ -1124,6 +1184,97 @@ function sessionView(state) {
   return view;
 }
 
+function isCurrentWorkEnvelope(envelope, attempt, sessionId) {
+  return Boolean(
+    envelope &&
+      typeof envelope === "object" &&
+      !Array.isArray(envelope) &&
+      envelope.schemaVersion === SCHEMA_VERSION &&
+      envelope.sessionId === sessionId &&
+      envelope.attemptId === attempt.attemptId &&
+      envelope.acceptanceContractHash === attempt.contractHash &&
+      ["acceptance", "planning-scope"].includes(envelope.contractKind) &&
+      Number.isInteger(envelope.generation) &&
+      envelope.generation > 0 &&
+      Number.isInteger(envelope.sourceRevision) &&
+      envelope.sourceRevision > 0 &&
+      typeof envelope.baseRevision === "string" &&
+      envelope.baseRevision.length > 0 &&
+      typeof envelope.threadId === "string" &&
+      envelope.threadId.length > 0 &&
+      typeof envelope.phase === "string" &&
+      envelope.phase.length > 0 &&
+      ROLES.has(envelope.role) &&
+      ATTEMPT_PERMISSIONS.has(envelope.permission) &&
+      Array.isArray(envelope.criteria) &&
+      Array.isArray(envelope.ownedPaths) &&
+      (envelope.validationStrategy === null ||
+        VALIDATION_STRATEGIES.has(envelope.validationStrategy)) &&
+      (envelope.wave === null || (Number.isInteger(envelope.wave) && envelope.wave > 0)) &&
+      typeof envelope.objective === "string" &&
+      envelope.objective.length > 0 &&
+      typeof envelope.rules === "string" &&
+      envelope.rules.length > 0 &&
+      typeof envelope.tasks === "string" &&
+      envelope.tasks.length > 0 &&
+      Array.isArray(envelope.findings) &&
+      Array.isArray(envelope.contextManifest) &&
+      Array.isArray(envelope.contextPaths) &&
+      !Object.keys(envelope).some((key) => /capability|ledger/i.test(key))
+  );
+}
+
+function isCurrentAttempt(attempt, sessionId) {
+  return Boolean(
+    attempt &&
+      typeof attempt === "object" &&
+      !Array.isArray(attempt) &&
+      typeof attempt.attemptId === "string" &&
+      typeof attempt.baseRevision === "string" &&
+      attempt.baseRevision.length > 0 &&
+      typeof attempt.contractHash === "string" &&
+      Array.isArray(attempt.criteria) &&
+      Array.isArray(attempt.ownedPaths) &&
+      ATTEMPT_PERMISSIONS.has(attempt.permission) &&
+      typeof attempt.phase === "string" &&
+      attempt.phase.length > 0 &&
+      ROLES.has(attempt.role) &&
+      ["active", "completed", "failed"].includes(attempt.state) &&
+      typeof attempt.threadId === "string" &&
+      attempt.threadId.length > 0 &&
+      (attempt.validationStrategy === null ||
+        VALIDATION_STRATEGIES.has(attempt.validationStrategy)) &&
+      (attempt.wave === null || (Number.isInteger(attempt.wave) && attempt.wave > 0)) &&
+      isCurrentWorkEnvelope(attempt.envelope, attempt, sessionId) &&
+      attempt.baseRevision === attempt.envelope.baseRevision &&
+      attempt.threadId === attempt.envelope.threadId &&
+      attempt.phase === attempt.envelope.phase &&
+      attempt.permission === attempt.envelope.permission &&
+      attempt.role === attempt.envelope.role &&
+      attempt.validationStrategy === attempt.envelope.validationStrategy &&
+      attempt.wave === attempt.envelope.wave &&
+      JSON.stringify(attempt.criteria) === JSON.stringify(attempt.envelope.criteria) &&
+      JSON.stringify(attempt.ownedPaths) === JSON.stringify(attempt.envelope.ownedPaths)
+  );
+}
+
+function isCurrentWorkUnit(unit) {
+  return Boolean(
+    unit &&
+      typeof unit === "object" &&
+      !Array.isArray(unit) &&
+      Array.isArray(unit.criterionIds) &&
+      unit.criterionIds.length > 0 &&
+      Array.isArray(unit.dependsOn) &&
+      Array.isArray(unit.ownedPaths) &&
+      unit.ownedPaths.length > 0 &&
+      unit.permission === "writer" &&
+      VALIDATION_STRATEGIES.has(unit.validationStrategy) &&
+      Number.isInteger(unit.wave) &&
+      unit.wave > 0
+  );
+}
+
 function validateSnapshot(state, sessionId) {
   if (
     !state ||
@@ -1138,6 +1289,12 @@ function validateSnapshot(state, sessionId) {
     typeof state.commands !== "object" ||
     !state.attempts ||
     typeof state.attempts !== "object" ||
+    Array.isArray(state.attempts) ||
+    !Object.values(state.attempts).every((attempt) => isCurrentAttempt(attempt, sessionId)) ||
+    !state.workUnits ||
+    typeof state.workUnits !== "object" ||
+    Array.isArray(state.workUnits) ||
+    !Object.values(state.workUnits).every(isCurrentWorkUnit) ||
     !state.telemetry ||
     !Array.isArray(state.telemetry.degradedEvents) ||
     !state.telemetry.pendingEvents ||
@@ -1313,10 +1470,38 @@ function applyToState(state, command, clock) {
 
   if (command.type === "dispatch-attempt") {
     if (!ROLES.has(payload.role)) invalid("invalid_command", "Rol desconocido.");
+    if (!ATTEMPT_PERMISSIONS.has(payload.permission)) {
+      invalid(
+        "invalid_attempt_permission",
+        "dispatch-attempt exige permission=read-only o permission=writer.",
+      );
+    }
+    if (!ROLE_PERMISSIONS.get(payload.role).has(payload.permission)) {
+      invalid(
+        "invalid_attempt_permission",
+        `El rol ${payload.role} no admite permission=${payload.permission}.`,
+      );
+    }
+    if (payload.role === "tester" && payload.permission === "writer" && !payload.workUnitId) {
+      invalid(
+        "invalid_attempt_permission",
+        "Un Tester writer exige una unidad con ownership explícito.",
+      );
+    }
+    assertNonEmptyString(
+      payload.baseRevision,
+      "dispatch-attempt.baseRevision",
+      "invalid_attempt_contract",
+    );
+    assertOpaqueIdentifier(payload.threadId, "threadId", "invalid_attempt_contract");
+    assertOpaqueIdentifier(payload.phase, "phase", "invalid_attempt_contract");
     assertOpaqueIdentifier(payload.attemptId, "attemptId");
     for (const field of ["objective", "rules", "tasks"]) assertNonEmptyString(payload[field], field);
-    if (!Array.isArray(payload.findings ?? [])) {
-      invalid("invalid_command", "dispatch-attempt.findings debe ser una lista.");
+    if (!Array.isArray(payload.findings) || !Array.isArray(payload.contextManifest)) {
+      invalid(
+        "invalid_attempt_contract",
+        "dispatch-attempt exige findings y contextManifest como listas explícitas.",
+      );
     }
     if (Object.hasOwn(payload, "retryCause") && !RETRY_CAUSES.has(payload.retryCause)) {
       invalid("invalid_command", "dispatch-attempt.retryCause no pertenece a la lista admitida.");
@@ -1352,6 +1537,23 @@ function applyToState(state, command, clock) {
     if (!state.acceptanceContractHash && !planningAttempt) {
       invalid("invalid_transition", "No existe contrato aprobado para este intento.");
     }
+    if (
+      (payload.role === "implementador" && (payload.laneId || payload.evaluationAxis)) ||
+      (payload.role === "evaluador" && (payload.workUnitId || payload.laneId)) ||
+      (payload.role === "tester" && payload.evaluationAxis) ||
+      (payload.role === "tester" && payload.laneId && !payload.laneId.startsWith("full:")) ||
+      (payload.role === "documentador" &&
+        (payload.workUnitId || payload.laneId || payload.evaluationAxis)) ||
+      (planningAttempt && (payload.workUnitId || payload.laneId || payload.evaluationAxis))
+    ) {
+      invalid(
+        "invalid_attempt_contract",
+        "La unidad, el lane o el eje contradicen la fase y el rol del intento.",
+      );
+    }
+    if (["explorador", "planificador"].includes(payload.role) && !planningAttempt) {
+      invalid("invalid_transition", `${payload.role} exige el lifecycle planning.`);
+    }
     if (planningAttempt) {
       // La planificación conserva su scope hash inmutable hasta aceptar el contrato.
     } else if (payload.role === "implementador") {
@@ -1360,11 +1562,23 @@ function applyToState(state, command, clock) {
       if (!unit || !["pending", "needs_rework"].includes(unit.status)) {
         invalid("work_unit_not_ready", "La unidad no está lista para implementación.");
       }
+      if (payload.permission !== unit.permission) {
+        invalid(
+          "invalid_attempt_permission",
+          "El permiso del Implementador no coincide con el contrato de la unidad.",
+        );
+      }
       if (unit.dependsOn.some((id) => !state.workUnits[id].consolidated)) {
         invalid("work_unit_not_ready", "La unidad conserva dependencias pendientes.");
       }
     } else if (payload.role === "tester") {
       if (payload.laneId?.startsWith("full:")) {
+        if (payload.permission !== "read-only" || payload.workUnitId) {
+          invalid(
+            "invalid_attempt_permission",
+            "El lane full exige un Tester read-only sin ownership de unidad.",
+          );
+        }
         if (
           payload.laneId !== `full:${state.generation}` ||
           state.lifecycle !== "fan_in_validation" ||
@@ -1378,6 +1592,12 @@ function applyToState(state, command, clock) {
         }
         if (state.workUnits[payload.workUnitId]?.status !== "implemented") {
           invalid("work_unit_not_ready", "La unidad no está implementada.");
+        }
+        if (payload.permission === "writer" && !state.workUnits[payload.workUnitId]?.ownedPaths.length) {
+          invalid(
+            "invalid_attempt_permission",
+            "Un Tester writer exige ownership explícito de la unidad.",
+          );
         }
       }
     } else if (payload.role === "evaluador") {
@@ -1403,20 +1623,27 @@ function applyToState(state, command, clock) {
     } else if (payload.role === "documentador") {
       if (state.lifecycle !== "documenting") invalid("invalid_transition", "Documentador exige documenting.");
     }
-    const manifest = normalizeContextManifest(payload.contextManifest ?? [], state.contextBudgetBytes);
+    const manifest = normalizeContextManifest(payload.contextManifest, state.contextBudgetBytes);
     const envelope = makeEnvelope(state, payload, manifest);
     state.attempts[payload.attemptId] = {
       attemptId: payload.attemptId,
+      baseRevision: payload.baseRevision,
       contractHash: envelope.acceptanceContractHash,
+      criteria: clone(envelope.criteria),
       envelope: clone(envelope),
       evaluationAxis: payload.evaluationAxis,
       laneId: payload.laneId,
       openedAt: clock.nowUtc(),
       openedMonotonic: clock.nowMonotonic(),
-      permission: WRITER_ROLES.has(payload.role) ? "writer" : "read-only",
+      ownedPaths: clone(envelope.ownedPaths),
+      permission: payload.permission,
+      phase: payload.phase,
       planningAttempt,
       role: payload.role,
       state: "active",
+      threadId: payload.threadId,
+      validationStrategy: envelope.validationStrategy,
+      wave: envelope.wave,
       workUnitId: payload.workUnitId,
     };
     return { context: manifest, result: { envelope } };
@@ -1866,7 +2093,7 @@ export class OrchestrationKernel {
           transition = applyToState(state, command, this.clock);
           if (
             command.type === "dispatch-attempt" &&
-            WRITER_ROLES.has(command.payload?.role)
+            command.payload?.permission === "writer"
           ) {
             const owner = await writerOwner(
               this.stateStore,

@@ -13,8 +13,9 @@ sector de importancia.
 - Rutas enumeradas en `contextPaths`: especificación aprobada y, en retrabajo,
   únicamente el último reporte accionable del Evaluador.
 - Workflow, modo, sector, reglas, una sola unidad, `workUnitId`, ownership,
-  dependencias satisfechas, permiso, revisión base, hilo, criterios, estrategia
-  y chequeo de desarrollo materializados en el sobre conforme a la
+  dependencias satisfechas, permiso `writer`, revisión base, hilo, fase,
+  criterios completos, estrategia de validación, oleada y chequeo de desarrollo
+  materializados en el sobre conforme a la
   [política de orquestación](../policies/orquestacion.md).
 
 ## Proceso

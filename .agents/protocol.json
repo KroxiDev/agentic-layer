@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "distributionVersion": "0.2.0",
   "kernelInterface": ["apply", "inspect"],
   "artifacts": [

@@ -13,8 +13,9 @@ proporcional, verificable y ejecutable.
 - Rutas enumeradas en `contextPaths`: reporte vigente del Explorador o de la
   reproducción previa, decisiones del usuario y referencias precisas a ADR o
   memorias relevantes.
-- Objetivo, workflow, modo y reglas `AGENTS.md` efectivas materializados en el
-  sobre conforme a la
+- Objetivo, workflow, modo y reglas `AGENTS.md` efectivas; `baseRevision`,
+  `threadId`, fase y permiso `read-only` materializados en el sobre. Antes del
+  contrato aprobado, criterios y ownership son listas vacías, conforme a la
   [política de orquestación](../policies/orquestacion.md). En compacto, incluye
   el sector inicial necesario para absorber la exploración mínima.
 

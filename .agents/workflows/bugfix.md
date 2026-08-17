@@ -42,3 +42,9 @@ solo cuando el diagnóstico demuestre unidades independientes; su contrato y sus
 gates son los definidos por la política canónica. Cada fase devuelve un
 `RoleReport` y solo el orquestador lo entrega a
 `OrchestrationKernel.apply`.
+
+La reproducción previa sin unidad, Explorador, Planificador, Evaluador y el
+lane integral son `read-only`; Implementador y Documentador son `writer`. El
+Tester de unidad declara `read-only` o `writer` según necesite editar dentro
+del ownership. Cada intento conserva el `WorkEnvelope` completo de la política
+canónica, incluso durante retrabajos.

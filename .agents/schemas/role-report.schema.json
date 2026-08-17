@@ -17,9 +17,12 @@
     "humanSummary"
   ],
   "properties": {
-    "schemaVersion": { "const": 2 },
+    "schemaVersion": { "const": 3 },
     "sessionId": { "type": "string", "minLength": 1 },
-    "attemptId": { "type": "string", "minLength": 1 },
+    "attemptId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
     "acceptanceContractHash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "role": {
       "enum": ["documentador", "evaluador", "explorador", "implementador", "planificador", "tester"]
@@ -40,7 +43,10 @@
           "summary"
         ],
         "properties": {
-          "findingId": { "type": "string", "minLength": 1 },
+          "findingId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          },
           "classification": {
             "enum": [
               "acceptance_violation",
@@ -50,20 +56,73 @@
             ]
           },
           "severity": { "enum": ["low", "medium", "high", "critical"] },
-          "criterionIds": { "type": "array", "items": { "type": "string" } },
-          "policyIds": { "type": "array", "items": { "type": "string" } },
-          "summary": { "type": "string", "minLength": 1 },
+          "criterionIds": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "uniqueItems": true
+          },
+          "policyIds": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "uniqueItems": true
+          },
+          "summary": { "type": "string", "pattern": "\\S" },
           "reproduction": {
             "type": "object",
             "additionalProperties": false,
             "required": ["commandDigest", "expected", "observed"],
             "properties": {
               "commandDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-              "expected": { "type": "string", "minLength": 1 },
-              "observed": { "type": "string", "minLength": 1 }
+              "expected": { "type": "string", "pattern": "\\S" },
+              "observed": { "type": "string", "pattern": "\\S" }
             }
           }
-        }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "classification": {
+                  "enum": [
+                    "acceptance_violation",
+                    "transversal_policy_violation",
+                    "novel_adversarial_finding"
+                  ]
+                }
+              },
+              "required": ["classification"]
+            },
+            "then": { "required": ["reproduction"] }
+          },
+          {
+            "if": {
+              "properties": { "classification": { "const": "acceptance_violation" } },
+              "required": ["classification"]
+            },
+            "then": { "properties": { "criterionIds": { "minItems": 1 } } }
+          },
+          {
+            "if": {
+              "properties": {
+                "classification": { "const": "transversal_policy_violation" }
+              },
+              "required": ["classification"]
+            },
+            "then": { "properties": { "policyIds": { "minItems": 1 } } }
+          },
+          {
+            "if": {
+              "properties": { "classification": { "const": "novel_adversarial_finding" } },
+              "required": ["classification"]
+            },
+            "then": {
+              "properties": {
+                "criterionIds": { "maxItems": 0 },
+                "policyIds": { "maxItems": 0 }
+              }
+            }
+          }
+        ]
       }
     },
     "evidence": {
@@ -80,6 +139,59 @@
         }
       }
     },
-    "humanSummary": { "type": "string", "minLength": 1 }
-  }
+    "humanSummary": { "type": "string", "pattern": "\\S" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "decision": { "const": "pass" } },
+        "required": ["decision"]
+      },
+      "then": {
+        "properties": {
+          "evidence": {
+            "items": {
+              "properties": { "exitCode": { "const": 0 } }
+            }
+          },
+          "findings": {
+            "items": {
+              "properties": {
+                "classification": {
+                  "not": {
+                    "enum": ["acceptance_violation", "transversal_policy_violation"]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "decision": { "const": "fail" } },
+        "required": ["decision"]
+      },
+      "then": {
+        "properties": {
+          "findings": {
+            "contains": {
+              "properties": {
+                "classification": {
+                  "enum": [
+                    "acceptance_violation",
+                    "transversal_policy_violation",
+                    "novel_adversarial_finding"
+                  ]
+                }
+              },
+              "required": ["classification"]
+            },
+            "minContains": 1
+          }
+        }
+      }
+    }
+  ]
 }

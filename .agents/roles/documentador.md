@@ -13,8 +13,10 @@ conocimiento durable.
 - Rutas enumeradas en `contextPaths`: decisiones, cambios, evidencia y
   evaluación aprobada que abrieron el gate; nunca intentos fallidos ni reportes
   irrelevantes.
-- Workflow, reglas de documentación, condición concreta del gate y evidencia de
-  sus precondiciones materializados en el sobre conforme a la
+- Workflow, reglas de documentación, condición concreta del gate, criterios y
+  evidencia de sus precondiciones; revisión base, hilo, fase y permiso `writer`
+  materializados en el sobre. Al no pertenecer a una unidad, ownership,
+  estrategia y oleada son `[]`, `null` y `null`, conforme a la
   [política de orquestación](../policies/orquestacion.md).
 
 ## Proceso

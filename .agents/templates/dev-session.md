@@ -6,7 +6,7 @@
 > transiciones.
 
 - Objetivo:
-- Protocolo: 2
+- Protocolo: 3
 - Hash de `AcceptanceContract`:
 - Workflow: feature | bugfix | refactor | architecture
 - Modo: full | light
@@ -24,8 +24,10 @@
 
 ## Unidades de implementación
 
-- `workUnitId`, criterios, dependencias, oleada, ownership y validación focalizada: Pendiente
-- Intentos con permiso, revisión base, hilo, fase y evidencia: Pendiente
+- `workUnitId`, `criterionIds`, `dependsOn`, `ownedPaths`, permiso `writer`,
+  `validationStrategy` y oleada derivada: Pendiente
+- Intentos con `baseRevision`, `threadId`, fase, permiso, criterios, ownership,
+  estrategia, oleada, `contextManifest`, `contextPaths` y evidencia: Pendiente
 - Gates implementada, validada y consolidada; validador Tester o Evaluador compacto: Pendiente
 - Fallos, retrabajo e impacto: No aplica
 - Resultado de fan-in: Pendiente

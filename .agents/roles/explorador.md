@@ -12,8 +12,10 @@ condicionan la tarea.
 - `WorkEnvelope` vigente como único sobre normal de despacho.
 - Rutas enumeradas en `contextPaths`: cadena `AGENTS.md` conocida y pistas o
   artefactos aprobados; no historial de implementación.
-- Objetivo, workflow, modo, reglas efectivas, carril, fronteras y pregunta
-  concreta materializados en el sobre conforme a la
+- Objetivo, workflow, modo, reglas efectivas, fronteras y pregunta concreta;
+  `baseRevision`, `threadId`, fase y permiso `read-only` materializados en el
+  sobre. Al no pertenecer a una unidad, ownership, estrategia y oleada son
+  explícitamente `[]`, `null` y `null`, conforme a la
   [política de orquestación](../policies/orquestacion.md).
 
 La estrategia compacta no abre este rol: el Planificador absorbe su exploración

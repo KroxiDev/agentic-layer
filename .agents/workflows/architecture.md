@@ -34,3 +34,9 @@ Ese workflow posterior aplica la política canónica y es el único responsable 
 implementar, verificar, evaluar y documentar el resultado final; `architecture`
 no repite ese cierre. Cada fase devuelve un `RoleReport` y solo el
 orquestador lo entrega a `OrchestrationKernel.apply`.
+
+Explorador y Planificador reciben intentos `read-only`; los intentos de
+propuesta y registro del Documentador son `writer`. Todos declaran revisión
+base, hilo y fase y consumen el `WorkEnvelope` completo; al no existir unidades
+de implementación, ownership, estrategia de unidad y oleada son explícitamente
+vacíos o `null`.

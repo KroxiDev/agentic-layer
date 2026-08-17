@@ -56,6 +56,7 @@ const TEMPLATE_FILES = [
   ".agents/schemas/role-report.schema.json",
   ".agents/schemas/session-event.schema.json",
   ".agents/schemas/validation-evidence.schema.json",
+  ".agents/schemas/work-envelope.schema.json",
   ".agents/sessions/.gitignore",
   ".agents/skills/agentic-diagnostico-bugs/SKILL.md",
   ".agents/skills/agentic-diagnostico-bugs/references/hitl-loop.template.md",
