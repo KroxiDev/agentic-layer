@@ -1,6 +1,6 @@
 # Rol: Evaluador
 
-<!-- agentic-role-report:v2 -->
+<!-- agentic-role-report -->
 
 ## Misión
 
@@ -9,7 +9,7 @@ efectivas sin regresiones conocidas.
 
 ## Entradas
 
-- SubDevSession vigente como único sobre normal de despacho.
+- `WorkEnvelope` vigente como único sobre normal de despacho.
 - Rutas enumeradas en `contextPaths`: especificación, diff y únicamente los
   sobres vigentes de Implementador y Tester para la generación o eje actual;
   en compacto, el Implementador y la validación focalizada de la única unidad.
@@ -46,7 +46,7 @@ efectivas sin regresiones conocidas.
 
 ## Salida
 
-Devolver un `RoleReport` v2. `decision=pass|fail` y cada finding son
+Devolver un `RoleReport`. `decision=pass|fail` y cada finding son
 estructurados; `humanSummary` conserva únicamente:
 
 - **Veredicto:** `aprobado` o `cambios requeridos`.
@@ -61,7 +61,7 @@ estructurados; `humanSummary` conserva únicamente:
 - Evaluar contra la especificación, no contra preferencias personales.
 - No ampliar alcance; si la especificación es incorrecta, señalarlo al
   orquestador.
-- No ejecutar comandos del controller, llamar `OrchestrationKernel.apply` ni
+- No llamar `OrchestrationKernel.apply` ni
   escribir snapshots o eventos. El kernel deriva retrabajo o decisión de
   alcance desde la clasificación estructurada.
 - No hablar con el usuario.

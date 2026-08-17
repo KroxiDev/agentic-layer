@@ -28,20 +28,12 @@ import {
   BIN,
   CLI,
   ROOT,
-  SESSION_CONTROLLER,
   SIN_HERRAMIENTAS,
-  controllerOutcome,
-  controllerResponse,
   countPendingFields,
-  createManagedAttempt,
-  createManagedSession,
-  createPreTraceWorkUnitSession,
   createRepository,
   linksToPolicy,
   markdownLinks,
   markdownSection,
-  parseManagedState,
-  replaceManagedState,
   roleOutputLabels,
   runExecutable,
   runExecutableWithEnvironment,
@@ -49,8 +41,6 @@ import {
   runInitializerWithoutFlags,
   runInteractiveExecutableWithEnvironment,
   runInteractiveUpdate,
-  runSessionController,
-  seedSessionContracts,
   snapshotDirectory,
 } from "./agentic-test-helpers.mjs";
 
@@ -118,15 +108,15 @@ test("update clasifica SemVer, bloquea una versión posterior y permite downgrad
   assert.equal((await readFile(join(repository, ".agents", "VERSION"), "utf8")).trim(), manifest.version);
 });
 
-test("update incorpora el inventario actual a una capa legacy y repara la misma versión", async () => {
+test("update incorpora el inventario actual a una capa sin versión y repara la misma versión", async () => {
   const repository = await createRepository({
-    ".agents/policies/orquestacion.md": "política legacy\n",
+    ".agents/policies/orquestacion.md": "política anterior\n",
     "AGENTS.md": "# Reglas heredadas\r\n\r\nConservar esta prosa.\r\n",
-    "README.md": "# Capa legacy\n\nProyecto con una capa anterior sin VERSION.\n",
+    "README.md": "# Capa anterior\n\nProyecto con una capa anterior sin VERSION.\n",
   });
   const codexHome = await createRepository();
 
-  const legacy = runExecutableWithEnvironment(
+  const previousLayer = runExecutableWithEnvironment(
     { CODEX_HOME: codexHome },
     "update",
     repository,
@@ -134,8 +124,12 @@ test("update incorpora el inventario actual a una capa legacy y repara la misma 
     "--codex-config",
     "none",
   );
-  assert.equal(legacy.status, SIN_HERRAMIENTAS, legacy.stderr || legacy.stdout);
-  assert.match(legacy.stdout, /legacy-sin-version/);
+  assert.equal(
+    previousLayer.status,
+    SIN_HERRAMIENTAS,
+    previousLayer.stderr || previousLayer.stdout,
+  );
+  assert.match(previousLayer.stdout, /sin-version/);
   assert.equal(existsSync(join(repository, ".agents", "skills", "agentic-tdd", "SKILL.md")), true);
   assert.match(await readFile(join(repository, "AGENTS.md"), "utf8"), /^# Reglas heredadas\r\n\r\nConservar esta prosa\.\r\n/);
 
@@ -175,10 +169,18 @@ test("update anterior aplica residuos administrados y conserva DevSessions y arc
     "residuo administrado\n",
     "utf8",
   );
+  const managedOrphans = [
+    ".agents/conformance/orphan-check.mjs",
+    ".agents/kernel/orphan-runtime.mjs",
+    ".agents/schemas/orphan-contract.schema.json",
+  ];
+  for (const relativePath of managedOrphans) {
+    await writeFile(join(repository, ...relativePath.split("/")), "residuo administrado\n", "utf8");
+  }
+  const sessionBytes = Buffer.from([0, 10, 13, 255, 65]);
   await writeFile(
     join(repository, ".agents", "sessions", "tarea-en-curso.md"),
-    "# DevSession real\n",
-    "utf8",
+    sessionBytes,
   );
   await writeFile(join(repository, ".agents", "notas-locales.md"), "conservar\n", "utf8");
   await writeFile(join(repository, ".claude", "settings.local.json"), "{}\n", "utf8");
@@ -200,8 +202,12 @@ test("update anterior aplica residuos administrados y conserva DevSessions y arc
   );
   assert.equal(existsSync(join(repository, ".agents", "skills", "retirada")), false);
   assert.equal(
-    await readFile(join(repository, ".agents", "sessions", "tarea-en-curso.md"), "utf8"),
-    "# DevSession real\n",
+    managedOrphans.every((relativePath) => !existsSync(join(repository, ...relativePath.split("/")))),
+    true,
+  );
+  assert.deepEqual(
+    await readFile(join(repository, ".agents", "sessions", "tarea-en-curso.md")),
+    sessionBytes,
   );
   assert.equal(await readFile(join(repository, ".agents", "notas-locales.md"), "utf8"), "conservar\n");
   assert.equal(await readFile(join(repository, ".claude", "settings.local.json"), "utf8"), "{}\n");
@@ -212,7 +218,7 @@ test("update anterior aplica residuos administrados y conserva DevSessions y arc
 test("update migra aliases contractuales a IDs estables y conserva exterior y hechos", async () => {
   const prefix = "# Reglas del propietario\r\n\r\nNo tocar `datos/`.\r\n\r\n";
   const suffix = "\r\n\r\n## Regla posterior\r\n\r\nTambién se conserva.\r\n";
-  const legacyContract = `<!-- AGENTIC_PROJECT_CONTRACT_START -->\r
+  const previousContract = `<!-- AGENTIC_PROJECT_CONTRACT_START -->\r
 \r
 ## Proyecto\r
 \r
@@ -250,8 +256,8 @@ test("update migra aliases contractuales a IDs estables y conserva exterior y he
 \r
 <!-- AGENTIC_PROJECT_CONTRACT_END -->`;
   const repository = await createRepository({
-    ".agents/policies/orquestacion.md": "legacy\n",
-    "AGENTS.md": `${prefix}${legacyContract}${suffix}`,
+    ".agents/policies/orquestacion.md": "anterior\n",
+    "AGENTS.md": `${prefix}${previousContract}${suffix}`,
   });
   const codexHome = await createRepository();
 
@@ -288,13 +294,13 @@ test("update migra aliases contractuales a IDs estables y conserva exterior y he
   ]) {
     assert.ok(agents.includes(fact), `Debe preservar el hecho contractual: ${fact}`);
   }
-  assert.equal(agents.match(/<!-- agentic-contract-field:v1 [a-z][A-Za-z]+ -->/g)?.length, 16);
+  assert.equal(agents.match(/<!-- agentic-contract-field [a-z][A-Za-z]+ -->/g)?.length, 16);
   assert.equal(agents.replaceAll("\r\n", "").includes("\n"), false);
 });
 
 test("update reemplaza valores pendientes antiguos y agrega todos los campos contractuales nuevos", async () => {
   const repository = await createRepository({
-    ".agents/policies/orquestacion.md": "legacy\n",
+    ".agents/policies/orquestacion.md": "anterior\n",
     "package.json": JSON.stringify({
       name: "contrato-pendiente",
       description: "Propósito detectado vigente.",
@@ -326,13 +332,13 @@ test("update reemplaza valores pendientes antiguos y agrega todos los campos con
   const agents = await readFile(join(repository, "AGENTS.md"), "utf8");
   assert.match(agents, /- Propósito: Propósito detectado vigente\./);
   assert.match(agents, /- Arquitectura: arquitectura explícita conservada\./);
-  assert.equal(agents.match(/<!-- agentic-contract-field:v1 [a-z][A-Za-z]+ -->/g)?.length, 16);
+  assert.equal(agents.match(/<!-- agentic-contract-field [a-z][A-Za-z]+ -->/g)?.length, 16);
   assert.doesNotMatch(agents, /completar propósito/);
 });
 
 test("update rechaza VERSION inválido antes de cualquier escritura", async () => {
   const repository = await createRepository({
-    ".agents/policies/orquestacion.md": "legacy\n",
+    ".agents/policies/orquestacion.md": "anterior\n",
     ".agents/VERSION": "1.02.3\n",
     "AGENTS.md": "# Reglas intactas\n",
   });
@@ -357,7 +363,7 @@ test("update preserva exactamente autolinks y valores contractuales legítimos c
   const purpose = "<https://ejemplo.test/documentación?idioma=es>";
   const architecture = "Transforma <entrada> en <salida> mediante un pipeline local.";
   const repository = await createRepository({
-    ".agents/policies/orquestacion.md": "legacy\n",
+    ".agents/policies/orquestacion.md": "anterior\n",
     "package.json": JSON.stringify({
       name: "contrato-con-autolink",
       description: "Este fallback no debe sustituir hechos explícitos.",
@@ -393,7 +399,7 @@ test("update preserva exactamente autolinks y valores contractuales legítimos c
 
 test("update rechaza marcadores contractuales incompletos sin modificar el destino", async () => {
   const repository = await createRepository({
-    ".agents/policies/orquestacion.md": "legacy\n",
+    ".agents/policies/orquestacion.md": "anterior\n",
     "AGENTS.md": `# Reglas intactas
 
 <!-- AGENTIC_PROJECT_CONTRACT_START -->
@@ -422,7 +428,7 @@ test("update rechaza marcadores contractuales incompletos sin modificar el desti
 
 test("update no interactivo informa todas las formas no mapeables sin modificar el destino", async () => {
   const repository = await createRepository({
-    ".agents/policies/orquestacion.md": "legacy\n",
+    ".agents/policies/orquestacion.md": "anterior\n",
     "AGENTS.md": `# Reglas\n\n<!-- AGENTIC_PROJECT_CONTRACT_START -->\n\n## Proyecto\n\n- Propósito: Proyecto legado.\n- Campo retirado: valor que no puede perderse.\n  Su continuación también debe diagnosticarse.\n- Bullet histórico sin separador\n\n<!-- AGENTIC_PROJECT_CONTRACT_END -->\n`,
   });
   const codexHome = await createRepository();
@@ -449,7 +455,7 @@ test("update no interactivo informa todas las formas no mapeables sin modificar 
 
 test("update bloquea bullets de secciones contractuales históricas que no puede mapear", async () => {
   const repository = await createRepository({
-    ".agents/policies/orquestacion.md": "legacy\n",
+    ".agents/policies/orquestacion.md": "anterior\n",
     "AGENTS.md": `# Reglas\n\n<!-- AGENTIC_PROJECT_CONTRACT_START -->\n\n## Proyecto\n\n- Propósito: Proyecto legado.\n\n## Compatibilidad histórica\n\n- Garantía retirada sin separador\n\n<!-- AGENTIC_PROJECT_CONTRACT_END -->\n`,
   });
   const codexHome = await createRepository();
@@ -472,7 +478,7 @@ test("update bloquea bullets de secciones contractuales históricas que no puede
 
 test("update interactivo mapea una entrada a un campo canónico ausente", async () => {
   const repository = await createRepository({
-    ".agents/policies/orquestacion.md": "legacy\n",
+    ".agents/policies/orquestacion.md": "anterior\n",
     "AGENTS.md": `# Reglas\n\n<!-- AGENTIC_PROJECT_CONTRACT_START -->\n\n## Proyecto\n\n- Propósito: Proyecto legado.\n- Diseño retirado: módulos separados por adapters.\n\n<!-- AGENTIC_PROJECT_CONTRACT_END -->\n`,
   });
   const codexHome = await createRepository();
@@ -487,14 +493,14 @@ test("update interactivo mapea una entrada a un campo canónico ausente", async 
   const agents = await readFile(join(repository, "AGENTS.md"), "utf8");
   assert.match(
     agents,
-    /<!-- agentic-contract-field:v1 architecture -->\r?\n- Arquitectura: módulos separados por adapters\./,
+    /<!-- agentic-contract-field architecture -->\r?\n- Arquitectura: módulos separados por adapters\./,
   );
   assert.doesNotMatch(agents, /Diseño retirado/);
 });
 
 test("update interactivo rechaza un destino ocupado y vuelve a decidir", async () => {
   const repository = await createRepository({
-    ".agents/policies/orquestacion.md": "legacy\n",
+    ".agents/policies/orquestacion.md": "anterior\n",
     "AGENTS.md": `# Reglas\n\n<!-- AGENTIC_PROJECT_CONTRACT_START -->\n\n## Proyecto\n\n- Propósito: Proyecto ocupado.\n- Diseño retirado: arquitectura recuperada.\n\n<!-- AGENTIC_PROJECT_CONTRACT_END -->\n`,
   });
   const codexHome = await createRepository();
@@ -515,7 +521,7 @@ test("update interactivo rechaza un destino ocupado y vuelve a decidir", async (
 
 test("update conserva el bullet y sus continuaciones fuera del contrato", async () => {
   const repository = await createRepository({
-    ".agents/policies/orquestacion.md": "legacy\n",
+    ".agents/policies/orquestacion.md": "anterior\n",
     "AGENTS.md": `# Reglas\n\n<!-- AGENTIC_PROJECT_CONTRACT_START -->\n\n## Proyecto\n\n- Propósito: Proyecto legado.\n- Garantía heredada: conservar el primer renglón.\n  Conservar también esta continuación.\n\n<!-- AGENTIC_PROJECT_CONTRACT_END -->\n`,
   });
   const codexHome = await createRepository();
@@ -543,7 +549,7 @@ test("update conserva el bullet y sus continuaciones fuera del contrato", async 
 
 test("update reutiliza una sección existente de reglas adicionales", async () => {
   const repository = await createRepository({
-    ".agents/policies/orquestacion.md": "legacy\n",
+    ".agents/policies/orquestacion.md": "anterior\n",
     "AGENTS.md": `# Reglas\n\n## Reglas adicionales del proyecto\n\n- Regla existente: conservar.\n\n<!-- AGENTIC_PROJECT_CONTRACT_START -->\n\n## Proyecto\n\n- Propósito: Proyecto legado.\n- Garantía heredada: mover sin duplicar encabezado.\n\n<!-- AGENTIC_PROJECT_CONTRACT_END -->\n`,
   });
   const codexHome = await createRepository();
@@ -565,7 +571,7 @@ test("update reutiliza una sección existente de reglas adicionales", async () =
 
 test("update es idempotente después de conservar una regla adicional", async () => {
   const repository = await createRepository({
-    ".agents/policies/orquestacion.md": "legacy\n",
+    ".agents/policies/orquestacion.md": "anterior\n",
     "AGENTS.md": `# Reglas\n\n<!-- AGENTIC_PROJECT_CONTRACT_START -->\n\n## Proyecto\n\n- Propósito: Proyecto legado.\n- Garantía heredada: conservar una sola vez.\n\n<!-- AGENTIC_PROJECT_CONTRACT_END -->\n`,
   });
   const codexHome = await createRepository();
@@ -591,7 +597,7 @@ test("update es idempotente después de conservar una regla adicional", async ()
 
 test("update elimina una entrada solo después de la confirmación explícita", async () => {
   const repository = await createRepository({
-    ".agents/policies/orquestacion.md": "legacy\n",
+    ".agents/policies/orquestacion.md": "anterior\n",
     "AGENTS.md": `# Reglas\n\n<!-- AGENTIC_PROJECT_CONTRACT_START -->\n\n## Proyecto\n\n- Propósito: Proyecto legado.\n- Regla obsoleta: información descartable.\n\n<!-- AGENTIC_PROJECT_CONTRACT_END -->\n`,
   });
   const codexHome = await createRepository();
@@ -610,7 +616,7 @@ test("update elimina una entrada solo después de la confirmación explícita", 
 
 test("cancelar la resolución contractual termina con salida 3 y cero escrituras", async () => {
   const repository = await createRepository({
-    ".agents/policies/orquestacion.md": "legacy\n",
+    ".agents/policies/orquestacion.md": "anterior\n",
     "AGENTS.md": `# Reglas\n\n<!-- AGENTIC_PROJECT_CONTRACT_START -->\n\n## Proyecto\n\n- Propósito: Proyecto legado.\n- Regla dudosa: debe sobrevivir a la cancelación.\n\n<!-- AGENTIC_PROJECT_CONTRACT_END -->\n`,
   });
   const codexHome = await createRepository();
@@ -626,7 +632,7 @@ test("cancelar la resolución contractual termina con salida 3 y cero escrituras
 
 test("update resuelve varias entradas no mapeables en una misma ejecución", async () => {
   const repository = await createRepository({
-    ".agents/policies/orquestacion.md": "legacy\n",
+    ".agents/policies/orquestacion.md": "anterior\n",
     "AGENTS.md": `# Reglas\n\n<!-- AGENTIC_PROJECT_CONTRACT_START -->\n\n## Proyecto\n\n- Propósito: Proyecto legado.\n- Diseño retirado: arquitectura recuperada.\n  Incluye una continuación.\n- Compatibilidad histórica sin separador\n\n<!-- AGENTIC_PROJECT_CONTRACT_END -->\n`,
   });
   const codexHome = await createRepository();
@@ -648,7 +654,7 @@ test("update resuelve varias entradas no mapeables en una misma ejecución", asy
 
 test("un fallo posterior a las decisiones restaura por completo la actualización", async () => {
   const repository = await createRepository({
-    ".agents/policies/orquestacion.md": "legacy\n",
+    ".agents/policies/orquestacion.md": "anterior\n",
     "AGENTS.md": `# Reglas\n\n<!-- AGENTIC_PROJECT_CONTRACT_START -->\n\n## Proyecto\n\n- Propósito: Proyecto legado.\n- Garantía heredada: el rollback debe restaurarla.\n\n<!-- AGENTIC_PROJECT_CONTRACT_END -->\n`,
   });
   const codexHome = await createRepository();
@@ -668,14 +674,14 @@ test("un fallo posterior a las decisiones restaura por completo la actualizació
   assert.deepEqual(await snapshotDirectory(repository), before);
 });
 
-test("update bloquea IDs o marcadores contractuales con versión o sintaxis desconocida", async () => {
+test("update bloquea IDs o marcadores contractuales con sintaxis desconocida", async () => {
   for (const marker of [
-    "<!-- agentic-contract-field:v1 futureField -->",
-    "<!-- agentic-contract-field:v2 purpose -->",
-    "<!-- agentic-contract-field:v1 purpose extra -->",
+    "<!-- agentic-contract-field futureField -->",
+    "<!-- agentic-contract-field purpose extra -->",
+    "<!-- agentic-contract-field -->",
   ]) {
     const repository = await createRepository({
-      ".agents/policies/orquestacion.md": "legacy\n",
+      ".agents/policies/orquestacion.md": "anterior\n",
       "AGENTS.md": `# Reglas\n\n<!-- AGENTIC_PROJECT_CONTRACT_START -->\n\n## Proyecto\n\n${marker}\n- Propósito: Proyecto legado.\n\n<!-- AGENTIC_PROJECT_CONTRACT_END -->\n`,
     });
     const codexHome = await createRepository();
@@ -794,10 +800,17 @@ test("un fallo intermedio de update restaura exactamente la capa y no actualiza 
   await rm(join(repository, ".claude", "agents", "tester.md"));
   await mkdir(join(repository, ".agents", "skills", "residuo"), { recursive: true });
   await writeFile(join(repository, ".agents", "skills", "residuo", "SKILL.md"), "previo\n", "utf8");
+  for (const relativePath of [
+    ".agents/conformance/orphan-check.mjs",
+    ".agents/kernel/orphan-runtime.mjs",
+    ".agents/schemas/orphan-contract.schema.json",
+  ]) {
+    await writeFile(join(repository, ...relativePath.split("/")), "previo\n", "utf8");
+  }
   const before = await snapshotDirectory(repository);
 
   const result = runExecutableWithEnvironment(
-    { CODEX_HOME: codexHome, AGENTIC_INIT_TEST_FAIL_AFTER: "2" },
+    { CODEX_HOME: codexHome, AGENTIC_INIT_TEST_FAIL_AFTER: "4" },
     "update",
     repository,
     "--yes",

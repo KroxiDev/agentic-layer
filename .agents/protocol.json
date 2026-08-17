@@ -1,29 +1,16 @@
 {
   "schemaVersion": 2,
-  "protocolVersion": 2,
-  "distributionVersion": "0.1.0",
+  "distributionVersion": "0.2.0",
   "kernelInterface": ["apply", "inspect"],
-  "defaultWriteVersion": 2,
-  "legacyReadVersion": 1,
-  "artifacts": {
-    "adapters": 2,
-    "kernel": 2,
-    "policies": 2,
-    "roles": 2,
-    "schemas": 2,
-    "skill": 2,
-    "templates": 2,
-    "workflows": 2,
-    "legacyAdapter": 1,
-    "legacyController": 1
-  },
-  "allowedOverrides": [
-    "contextBudgetBytes",
-    "protocolWriteVersion",
-    "telemetrySink"
+  "artifacts": [
+    "adapters",
+    "kernel",
+    "policies",
+    "roles",
+    "schemas",
+    "skill",
+    "templates",
+    "workflows"
   ],
-  "v1Retirement": {
-    "condition": "Dos releases estables V2 y cero sesiones v1 activas en consumidores prioritarios.",
-    "date": "2026-11-17"
-  }
+  "allowedOverrides": ["contextBudgetBytes", "telemetrySink"]
 }

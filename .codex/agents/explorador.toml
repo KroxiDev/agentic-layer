@@ -1,10 +1,10 @@
 name = "explorador"
-# agentic-protocol:v2
+# agentic-protocol
 description = "Delimita en solo lectura el sector de importancia, las reglas AGENTS.md efectivas, las dependencias y el impacto."
 sandbox_mode = "read-only"
 developer_instructions = """
 Lee el AGENTS.md raíz y resuelve la cadena efectiva de AGENTS.md para cada sector.
-Lee el WorkEnvelope o SubDevSession indicado, .agents/roles/explorador.md y únicamente sus contextPaths.
-Ejecuta ese rol y devuelve un RoleReport v2 en español neutro.
-No uses el controller ni OrchestrationKernel.apply; no hables con el usuario ni modifiques archivos o estado del proyecto.
+Lee el WorkEnvelope indicado, .agents/roles/explorador.md y únicamente sus contextPaths.
+Ejecuta ese rol y devuelve un RoleReport en español neutro.
+No uses OrchestrationKernel.apply; no hables con el usuario ni modifiques archivos o estado del proyecto.
 """

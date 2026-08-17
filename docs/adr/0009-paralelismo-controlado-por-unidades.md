@@ -4,10 +4,9 @@
 
 ## Contexto y problema
 
-La capa ya dispone de una DevSession global y SubDevSessions efímeras mediante
-el controlador portable decidido en
-[ADR 0008](0008-controlador-portable-de-subdevsessions.md). Ese protocolo hace
-trazables las fases y sus reintentos, pero un workflow completo seguía
+La capa dispone de una DevSession global y `WorkEnvelope` por intento mediante
+el kernel estructurado. Ese protocolo hace trazables las fases y sus reintentos,
+pero un workflow completo seguía
 representándose como una secuencia de fases sin un modelo ejecutable para
 dividir trabajo, expresar dependencias, atribuir validación o aprovechar
 análisis independientes.
@@ -20,9 +19,9 @@ cobertura independiente y obligaría a contextos cada vez más grandes.
 
 La solución debe permitir fan-out útil, principalmente de solo lectura, sin
 introducir dos escritores sobre el mismo working tree, sin duplicar políticas
-en adapters y sin convertir el controlador en un runtime que cree agentes.
-También debe conservar DevSessions v1, recuperación e idempotencia cuando un
-intento terminal se reintenta después de que otro writer adquirió la reserva.
+en adapters y sin convertir el kernel en un runtime que cree agentes. También
+debe conservar recuperación e idempotencia cuando un intento terminal se
+reintenta después de que otro writer adquirió la reserva.
 
 ## Fuerzas y restricciones
 
@@ -49,8 +48,8 @@ intento terminal se reintenta después de que otro writer adquirió la reserva.
 
 Adoptar un modelo de paralelismo controlado por una a tres unidades verticales,
 administrado por la DevSession y validado mecánicamente por
-`.agents/scripts/session-controller.mjs`. La política decide qué agentes abrir;
-el controlador sólo persiste y hace cumplir contratos, capacidad, ownership,
+`.agents/kernel/orchestration-kernel.mjs`. La política decide qué agentes abrir;
+el kernel sólo persiste y hace cumplir contratos, capacidad, ownership,
 gates, locks y generaciones.
 
 ### D1. Unidad e intento son identidades distintas
@@ -153,12 +152,9 @@ La global persiste presupuesto, capacidades, DAG, oleadas, ownership, gates,
 intentos, permisos, revisiones, hilos, criterios, evidencia, fallos, retrabajo,
 generación y ejes. Cada SubDevSession contiene sólo el contrato del intento.
 
-Las DevSessions v1 sin unidades conservan su comportamiento. Una DevSession
-por unidades anterior a la trazabilidad completa no permite `open` hasta que un
-`init` explícito repita el plan aprobado. El upgrade sólo completa campos
-ausentes —criterios, capacidades separadas y generación inicial—; no
-renormaliza ownership histórico ni reinterpreta intentos. Repetirlo es
-byte-idempotente y un campo presente contradictorio falla cerrado.
+Una DevSession usa siempre el modelo por unidades vigente. El kernel valida
+criterios, capacidades, generación y ownership antes del primer despacho; un
+campo ausente o contradictorio falla de forma cerrada.
 
 `status` y `recover` permanecen de sólo lectura. La recuperación clasifica
 checkpoints y residuos sin usar antigüedad. `cleanup` elimina únicamente sobres
@@ -204,8 +200,7 @@ optimización opcional de Codex; ninguna garantía esencial depende de ella.
 
 ### Negativas
 
-- El ledger v1 incorpora más estado y transiciones que deben conservar
-  compatibilidad.
+- El ledger incorpora más estado y transiciones que una secuencia narrativa.
 - Una unidad mal dividida puede costar más coordinación que contexto ahorrado;
   por eso el máximo es tres y una sola unidad sigue siendo válida.
 - El writer único limita velocidad de implementación en un checkout, de forma
@@ -230,12 +225,10 @@ optimización opcional de Codex; ninguna garantía esencial depende de ella.
 - **Deriva entre hosts.** El núcleo concentra la semántica y los adapters no la
   copian.
 
-## Compatibilidad y validación
+## Validación
 
-La decisión es aditiva sobre el protocolo de ADR 0008. No cambia la identidad
-de sesiones legacy ni obliga a migración masiva. Los consumidores que no
-declaran `workUnits` conservan las transiciones v1; los planes por unidades usan
-el mismo comando `init` para configuración y upgrade explícitos.
+Los planes declaran `workUnits` y el kernel rechaza todo despacho sin el
+contrato estructurado completo.
 
 Las regresiones permanentes usan la CLI pública en procesos Node.js y
 directorios temporales autolimpiables. Cubren identidad unidad/intento,

@@ -1,4 +1,4 @@
-// agentic-adapters:v2
+// agentic-adapters
 import {
   access,
   appendFile,
@@ -23,7 +23,7 @@ import {
   redactEvent,
   stableJson,
   validateSessionId,
-} from "./protocol-v2.mjs";
+} from "./protocol.mjs";
 
 export function createBootstrapCapability() {
   return Object.freeze(Object.create(null));
@@ -85,9 +85,8 @@ export class FakeClock {
 }
 
 export class MemoryStateStore {
-  constructor({ legacySessions = {}, probeFailure } = {}) {
+  constructor({ probeFailure } = {}) {
     this.snapshots = new Map();
-    this.legacySessions = new Map(Object.entries(legacySessions));
     this.probeFailure = probeFailure;
     this.probeResidues = new Set();
     this.#globalTail = Promise.resolve();
@@ -103,10 +102,6 @@ export class MemoryStateStore {
 
   async save(sessionId, snapshot) {
     this.snapshots.set(sessionId, clone(snapshot));
-  }
-
-  async loadLegacy(sessionId) {
-    return this.legacySessions.get(sessionId);
   }
 
   async findCommand(commandId) {
@@ -183,7 +178,7 @@ export class MemoryStateStore {
 }
 
 export class FileSystemStateStore {
-  constructor({ root, directory = ".agents/sessions/v2" }) {
+  constructor({ root, directory = ".agents/sessions/state" }) {
     if (typeof root !== "string" || !root) throw new TypeError("root es obligatorio.");
     this.root = resolve(root);
     this.baseDirectory = resolve(this.root, directory);
@@ -193,17 +188,17 @@ export class FileSystemStateStore {
     this.eventSink = new JsonlEventSink({ path: join(this.baseDirectory, "events.jsonl") });
   }
 
-  sessionDirectory(sessionId) {
+  #sessionDirectory(sessionId) {
     validateSessionId(sessionId);
     return join(this.baseDirectory, sessionId);
   }
 
-  snapshotPath(sessionId) {
-    return join(this.sessionDirectory(sessionId), "snapshot.json");
+  #snapshotPath(sessionId) {
+    return join(this.#sessionDirectory(sessionId), "snapshot.json");
   }
 
   async load(sessionId) {
-    const path = this.snapshotPath(sessionId);
+    const path = this.#snapshotPath(sessionId);
     try {
       return JSON.parse(await readFile(path, "utf8"));
     } catch (error) {
@@ -222,7 +217,7 @@ export class FileSystemStateStore {
   }
 
   async save(sessionId, snapshot) {
-    const target = this.snapshotPath(sessionId);
+    const target = this.#snapshotPath(sessionId);
     await mkdir(dirname(target), { recursive: true });
     const temporary = `${target}.tmp-${process.pid}-${randomUUID()}`;
     let handle;
@@ -243,16 +238,6 @@ export class FileSystemStateStore {
         error.remedy ??= "Retirar el temporal residual y corregir permisos del store.";
         throw error;
       }
-    }
-  }
-
-  async loadLegacy(sessionId) {
-    const path = join(this.root, ".agents", "sessions", `${sessionId}.md`);
-    try {
-      return await readFile(path, "utf8");
-    } catch (error) {
-      if (error.code === "ENOENT") return undefined;
-      throw error;
     }
   }
 

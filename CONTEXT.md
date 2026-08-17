@@ -95,8 +95,7 @@ _Evitar_: modo (a secas), nivel, perfil de ejecución.
 
 **Estrategia light**:
 La semántica persistida de una DevSession `light`. `compact` usa la secuencia
-estructural reducida del workflow; la ausencia de `lightStrategy` identifica
-una sesión legacy con fases separadas y no se migra implícitamente.
+estructural reducida del workflow y es la única estrategia admitida.
 _Evitar_: modo light, estrategia de evaluación, nivel de razonamiento.
 
 **Presupuesto del modo**:
@@ -151,27 +150,27 @@ se entrega completa a los roles.
 _Evitar_: sobre de despacho, historial inyectado, contexto del rol.
 
 **DevSession**:
-El archivo efímero `.agents/sessions/<slug>.md` que implementa el ledger de
-coordinación. Se elimina al cerrar y no se versiona.
+La sesión lógica persistida como snapshot y event log bajo
+`.agents/sessions/state/`. No se versiona ni se distribuye.
 _Evitar_: sesión, contexto compartido, scratchpad, memoria de trabajo.
 
 **Sobre de despacho**:
-La SubDevSession autocontenida que recibe un rol para un intento. Materializa
+El `WorkEnvelope` autocontenido que recibe un rol para un intento. Materializa
 objetivo, reglas, tareas y hallazgos, enumera `contextPaths` y registra la
 `sourceRevision`; no copia el ledger ni el contenido de las referencias.
 _Evitar_: DevSession global, prompt completo, copia de la especificación.
 
 **Reporte contractual**:
 La instancia íntegra del contrato de salida producida por un intento. Tiene una
-sola fuente mientras vive la tarea: su SubDevSession.
+sola fuente autoritativa: el `RoleReport` aceptado por el kernel.
 _Evitar_: índice, estado administrado, resumen global.
 
 **SubDevSession**:
-El sobre de despacho efímero `.agents/sessions/<slug>/<attempt>.md` que además
-posee el reporte contractual íntegro y su acuse hasta `cleanup`. Si falta
-contexto indispensable, el rol devuelve la incógnita exacta y el orquestador
-abre un intento nuevo con otra selección; no amplía ni reescribe el sobre vivo.
-_Evitar_: copia del reporte, historial global, ledger.
+Vista Markdown opcional de un intento, derivada de su `WorkEnvelope` y
+`RoleReport`. No decide transiciones. Si falta contexto indispensable, el rol
+devuelve la incógnita exacta y el orquestador abre un intento nuevo con otra
+selección; no amplía ni reescribe el sobre vivo.
+_Evitar_: sobre autoritativo, historial global, ledger.
 
 **Índice compacto de reportes**:
 La parte humana de la DevSession global que atribuye cada reporte por sesión,
@@ -180,16 +179,9 @@ cuerpo.
 _Evitar_: consolidación verbosa, reporte contractual, bloque administrado.
 
 **Estado administrado de DevSession**:
-El bloque JSON global que conserva revisiones, unidades, gates, intentos,
-evidencia y evaluación. `status` lo consulta sin leer los cuerpos de reportes.
-_Evitar_: índice compacto, texto humano, SubDevSession.
-
-**DevSession heredada**:
-Una DevSession v1 anterior a algún campo del modelo por unidades. `status` la
-lee sin escribir y un `init` explícito puede completar sólo la trazabilidad
-ausente de forma monotónica e idempotente. La ausencia de `lightStrategy` no es
-un campo incompleto: conserva semántica legacy.
-_Evitar_: sesión inválida, migración masiva, legacy (a secas).
+El snapshot que conserva revisiones, unidades, gates, intentos, evidencia y
+evaluación. `inspect` lo proyecta sin interpretar vistas humanas.
+_Evitar_: índice compacto, texto humano, vista de intento.
 
 **Reserva de escritor**:
 El lock durable y global del working tree cuyo dueño exacto es
@@ -203,13 +195,13 @@ los ejes anteriores; un Evaluador obsoleto no puede aprobar la nueva generación
 _Evitar_: intento del Evaluador, revisión de archivo, versión de la capa.
 
 **Recuperación**:
-La inspección explícita de checkpoints, sobres y residuos tras una interrupción.
-No decide por antigüedad ni convierte ambigüedad en éxito.
-_Evitar_: retry ciego, cleanup, rollback.
+La inspección explícita del snapshot y el retry exacto de un comando tras una
+interrupción. No decide por antigüedad ni convierte ambigüedad en éxito.
+_Evitar_: retry ciego, limpieza por edad, rollback inventado.
 
 **Idempotencia terminal**:
-La garantía de que repetir el mismo `commit` o `fail` terminal devuelve el mismo
-resultado sin duplicar consolidación ni tocar la reserva de un writer sucesor.
+La garantía de que repetir el mismo `commandId` y payload devuelve el mismo
+resultado sin duplicar efectos ni tocar la reserva de un writer sucesor.
 _Evitar_: ignorar errores, reabrir el intento, repetir la unidad.
 
 **Sector de importancia**:
@@ -229,10 +221,10 @@ peor. No hay fallback a grep, memoria improvisada ni ejecución secuencial.
 _Evitar_: fail-safe, modo degradado, graceful degradation.
 
 **OrchestrationKernel**:
-Módulo profundo del protocolo V2. Su instancia expone solo `apply(command)` e
+Módulo profundo del protocolo estructurado. Su instancia expone solo `apply(command)` e
 `inspect(sessionId)` y oculta estado, CAS, idempotencia, autorización,
 persistencia, presupuesto, aceptación y telemetría.
-_Evitar_: controller V2, conjunto de helpers, API por transición.
+_Evitar_: conjunto de helpers, API por transición, mutación desde roles.
 
 **Excepción bootstrap de reparación**:
 Ruta directa, explícita y de un solo agente para corregir un defecto demostrado
@@ -243,23 +235,23 @@ _Evitar_: bypass genérico, fallback directo, autoorquestación circular.
 
 **Capacidad del orquestador**:
 Referencia opaca, limitada y exclusiva de una sesión que autoriza mutaciones
-V2. Nunca se persiste ni se entrega a un rol.
+del estado. Nunca se persiste ni se entrega a un rol.
 _Evitar_: actor string, token en prompt, permiso del rol.
 
 **AcceptanceContract**:
-Contrato V2 versionado y hasheado que congela intención, no-objetivos,
+Contrato hasheado que congela intención, no-objetivos,
 criterios, políticas transversales y threat model aprobados. Solo cambia mediante
 un `ScopeAmendment` atribuible.
 _Evitar_: especificación mutable, criterios narrativos, moving target.
 
 **WorkEnvelope**:
-Sobre inmutable V2 de un intento. Contiene hash de aceptación, generación,
+Sobre inmutable de un intento. Contiene hash de aceptación, generación,
 objetivo, reglas, tareas, findings y manifiesto deduplicado de contexto; nunca
 contiene capacidad de mutación.
 _Evitar_: DevSession completa, prompt libre, ledger.
 
 **RoleReport**:
-Reporte V2 con `completion`, `decision`, `findings` y `evidence` estructurados.
+Reporte con `completion`, `decision`, `findings` y `evidence` estructurados.
 `humanSummary` es una vista humana y no decide transiciones.
 _Evitar_: veredicto inferido por regex, commit del rol, prosa autoritativa.
 
@@ -270,15 +262,9 @@ _Evitar_: Tester por unidad, suite duplicada por eje, workUnit ficticia.
 
 **Decisión de alcance**:
 Estado `scope_decision_required` que detiene writers ante un finding nuevo
-crítico, ambigüedad legacy o presupuesto agotado. Solo una decisión explícita
+crítico, una ambigüedad de alcance o presupuesto agotado. Solo una decisión explícita
 puede ampliar, diferir, aceptar riesgo o cancelar.
 _Evitar_: changes required automático, scope creep, retry adicional.
-
-**Adapter v1**:
-Frontera no confiable que lee sesiones Markdown históricas, marca lo no
-demostrable como `unknown` o `legacyAmbiguous` y permite migración explícita en
-un checkpoint seguro.
-_Evitar_: parser principal, inferencia de pass/fail, migración automática.
 
 ### El contrato
 

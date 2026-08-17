@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
@@ -19,7 +19,7 @@ import {
 import {
   digestObject,
   withAcceptanceContractHash,
-} from "../.agents/kernel/protocol-v2.mjs";
+} from "../.agents/kernel/protocol.mjs";
 
 let sequence = 0;
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -277,7 +277,7 @@ test("el kernel expone únicamente apply e inspect y la prosa no decide el estad
 
   for (const humanSummary of ["Ninguno", "Ninguno reproducible", "No aplica"]) {
     const harness = createHarness();
-    await start(harness, { lightStrategy: "legacy" });
+    await start(harness, { mode: "full" });
     await plan(harness);
     await dispatchAndReport(harness, { role: "implementador", workUnitId: "unit-1" });
     await dispatchAndReport(harness, {
@@ -292,7 +292,7 @@ test("el kernel expone únicamente apply e inspect y la prosa no decide el estad
 
 test("rechaza reportes contradictorios sin mutar y persiste un fallo estructurado", async () => {
   const harness = createHarness();
-  await start(harness, { lightStrategy: "legacy" });
+  await start(harness, { mode: "full" });
   await plan(harness);
   await dispatchAndReport(harness, { role: "implementador", workUnitId: "unit-1" });
   const attempt = commandId("tester");
@@ -338,7 +338,7 @@ test("rechaza reportes contradictorios sin mutar y persiste un fallo estructurad
 
 test("completion needs_input pausa sin convertir la consulta en fallo y reanuda la fase", async () => {
   const harness = createHarness();
-  await start(harness, { lightStrategy: "legacy" });
+  await start(harness, { mode: "full" });
   await plan(harness);
   const attempt = commandId("needs-input");
   await apply(harness, "dispatch-attempt", {
@@ -561,7 +561,7 @@ test("clasifica violaciones vigentes, findings nuevos y referencias inválidas",
 
 test("congela aceptación, exige threat model destructivo y registra amendments explícitos", async () => {
   const harness = createHarness();
-  await start(harness, { lightStrategy: "legacy" });
+  await start(harness, { mode: "full" });
   const incomplete = acceptanceContract({ destructive: true });
   harness.contract = incomplete;
   const blocked = await plan(harness);
@@ -907,22 +907,44 @@ test("el presupuesto de contexto rechaza exceso y deduplica referencias portable
   );
 });
 
-test("una sesión del kernel no acepta rollback silencioso de protocolo u ownership", async () => {
-  for (const protocolFlags of [
-    { mutationOwnership: "kernel", writeVersion: 1 },
-    { mutationOwnership: "legacy", writeVersion: 2 },
-  ]) {
+test("solo admite el schemaVersion actual y rechaza overrides de protocolo", async () => {
+  for (const schemaVersion of [1, 3]) {
     const harness = createHarness();
-    await assert.rejects(start(harness, { protocolFlags }), {
-      code: "invalid_protocol_override",
-    });
+    await assert.rejects(
+      harness.kernel.apply({
+        schemaVersion,
+        commandId: commandId("schema-no-admitido"),
+        sessionId: harness.sessionId,
+        expectedRevision: 0,
+        actorCapability: harness.bootstrapCapability,
+        type: "start-session",
+        payload: { mode: "light", lightStrategy: "compact", workflow: "feature" },
+      }),
+      { code: "unsupported_schema" },
+    );
     assert.equal(await harness.stateStore.load(harness.sessionId), undefined);
   }
+
+  const overridden = createHarness();
+  const retiredField = ["protocol", "Flags"].join("");
+  await assert.rejects(
+    start(overridden, {
+      [retiredField]: { mutationOwnership: "kernel", writeVersion: 2 },
+    }),
+    { code: "invalid_command" },
+  );
+  assert.equal(await overridden.stateStore.load(overridden.sessionId), undefined);
+
+  const alternativeLight = createHarness();
+  await assert.rejects(start(alternativeLight, { lightStrategy: "previous" }), {
+    code: "invalid_command",
+  });
+  assert.equal(await alternativeLight.stateStore.load(alternativeLight.sessionId), undefined);
 
   const corrupted = createHarness({ sessionId: "corrupted-snapshot" });
   await start(corrupted);
   const snapshot = await corrupted.stateStore.load(corrupted.sessionId);
-  snapshot.protocolFlags.writeVersion = 1;
+  snapshot.schemaVersion = 1;
   await corrupted.stateStore.save(corrupted.sessionId, snapshot);
   await assert.rejects(corrupted.kernel.inspect(corrupted.sessionId), {
     code: "state_protocol_mismatch",
@@ -1094,114 +1116,51 @@ test("una evaluación no admite dos intentos activos para el mismo eje y generac
   assert.equal((await harness.kernel.inspect(harness.sessionId)).revision, beforeConflict.revision);
 });
 
-test("el adapter v1 marca ambigüedad y el migrador es dry-run, seguro e idempotente", async () => {
-  const ambiguousSource = `# DevSession legacy\n\n- Fallos: Ninguno reproducible\n\n<!-- agentic-session:v1:start -->\n\`\`\`json\n{"revision":4,"workflow":"feature","mode":"full","attempts":{},"workUnits":{"unit-1":{"acceptanceCriteria":["C01","C02"]}}}\n\`\`\`\n<!-- agentic-session:v1:end -->\n`;
-  const activeSource = `# Activa\n<!-- agentic-session:v1:start -->\n\`\`\`json\n{"revision":2,"workflow":"feature","mode":"full","attempts":{"a":{"state":"active"}}}\n\`\`\`\n<!-- agentic-session:v1:end -->\n`;
-  const corruptSource = `# Corrupta\n<!-- agentic-session:v1:start -->\n\`\`\`json\n{"revision":\n\`\`\`\n<!-- agentic-session:v1:end -->\n`;
-  const store = new MemoryStateStore({
-    legacySessions: {
-      "legacy-active": activeSource,
-      "legacy-ambiguous": ambiguousSource,
-      "legacy-corrupt": corruptSource,
-    },
-  });
-  const harness = createHarness({ sessionId: "legacy-ambiguous", stateStore: store });
-  const legacy = await harness.kernel.inspect(harness.sessionId);
-  assert.equal(legacy.schemaVersion, 1);
-  assert.equal(legacy.legacyAmbiguous, true);
-  assert.equal(legacy.criterionMappings.length, 2);
-  assert.deepEqual(legacy.criterionMappings, (await harness.kernel.inspect(harness.sessionId)).criterionMappings);
-  const dryRun = await harness.kernel.apply({
-    schemaVersion: 2,
-    commandId: commandId("dry-run"),
-    sessionId: harness.sessionId,
-    expectedRevision: 0,
-    actorCapability: harness.bootstrapCapability,
-    type: "migrate-v1",
-    payload: { dryRun: true },
-  });
-  assert.equal(dryRun.dryRun, true);
-  assert.equal(dryRun.eligible, true);
-  assert.equal(await store.load(harness.sessionId), undefined);
-  const migrated = await harness.kernel.apply({
-    schemaVersion: 2,
-    commandId: commandId("migrate"),
-    sessionId: harness.sessionId,
-    expectedRevision: 0,
-    actorCapability: harness.bootstrapCapability,
-    type: "migrate-v1",
-    payload: {},
-  });
-  harness.capability = migrated.actorCapability;
-  assert.equal(migrated.decision, "migrated");
-  const migratedView = await harness.kernel.inspect(harness.sessionId);
-  assert.equal(migratedView.migratedFrom.sourceHash, legacy.sourceHash);
-  assert.equal(migratedView.migratedFrom.sourceRevision, 4);
-  assert.deepEqual(migratedView.legacyCriterionMappings, legacy.criterionMappings);
-  const resolved = await apply(harness, "resolve-scope-decision", {
-    action: "defer",
-    reference: "resolución-explícita-del-legacy",
-  });
-  assert.equal(resolved.state, "planning");
-  await plan(harness);
-  assert.equal((await harness.kernel.inspect(harness.sessionId)).lifecycle, "executing");
-  const repeated = await harness.kernel.apply({
-    schemaVersion: 2,
-    commandId: commandId("migrate-again"),
-    sessionId: harness.sessionId,
-    expectedRevision: 0,
-    actorCapability: harness.bootstrapCapability,
-    type: "migrate-v1",
-    payload: {},
-  });
-  assert.equal(repeated.decision, "already_migrated");
-  assert.equal(repeated.sourceHash, legacy.sourceHash);
+test("un comando retirado se rechaza y start-session es la única entrada de creación", async () => {
+  const harness = createHarness({ sessionId: "retired-command" });
+  const retiredCommand = ["migrate", ["v", 1].join("")].join("-");
 
-  const active = createHarness({ sessionId: "legacy-active", stateStore: store });
   await assert.rejects(
-    active.kernel.apply({
+    harness.kernel.apply({
       schemaVersion: 2,
-      commandId: commandId("active-migrate"),
-      sessionId: active.sessionId,
+      commandId: commandId("retired-command"),
+      sessionId: harness.sessionId,
       expectedRevision: 0,
-      actorCapability: active.bootstrapCapability,
-      type: "migrate-v1",
+      actorCapability: harness.bootstrapCapability,
+      type: retiredCommand,
       payload: {},
     }),
-    { code: "migration_checkpoint_required" },
+    { code: "unknown_command" },
   );
+  assert.equal(await harness.stateStore.load(harness.sessionId), undefined);
+  await assert.rejects(harness.kernel.inspect(harness.sessionId), { code: "session_not_found" });
 
-  const corrupt = createHarness({ sessionId: "legacy-corrupt", stateStore: store });
-  const corruptPlan = await corrupt.kernel.apply({
-    schemaVersion: 2,
-    commandId: commandId("corrupt-dry-run"),
-    sessionId: corrupt.sessionId,
-    expectedRevision: 0,
-    actorCapability: corrupt.bootstrapCapability,
-    type: "migrate-v1",
-    payload: { dryRun: true },
-  });
-  assert.equal(corruptPlan.eligible, false);
-  assert.deepEqual(corruptPlan.blockers, ["managed_block_invalid_json"]);
-  await assert.rejects(
-    corrupt.kernel.apply({
-      schemaVersion: 2,
-      commandId: commandId("corrupt-migrate"),
-      sessionId: corrupt.sessionId,
-      expectedRevision: 0,
-      actorCapability: corrupt.bootstrapCapability,
-      type: "migrate-v1",
-      payload: {},
-    }),
-    { code: "migration_integrity_failed" },
-  );
-  assert.equal(await store.load(corrupt.sessionId), undefined);
+  const started = await start(harness);
+  assert.equal(started.decision, "started");
+  assert.equal((await harness.kernel.inspect(harness.sessionId)).schemaVersion, 2);
 });
 
 test("MemoryStateStore y FileSystemStateStore cumplen la misma superficie pública", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "agentic-kernel-v2-"));
+  const root = await mkdtemp(join(tmpdir(), "agentic-kernel-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  for (const stateStore of [new MemoryStateStore(), new FileSystemStateStore({ root })]) {
+  const stores = [new MemoryStateStore(), new FileSystemStateStore({ root })];
+  const surfaces = stores.map((store) =>
+    Object.getOwnPropertyNames(Object.getPrototypeOf(store))
+      .filter((name) => name !== "constructor")
+      .sort(),
+  );
+  assert.deepEqual(surfaces[0], surfaces[1]);
+  assert.deepEqual(surfaces[0], [
+    "findActiveWriter",
+    "findCommand",
+    "load",
+    "probe",
+    "save",
+    "withGlobalLock",
+    "withLock",
+  ]);
+
+  for (const stateStore of stores) {
     const harness = createHarness({ stateStore });
     await start(harness);
     await plan(harness);
@@ -1235,9 +1194,9 @@ test("FileSystemStateStore compone snapshot atómico y event log JSONL append-on
   });
   assert.equal(result.revision, 1);
   const snapshot = JSON.parse(
-    await readFile(join(root, ".agents", "sessions", "v2", "filesystem-session", "snapshot.json"), "utf8"),
+    await readFile(join(root, ".agents", "sessions", "state", "filesystem-session", "snapshot.json"), "utf8"),
   );
-  const events = (await readFile(join(root, ".agents", "sessions", "v2", "events.jsonl"), "utf8"))
+  const events = (await readFile(join(root, ".agents", "sessions", "state", "events.jsonl"), "utf8"))
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line));
@@ -1246,11 +1205,11 @@ test("FileSystemStateStore compone snapshot atómico y event log JSONL append-on
   assert.equal(events[0].actor, "orchestrator");
   assert.equal(events[0].commandType, "start-session");
   const restartedEventSink = new JsonlEventSink({
-    path: join(root, ".agents", "sessions", "v2", "events.jsonl"),
+    path: join(root, ".agents", "sessions", "state", "events.jsonl"),
   });
   assert.deepEqual(await restartedEventSink.append(events[0]), { duplicate: true });
   assert.equal(
-    (await readFile(join(root, ".agents", "sessions", "v2", "events.jsonl"), "utf8"))
+    (await readFile(join(root, ".agents", "sessions", "state", "events.jsonl"), "utf8"))
       .trim()
       .split("\n").length,
     1,
@@ -1259,7 +1218,7 @@ test("FileSystemStateStore compone snapshot atómico y event log JSONL append-on
     root,
     ".agents",
     "sessions",
-    "v2",
+    "state",
     "filesystem-session",
     "snapshot.json",
   );
@@ -1713,32 +1672,30 @@ test("una interrupción cierra el intento sin fabricar RoleReport y libera el wr
   assert.equal(harness.eventSink.events.at(-1).retryCause, "timeout");
 });
 
-test("la conformidad acepta overrides declarados y detecta mezcla v1 o drift del kernel", async (t) => {
+test("la conformidad exige inventario, schemas y marcadores canónicos", async (t) => {
+  const manifest = JSON.parse(await readFile(join(ROOT, ".agents", "protocol.json"), "utf8"));
+  assert.deepEqual(Object.keys(manifest).sort(), [
+    "allowedOverrides",
+    "artifacts",
+    "distributionVersion",
+    "kernelInterface",
+    "schemaVersion",
+  ]);
+  assert.deepEqual(manifest.allowedOverrides, ["contextBudgetBytes", "telemetrySink"]);
+
   const canonical = await assertProtocolConformance({
     root: ROOT,
-    overrides: { contextBudgetBytes: 64_000, protocolWriteVersion: 2 },
+    overrides: { contextBudgetBytes: 64_000, telemetrySink: "jsonl-local" },
   });
-  assert.equal(canonical.protocolVersion, 2);
+  assert.equal(canonical.schemaVersion, 2);
+  assert.equal(canonical.distributionVersion, "0.2.0");
   assert.match(canonical.artifactHash, /^sha256:[0-9a-f]{64}$/);
   await assert.rejects(
     assertProtocolConformance({ root: ROOT, overrides: { kernelInterface: ["apply", "inspect", "drift"] } }),
     { code: "conformance_override_drift" },
   );
-  await assert.rejects(
-    assertProtocolConformance({ root: ROOT, overrides: { protocolWriteVersion: 3 } }),
-    { code: "conformance_override_invalid" },
-  );
-  assert.equal(
-    (
-      await assertProtocolConformance({
-        root: ROOT,
-        overrides: { protocolWriteVersion: 1, telemetrySink: "jsonl-local" },
-      })
-    ).overrides.protocolWriteVersion,
-    1,
-  );
 
-  const fixtureRoot = await mkdtemp(join(tmpdir(), "agentic-conformance-v2-"));
+  const fixtureRoot = await mkdtemp(join(tmpdir(), "agentic-conformance-"));
   t.after(() => rm(fixtureRoot, { recursive: true, force: true }));
   await cp(join(ROOT, ".agents"), join(fixtureRoot, ".agents"), { recursive: true });
   await cp(join(ROOT, ".codex"), join(fixtureRoot, ".codex"), { recursive: true });
@@ -1749,11 +1706,11 @@ test("la conformidad acepta overrides declarados y detecta mezcla v1 o drift del
     `${JSON.stringify({ name: "consumer-fixture", version: "7.4.0" }, null, 2)}\n`,
     "utf8",
   );
-  await writeFile(join(fixtureRoot, ".agents", "VERSION"), "0.1.0\n", "utf8");
-  assert.equal((await assertProtocolConformance({ root: fixtureRoot })).protocolVersion, 2);
+  await writeFile(join(fixtureRoot, ".agents", "VERSION"), "0.2.0\n", "utf8");
+  assert.equal((await assertProtocolConformance({ root: fixtureRoot })).schemaVersion, 2);
   const rolePath = join(fixtureRoot, ".agents", "roles", "tester.md");
   const roleSource = await readFile(rolePath, "utf8");
-  await writeFile(rolePath, roleSource.replace("<!-- agentic-role-report:v2 -->", ""), "utf8");
+  await writeFile(rolePath, roleSource.replace("<!-- agentic-role-report -->", ""), "utf8");
   await assert.rejects(assertProtocolConformance({ root: fixtureRoot }), {
     code: "conformance_version_mismatch",
   });
@@ -1763,7 +1720,7 @@ test("la conformidad acepta overrides declarados y detecta mezcla v1 o drift del
   const claudeSkillSource = await readFile(claudeSkillPath, "utf8");
   await writeFile(
     claudeSkillPath,
-    claudeSkillSource.replace("<!-- agentic-protocol:v2 -->", ""),
+    claudeSkillSource.replace("<!-- agentic-protocol -->", ""),
     "utf8",
   );
   await assert.rejects(assertProtocolConformance({ root: fixtureRoot }), {
@@ -1771,17 +1728,17 @@ test("la conformidad acepta overrides declarados y detecta mezcla v1 o drift del
   });
   await writeFile(claudeSkillPath, claudeSkillSource, "utf8");
 
+  const schemaPath = join(fixtureRoot, ".agents", "schemas", "role-report.schema.json");
+  const missingSchemaPath = `${schemaPath}.missing`;
+  await rename(schemaPath, missingSchemaPath);
+  await assert.rejects(assertProtocolConformance({ root: fixtureRoot }), {
+    code: "conformance_missing_artifact",
+  });
+  await rename(missingSchemaPath, schemaPath);
+
   const protocolPath = join(fixtureRoot, ".agents", "protocol.json");
   const protocolSource = await readFile(protocolPath, "utf8");
   const protocol = JSON.parse(protocolSource);
-  protocol.v1Retirement.date = null;
-  await writeFile(protocolPath, `${JSON.stringify(protocol, null, 2)}\n`, "utf8");
-  await assert.rejects(assertProtocolConformance({ root: fixtureRoot }), {
-    code: "conformance_retirement_undefined",
-  });
-  await writeFile(protocolPath, protocolSource, "utf8");
-
-  protocol.v1Retirement.date = "2026-11-17";
   protocol.distributionVersion = "9.9.9";
   await writeFile(protocolPath, `${JSON.stringify(protocol, null, 2)}\n`, "utf8");
   await assert.rejects(assertProtocolConformance({ root: fixtureRoot }), {

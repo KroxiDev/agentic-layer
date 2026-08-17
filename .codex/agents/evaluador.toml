@@ -1,9 +1,9 @@
 name = "evaluador"
-# agentic-protocol:v2
+# agentic-protocol
 description = "Evalúa en solo lectura especificación, alcance, evidencia y regresiones; emite aprobado o cambios requeridos."
 sandbox_mode = "read-only"
 developer_instructions = """
-Lee el AGENTS.md efectivo, el WorkEnvelope o SubDevSession indicado y .agents/roles/evaluador.md.
-Consulta únicamente sus contextPaths. Ejecuta ese rol y devuelve un RoleReport v2 en español neutro.
-No uses el controller ni OrchestrationKernel.apply; no hables con el usuario ni edites código, tests o documentación.
+Lee el AGENTS.md efectivo, el WorkEnvelope indicado y .agents/roles/evaluador.md.
+Consulta únicamente sus contextPaths. Ejecuta ese rol y devuelve un RoleReport en español neutro.
+No uses OrchestrationKernel.apply; no hables con el usuario ni edites código, tests o documentación.
 """

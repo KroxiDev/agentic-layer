@@ -5,10 +5,10 @@ tools: Read, Grep, Glob, Bash, mcp__codegraph__codegraph_explore, mcp__engram__m
 permissionMode: plan
 ---
 
-<!-- agentic-protocol:v2 -->
+<!-- agentic-protocol -->
 
-Lee el `AGENTS.md` efectivo, el WorkEnvelope o SubDevSession indicado,
+Lee el `AGENTS.md` efectivo, el WorkEnvelope indicado,
 únicamente sus `contextPaths`, `.agents/roles/planificador.md` y las referencias
-canónicas que el rol indique. Ejecuta el rol y devuelve un `RoleReport` v2. No
-uses el controller ni `OrchestrationKernel.apply`; no hables con el usuario ni
+canónicas que el rol indique. Ejecuta el rol y devuelve un `RoleReport`. No
+uses `OrchestrationKernel.apply`; no hables con el usuario ni
 modifiques archivos o estado del proyecto.

@@ -1,4 +1,4 @@
-// agentic-kernel:v2
+// agentic-kernel
 import {
   MemoryCapabilityRegistry,
   MemoryEventSink,
@@ -8,7 +8,7 @@ import {
 } from "./adapters.mjs";
 import {
   KernelError,
-  PROTOCOL_VERSION,
+  SCHEMA_VERSION,
   acceptanceContractHash,
   assertNonEmptyString,
   assertOpaqueIdentifier,
@@ -20,8 +20,7 @@ import {
   eventId,
   validateBaseCommand,
   validateSessionId,
-} from "./protocol-v2.mjs";
-import { LegacyV1Adapter } from "./v1-compatibility.mjs";
+} from "./protocol.mjs";
 
 const COMMAND_TYPES = new Set([
   "accept-plan",
@@ -29,7 +28,6 @@ const COMMAND_TYPES = new Set([
   "amend-scope",
   "close-session",
   "dispatch-attempt",
-  "migrate-v1",
   "record-attempt-failure",
   "record-user-input",
   "record-validation",
@@ -87,7 +85,6 @@ const COMMAND_PAYLOAD_KEYS = {
     "tasks",
     "workUnitId",
   ]),
-  "migrate-v1": new Set(["dryRun", "requirements"]),
   "record-attempt-failure": new Set(["attemptId", "reason", "retryCause"]),
   "record-user-input": new Set(["reference"]),
   "record-validation": new Set(["evidence"]),
@@ -98,7 +95,6 @@ const COMMAND_PAYLOAD_KEYS = {
     "evaluationStrategy",
     "lightStrategy",
     "mode",
-    "protocolFlags",
     "requirements",
     "workflow",
   ]),
@@ -138,18 +134,8 @@ function validateCommandPayload(command) {
     `${command.type}.payload`,
     "invalid_command",
   );
-  if (
-    command.type === "migrate-v1" &&
-    Object.hasOwn(command.payload ?? {}, "dryRun") &&
-    typeof command.payload.dryRun !== "boolean"
-  ) {
-    invalid("invalid_command", "migrate-v1.payload.dryRun debe ser booleano.");
-  }
-  if (["migrate-v1", "start-session"].includes(command.type)) {
-    validateRequirements(command.payload?.requirements);
-  }
   if (command.type === "start-session") {
-    validateProtocolFlags(command.payload?.protocolFlags);
+    validateRequirements(command.payload?.requirements);
   }
 }
 
@@ -187,8 +173,8 @@ function normalizeMode(payload) {
     return { lightStrategy: undefined, mode: "full" };
   }
   const lightStrategy = payload.lightStrategy ?? "compact";
-  if (!new Set(["compact", "legacy"]).has(lightStrategy)) {
-    invalid("invalid_command", "lightStrategy debe ser compact o legacy.");
+  if (lightStrategy !== "compact") {
+    invalid("invalid_command", "lightStrategy debe ser compact.");
   }
   return { lightStrategy, mode: "light" };
 }
@@ -226,7 +212,7 @@ function validateAcceptanceContract(input) {
     "AcceptanceContract",
     "invalid_acceptance_contract",
   );
-  if (input.schemaVersion !== PROTOCOL_VERSION) {
+  if (input.schemaVersion !== SCHEMA_VERSION) {
     invalid("invalid_acceptance_contract", "AcceptanceContract debe usar schemaVersion 2.");
   }
   if (Object.hasOwn(input, "destructive") && typeof input.destructive !== "boolean") {
@@ -699,7 +685,7 @@ function validateRoleReport(report, state, attempt) {
     "RoleReport",
     "invalid_role_report",
   );
-  if (report.schemaVersion !== PROTOCOL_VERSION) {
+  if (report.schemaVersion !== SCHEMA_VERSION) {
     invalid("invalid_role_report", "RoleReport debe usar schemaVersion 2.");
   }
   if (report.sessionId !== state.sessionId || report.attemptId !== attempt.attemptId) {
@@ -783,7 +769,7 @@ function validateValidationEvidence(evidence, state) {
     "ValidationEvidence",
     "invalid_validation_evidence",
   );
-  if (evidence.schemaVersion !== PROTOCOL_VERSION) {
+  if (evidence.schemaVersion !== SCHEMA_VERSION) {
     invalid("invalid_validation_evidence", "ValidationEvidence debe usar schemaVersion 2.");
   }
   const laneId = `full:${state.generation}`;
@@ -980,7 +966,7 @@ function makeEnvelope(state, payload, manifest) {
     objective: payload.objective,
     role: payload.role,
     rules: payload.rules,
-    schemaVersion: PROTOCOL_VERSION,
+    schemaVersion: SCHEMA_VERSION,
     sessionId: state.sessionId,
     sourceRevision: state.revision,
     tasks: payload.tasks,
@@ -995,27 +981,6 @@ function makeEnvelope(state, payload, manifest) {
 function protectWorkEnvelope(result) {
   if (result?.envelope) deepFreeze(result.envelope);
   return result;
-}
-
-function validateProtocolFlags(protocolFlags) {
-  if (protocolFlags) {
-    assertRecord(protocolFlags, "protocolFlags");
-    assertExactKeys(
-      protocolFlags,
-      new Set(["mutationOwnership", "writeVersion"]),
-      "protocolFlags",
-      "invalid_protocol_override",
-    );
-    if (
-      protocolFlags.writeVersion !== 2 ||
-      protocolFlags.mutationOwnership !== "kernel"
-    ) {
-      invalid(
-        "invalid_protocol_override",
-        "Una sesión del kernel siempre escribe V2 con ownership exclusivo del orquestador.",
-      );
-    }
-  }
 }
 
 function validateRequirements(requirements) {
@@ -1079,7 +1044,7 @@ function startState(command, environmentReport, clock, configuration, normalized
     evaluationStrategy,
     lightStrategy: mode.lightStrategy,
     mode: mode.mode,
-    schemaVersion: PROTOCOL_VERSION,
+    schemaVersion: SCHEMA_VERSION,
     sessionId: command.sessionId,
     workflow: payload.workflow,
   });
@@ -1103,14 +1068,10 @@ function startState(command, environmentReport, clock, configuration, normalized
     ...mode,
     openedAt: nowUtc,
     openedMonotonic: nowMonotonic,
-    protocolFlags: {
-      mutationOwnership: "kernel",
-      writeVersion: 2,
-    },
     planningScopeHash,
     recovery: { bootstrapCommand: recoverableBootstrapCommand(command) },
     revision: 0,
-    schemaVersion: PROTOCOL_VERSION,
+    schemaVersion: SCHEMA_VERSION,
     sessionId: command.sessionId,
     stateEnteredAt: nowUtc,
     stateEnteredMonotonic: nowMonotonic,
@@ -1139,12 +1100,10 @@ function validateSnapshot(state, sessionId) {
     !state ||
     typeof state !== "object" ||
     Array.isArray(state) ||
-    state.schemaVersion !== PROTOCOL_VERSION ||
+    state.schemaVersion !== SCHEMA_VERSION ||
     state.sessionId !== sessionId ||
     !Number.isInteger(state.revision) ||
     state.revision < 1 ||
-    state.protocolFlags?.writeVersion !== 2 ||
-    state.protocolFlags?.mutationOwnership !== "kernel" ||
     typeof state.lifecycle !== "string" ||
     !state.commands ||
     typeof state.commands !== "object" ||
@@ -1158,14 +1117,14 @@ function validateSnapshot(state, sessionId) {
   ) {
     invalid(
       "state_protocol_mismatch",
-      `El snapshot ${sessionId} no satisface la identidad estructural V2.`,
+      `El snapshot ${sessionId} no satisface la identidad estructural actual.`,
     );
   }
 }
 
 function authorizeStart(kernel, command) {
   if (command.actorCapability !== kernel.bootstrapCapability) {
-    invalid("actor_not_authorized", "La capacidad no autoriza al actor para iniciar o migrar sesiones.");
+    invalid("actor_not_authorized", "La capacidad no autoriza al actor para iniciar sesiones.");
   }
 }
 
@@ -1679,40 +1638,6 @@ function applyToState(state, command, clock) {
   invalid("invalid_transition", `El comando ${command.type} no aplica al estado actual.`);
 }
 
-function migratedState(command, legacy, environmentReport, clock, configuration) {
-  const state = startState(
-    {
-      ...command,
-      payload: {
-        evaluationStrategy: "combined",
-        ...(legacy.mode === "light" ? { lightStrategy: "legacy" } : {}),
-        mode: legacy.mode === "light" ? "light" : "full",
-        workflow: legacy.workflow === "unknown" ? "feature" : legacy.workflow,
-      },
-    },
-    environmentReport,
-    clock,
-    configuration,
-  );
-  state.lifecycle = legacy.legacyAmbiguous ? "scope_decision_required" : "planning";
-  state.scopeDecision = legacy.legacyAmbiguous
-    ? {
-        options: ["amend", "defer", "accept-risk", "cancel"],
-        reason: "legacy_ambiguous",
-      }
-    : undefined;
-  state.migratedFrom = {
-    schemaVersion: 1,
-    sourceHash: legacy.sourceHash,
-    sourceRevision: legacy.revision,
-    tool: "agentic-layer-v1-to-v2",
-  };
-  state.recovery = { bootstrapCommand: recoverableBootstrapCommand(command) };
-  state.legacyCriterionMappings = clone(legacy.criterionMappings);
-  state.legacyUnknown = clone(legacy.unknown);
-  return state;
-}
-
 export class OrchestrationKernel {
   constructor({
     bootstrapCapability,
@@ -1721,7 +1646,6 @@ export class OrchestrationKernel {
     configuration = {},
     environmentProbe = new SystemEnvironmentProbe(),
     eventSink,
-    legacyAdapter,
     stateStore,
   } = {}) {
     if (!bootstrapCapability) throw new TypeError("bootstrapCapability es obligatorio.");
@@ -1766,13 +1690,11 @@ export class OrchestrationKernel {
     this.environmentProbe = environmentProbe;
     this.eventSink = eventSink ?? stateStore.eventSink ?? new MemoryEventSink();
     this.stateStore = stateStore;
-    this.legacyAdapter = legacyAdapter ?? new LegacyV1Adapter({ stateStore });
     for (const [label, adapter, methods] of [
       ["capabilityRegistry", this.capabilityRegistry, ["authorize", "capabilityFor", "issue"]],
       ["clock", this.clock, ["nowMonotonic", "nowUtc"]],
       ["environmentProbe", this.environmentProbe, ["run"]],
       ["eventSink", this.eventSink, ["append"]],
-      ["legacyAdapter", this.legacyAdapter, ["inspect", "planMigration"]],
     ]) {
       for (const method of methods) {
         if (typeof adapter?.[method] !== "function") {
@@ -1814,8 +1736,7 @@ export class OrchestrationKernel {
           const recordedState = await this.stateStore.load(recorded.sessionId);
           validateSnapshot(recordedState, recorded.sessionId);
           if (
-            command.type === "start-session" ||
-            command.type === "migrate-v1"
+            command.type === "start-session"
               ? command.actorCapability !== this.bootstrapCapability &&
                 !this.capabilityRegistry.authorize(
                   command.sessionId,
@@ -1835,7 +1756,7 @@ export class OrchestrationKernel {
           }
           const result = clone(recorded.command.result);
           await deliverPendingEvents(this, recordedState, command.commandId, result);
-          if (["start-session", "migrate-v1"].includes(command.type)) {
+          if (command.type === "start-session") {
             let capability = this.capabilityRegistry.capabilityFor(command.sessionId);
             if (
               !this.capabilityRegistry.authorize(
@@ -1891,54 +1812,6 @@ export class OrchestrationKernel {
             this.clock.nowMonotonic() + this.configuration.capabilityTtlMs,
           );
           transition = { result: { decision: "started" } };
-        } else if (command.type === "migrate-v1") {
-          authorizeStart(this, command);
-          if (state?.migratedFrom) {
-            return {
-              decision: "already_migrated",
-              revision: state.revision,
-              sessionId: state.sessionId,
-              sourceHash: state.migratedFrom.sourceHash,
-            };
-          }
-          if (state) invalid("session_exists", "Ya existe una sesión v2 con este ID.");
-          if (command.expectedRevision !== 0) invalid("stale_revision", "Una migración nueva exige revisión 0.");
-          const legacy = await this.legacyAdapter.inspect(command.sessionId);
-          if (!legacy) invalid("legacy_not_found", "No existe una sesión v1 para migrar.");
-          const plan = await this.legacyAdapter.planMigration(command.sessionId);
-          if (command.payload?.dryRun) return { ...plan, dryRun: true };
-          if (!legacy.integrityValid) {
-            invalid(
-              "migration_integrity_failed",
-              "El bloque administrado v1 no supera la validación de integridad.",
-              { integrityIssue: legacy.integrityIssue },
-            );
-          }
-          if (legacy.activeCheckpointRequired) {
-            invalid("migration_checkpoint_required", "La sesión v1 tiene writers o reportes pendientes.");
-          }
-          const environment = await this.environmentProbe.run({
-            requirements: command.payload?.requirements ?? {},
-            sessionId: command.sessionId,
-            store: this.stateStore,
-          });
-          if (!environment.ok) {
-            invalid("environment_failed", "El preflight falló antes de migrar la sesión.", environment);
-          }
-          state = migratedState(command, legacy, environment, this.clock, this.configuration);
-          transitionFromRevision = 0;
-          transitionFromState = "legacy";
-          issuedCapability = this.capabilityRegistry.issue(
-            command.sessionId,
-            this.clock.nowMonotonic() + this.configuration.capabilityTtlMs,
-          );
-          transition = {
-            result: {
-              decision: "migrated",
-              legacyAmbiguous: legacy.legacyAmbiguous,
-              sourceHash: legacy.sourceHash,
-            },
-          };
         } else {
           if (!state) invalid("session_not_found", "La sesión no existe.");
           authorizeSession(this, state, command);
@@ -1988,7 +1861,7 @@ export class OrchestrationKernel {
           eventId: eventId(command.commandId),
           fromRevision: beforeRevision,
           fromState: beforeState,
-          schemaVersion: PROTOCOL_VERSION,
+          schemaVersion: SCHEMA_VERSION,
           sessionId: state.sessionId,
           startedAt,
           stateDurationMs: Math.max(0, startedMonotonic - state.stateEnteredMonotonic),
@@ -2016,8 +1889,6 @@ export class OrchestrationKernel {
       validateSnapshot(state, sessionId);
       return sessionView(state);
     }
-    const legacy = await this.legacyAdapter.inspect(sessionId);
-    if (legacy) return legacy;
     invalid("session_not_found", "La sesión no existe.");
   }
 }

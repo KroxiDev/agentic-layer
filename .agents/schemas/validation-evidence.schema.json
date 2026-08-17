@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://kroxidev.dev/agentic/validation-evidence.v2.schema.json",
-  "title": "ValidationEvidence v2",
+  "$id": "https://kroxidev.dev/agentic/validation-evidence.schema.json",
+  "title": "ValidationEvidence",
   "type": "object",
   "additionalProperties": false,
   "required": [

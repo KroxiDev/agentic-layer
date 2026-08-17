@@ -1,7 +1,7 @@
 # Política de orquestación
 
-<!-- agentic-protocol:v2 -->
-<!-- agentic-bootstrap-repair:v1 -->
+<!-- agentic-protocol -->
+<!-- agentic-bootstrap-repair -->
 
 El orquestador es el único interlocutor del usuario. Selecciona el workflow,
 mantiene el plan y la DevSession, delega cada fase e indexa sus reportes. Los
@@ -175,10 +175,9 @@ proporcional al riesgo.
 ### `light`
 
 Activar únicamente cuando el usuario lo pida de forma explícita. No es un
-workflow separado ni una selección de modelo. Una DevSession `light` nueva de
-`feature`, `bugfix` o `refactor` persiste `lightStrategy: "compact"`; una
-DevSession `light` existente sin ese campo conserva su secuencia legacy y no se
-migra implícitamente. `architecture` no admite la estrategia compacta: la
+workflow separado ni una selección de modelo. Una DevSession `light` de
+`feature`, `bugfix` o `refactor` persiste `lightStrategy: "compact"`.
+`architecture` no admite la estrategia compacta: la
 petición `light` solo puede aplicarse al workflow posterior que implemente una
 decisión ya aprobada.
 
@@ -198,10 +197,9 @@ Si una condición falla, detenerse antes de implementar y ofrecer únicamente
 cambiar a `full` o reducir el alcance. Pedir `light` no autoriza a degradar
 seguridad, integridad, compatibilidad, aislamiento ni evidencia.
 
-Cada workflow elegible declara una secuencia V2 ejecutable mediante
-`agentic-light-sequence:v2`; el marcador equivalente v1 queda reservado al
-controller de sesiones legacy. Las fases canónicas generales siguen vigentes
-para `full` y para `light` legacy. El Planificador absorbe la
+Cada workflow elegible declara una única secuencia ejecutable mediante
+`agentic-light-sequence`. Las fases canónicas generales siguen vigentes para
+`full`. El Planificador absorbe la
 exploración mínima con CodeGraph, Engram y la cadena efectiva de `AGENTS.md`;
 en `bugfix` consume antes la reproducción del Tester. Después intervienen el
 Implementador y un Evaluador combinado independiente `read-only`. No se abre
@@ -233,7 +231,7 @@ del impacto la exijan.
 - Formar oleadas deterministas únicamente con unidades listas. Cerrar cada hilo
   después de consolidar su resultado para liberar capacidad.
 
-La planificación `full` o `light` legacy puede declarar entre una y tres
+La planificación `full` puede declarar entre una y tres
 unidades de implementación, cada una con `workUnitId`, `dependsOn`,
 `owned_paths`, permiso y orden. Sus dependencias solo quedan satisfechas por
 validación atribuible del Tester. La estrategia compacta exige una sola unidad
@@ -242,7 +240,7 @@ repetir una unidad validada salvo impacto demostrado.
 
 Cada unidad recibe validación focalizada atribuible mediante un caso, patrón o
 procedimiento concreto. El Implementador conserva una comprobación
-proporcional. En `full` y `light` legacy, el Tester juzga la evidencia de cada
+proporcional. En `full`, el Tester juzga la evidencia de cada
 unidad; en `full`, después del fan-in, ejecuta además la validación completa una
 sola vez antes de la evaluación final. En la estrategia compacta, el Evaluador
 combinado independiente juzga o ejecuta la señal focalizada y la suite completa
@@ -262,7 +260,7 @@ rechazar rutas no canónicas, escapes y colisiones exactas o de
 ancestro/descendiente antes de despachar. La comparación es portable a Windows:
 ignora mayúsculas y aliases por puntos o espacios terminales en cada segmento.
 
-En `full` y `light` legacy, ejecutar el fan-in después de que todas las unidades
+En `full`, ejecutar el fan-in después de que todas las unidades
 estén implementadas, validadas y consolidadas. En estrategia compacta, el
 Evaluador abre sobre la única unidad `implemented` y su veredicto consolida en
 una sola mutación el gate de unidad y el eje `combined`. Fuera de esa excepción,
@@ -374,7 +372,7 @@ el resultado final; `architecture` no repite ese cierre.
 ## Delegación aislada
 
 Cada fase se ejecuta en un subagente o contexto nativo aislado. El subagente
-recibe únicamente la ruta de su SubDevSession vigente, la instrucción breve de
+recibe únicamente su `WorkEnvelope` vigente, la instrucción breve de
 ejecutar el contrato de su rol y acceso normal a CodeGraph y Engram. El sobre
 materializa el objetivo, las reglas, las tareas y las referencias permitidas; el
 subagente devuelve solo el contrato de salida de su rol.
@@ -387,8 +385,8 @@ Los subagentes:
 - heredan modelo, nivel de razonamiento, permisos, aprobaciones y herramientas
   de la sesión principal, salvo una restricción técnica más estricta del rol.
 
-Cada rol recibe un `WorkEnvelope` inmutable y devuelve un `RoleReport` v2. Nunca
-recibe una capacidad de mutación, ejecuta comandos del controller, llama
+Cada rol recibe un `WorkEnvelope` inmutable y devuelve un `RoleReport`. Nunca
+recibe una capacidad de mutación, llama
 `OrchestrationKernel.apply` ni escribe snapshots o eventos. Solo el orquestador
 presenta el reporte estructurado al kernel.
 
@@ -403,11 +401,11 @@ testing y documentación se ejecutan en el orden del workflow.
 ## Proyección mínima de contexto
 
 La DevSession global es el ledger durable y recuperable de coordinación, pero
-no es un artefacto de despacho. Para cada intento nuevo, `open` materializa una
-SubDevSession autocontenida como único sobre normal. El caller debe aportar
+no es un artefacto de despacho. Para cada intento nuevo, `dispatch-attempt`
+materializa un `WorkEnvelope` autocontenido como único sobre normal. El caller debe aportar
 `objective`, `rules` y `tasks` como strings no vacíos, `findings` como el
 hallazgo pertinente o `No aplica`, y `contextPaths` como una lista explícita de
-archivos consultables. El controlador calcula `sourceRevision` desde la
+archivos consultables. El kernel calcula `sourceRevision` desde la
 revisión global vigente; el caller no puede imponerla.
 
 `contextPaths` conserva el orden elegido y usa rutas relativas canónicas. Se
@@ -435,7 +433,7 @@ La selección mínima por rol es:
 - **Documentador:** decisiones, cambios, evidencia y evaluación aprobada que
   abrieron su gate; nunca intentos fallidos ni reportes irrelevantes.
 
-El rol lee su SubDevSession y únicamente las rutas enumeradas en
+El rol lee su `WorkEnvelope` y únicamente las rutas enumeradas en
 `contextPaths`. Si falta un dato indispensable, devuelve la incógnita exacta al
 orquestador sin abrir el ledger ni ampliar el contexto. Corregir la selección
 exige cerrar o fallar el intento y abrir uno nuevo con causa y sobre nuevo; un
@@ -449,16 +447,16 @@ los mismos roles, workflows, contratos y garantías observables. Una
 optimización exclusiva de Codex debe ser opcional y ninguna capacidad esencial
 puede depender de ella.
 
-## `OrchestrationKernel` v2
+## `OrchestrationKernel`
 
-Las sesiones nuevas usan el módulo profundo `.agents/kernel/` mediante una
-única interface pública de dos operaciones:
+Las sesiones usan el módulo profundo
+`.agents/kernel/orchestration-kernel.mjs` mediante una única interface pública
+de dos operaciones:
 
 - `apply(command)`: autentica la capacidad del orquestador y concentra máquina
   de estados, CAS, idempotencia global por `commandId`, presupuesto, aceptación,
   lanes, persistencia y telemetría;
-- `inspect(sessionId)`: devuelve una vista sin capacidades ni secretos y puede
-  normalizar una sesión v1 mediante el adapter de compatibilidad.
+- `inspect(sessionId)`: devuelve una vista sin capacidades ni secretos.
 
 El orquestador es el único caller mutador. `start-session` ejecuta el preflight
 antes del primer snapshot y emite una capacidad opaca, limitada y exclusiva de
@@ -472,7 +470,7 @@ retry estructurada y timestamps atribuibles. El orquestador no fabrica un
 `RoleReport`: cerrar el intento libera su reserva y un retry abre un sobre
 nuevo.
 
-El estado autoritativo es un snapshot V2 más un event log append-only. Markdown
+El estado autoritativo es un snapshot más un event log append-only. Markdown
 es únicamente una vista humana: ninguna regex narrativa decide una transición.
 Todo `RoleReport` declara `completion`, `decision`, `findings` y `evidence` de
 forma estructurada y referencia el hash vigente del `AcceptanceContract`.
@@ -503,8 +501,8 @@ sin una segunda transición funcional; un cambio exige validación nueva.
 
 La evaluación inicial no consume presupuesto. Cada rechazo de una generación
 abre como máximo un ciclo, aunque ambos ejes encuentren el mismo defecto. El
-tope base de dos `evaluationReworkCycles` rige por igual en `full`,
-`light` legacy y compacto; el intento de abrir un tercero produce
+tope base de dos `evaluationReworkCycles` rige por igual en `full` y
+`light` compacto; el intento de abrir un tercero produce
 `rework_budget_exhausted` y `scope_decision_required`.
 
 Cada transición registra actor autenticado, timestamps UTC, duración
@@ -520,64 +518,49 @@ entorno real y JSONL. Los proyectos solo pueden configurar los overrides
 declarados por `.agents/protocol.json`; modificar la interface del kernel es
 drift y falla la suite de conformidad.
 
+## Contexto de una tarea anterior
+
+Activar esta adaptación solo cuando el usuario o un prompt de handoff aporte
+rutas o fuentes explícitas. Leerlas como evidencia ordinaria, sin parser de
+formato histórico, y extraer únicamente:
+
+- objetivo vigente;
+- decisiones e instrucciones confirmadas por el usuario;
+- restricciones aplicables;
+- trabajo verificable en el repositorio;
+- validaciones disponibles, todavía sujetas a vigencia;
+- pendientes, archivos y fuentes relevantes.
+
+Contrastar el repositorio, los diffs y las validaciones antes de declarar ese
+trabajo como completo. Iniciar después una sesión normal mediante
+`start-session` y planificación: no heredar revisiones, fases, intentos,
+capacidades, hashes, aprobaciones ni estados terminales, y no agregar comandos
+o campos especiales al kernel.
+
+Registrar fuera del estado del kernel las rutas exactas del bundle que deba
+retirarse al final. Tras éxito completo, resolver y validar rutas absolutas
+dentro del repositorio y eliminar exclusivamente `.agents/sessions/<slug>.md`,
+`.agents/sessions/<slug>/` y residuos cuyo ownership corresponda de forma
+inequívoca a esa sesión. No usar globs; ante ambigüedad, fallar de forma
+cerrada. Informar lo eliminado y verificar su ausencia. Si la tarea falla,
+queda incompleta o bloqueada, conservar todo el bundle.
+
 ## DevSession
 
-Para sesiones nuevas, el snapshot y el event log V2 son el ledger y
-`templates/dev-session.md` es solo su vista humana generada. Este apartado
-conserva el protocolo v1 durante su ventana de soporte: una sesión v1 activa
-puede terminar con su runtime original o migrarse explícitamente en un
-checkpoint sin writers ni reportes pendientes; nunca se reescribe por
-inferencia.
+El snapshot y el event log bajo `.agents/sessions/state/` forman el ledger
+durable; `templates/dev-session.md` es solo una vista humana. `start-session`
+es la única entrada de creación. Cada `dispatch-attempt` materializa un
+`WorkEnvelope` autocontenido, y solo `OrchestrationKernel.apply` puede cambiar
+el estado usando revisión esperada y capacidad del orquestador.
 
-El orquestador administra exclusivamente una sesión v1 activa con
-`node .agents/scripts/session-controller.mjs <comando> --session <slug>` y una
-revisión esperada en cada mutación. Usa `init`, `open`, `await-input`, `resume`,
-`commit`, `fail`, `recover`, `cleanup` y `close` según la transición requerida.
-El primer `init` persiste modo y capacidades y aplica desde entonces los topes,
-aunque el DAG todavía no exista. Para una sesión `light` nueva también persiste
-`lightStrategy: "compact"`; la ausencia del campo en una sesión existente se
-interpreta como legacy y nunca se completa por inferencia.
-Tras planificar unidades, repetir `init` con la revisión vigente para registrar
-atómicamente el DAG y la capacidad detectada antes de abrir sus intentos.
+El ledger registra objetivo, workflow, modo, estrategia light cuando aplique,
+unidades, ownership, intentos, evidencia, generaciones, evaluación,
+documentación y estado terminal. Antes de cada despacho, el orquestador
+selecciona únicamente las referencias admitidas por **Proyección mínima de
+contexto** y las registra en `contextPaths`; nunca pasa el historial completo.
 
-`commit` conserva el cuerpo íntegro del reporte contractual únicamente en la
-SubDevSession. La parte humana global recibe una referencia compacta con sesión,
-intento, fase, rol, unidad o eje aplicable, estado, resultado, hash y ruta; el
-bloque administrado global continúa siendo la fuente del estado de coordinación.
-`status` usa ese bloque y no carga cuerpos de reportes. Las consolidaciones
-verbosas heredadas permanecen legibles y no se reescriben.
-
-Actualizarla al cerrar cada fase. Es el único traspaso de estado entre
-subagentes y debe registrar:
-
-- objetivo, workflow, modo, estrategia light cuando aplique y fase actual;
-- presupuesto del modo, capacidad `read-only`, aislamiento de escritores y oleada;
-- unidades, dependencias, ownership, permiso por intento, hilos y revisión base;
-- estrategia de validación por unidad y, si se reutiliza evidencia, revisión,
-  comando o procedimiento, resultado, criterio cubierto y vigencia;
-- estados implementada, validada y consolidada, con evidencia atribuible;
-- hilos abiertos/cerrados, fallos, retrabajo y resultado del fan-in;
-- validación focalizada por unidad y validación completa única posterior al
-  fan-in cuando corresponda;
-- estrategia, riesgo registrado, generación y ejes de evaluación final con sus
-  veredictos;
-- sector de importancia y reglas efectivas por sector;
-- especificación, tareas y decisiones;
-- archivos modificados;
-- tests creados, separados entre temporales y permanentes;
-- comandos y resultados de validación;
-- veredicto del evaluador;
-- decisión del gate de Documentador o `No aplica` con su motivo;
-- candidatos a memoria y próximos pasos.
-
-Antes de cada `open`, el orquestador selecciona en el índice únicamente las
-referencias admitidas por la sección **Proyección mínima de contexto** y las
-registra en `contextPaths`; nunca pasa el historial completo. Los sobres que
-necesiten Evaluador o Documentador deben consumirse antes de `cleanup`.
-
-No versionar instancias reales. Los inventarios y el paquete las excluyen
-aunque existan durante la validación. Eliminarlas al cerrar correctamente la
-tarea.
+No versionar instancias reales. Los inventarios y el paquete excluyen
+`.agents/sessions/`, aunque exista durante la validación.
 
 ## Relevo de preguntas
 
@@ -619,11 +602,6 @@ alcance; no abren Implementador automáticamente.
 
 ## Cierre
 
-En V2, el gate documental produce un `RoleReport` o la decisión estructurada
-`not_applicable`; después `close-session` conserva estado terminal y evidencia.
-Los pasos `cleanup` y `close` siguientes se aplican únicamente a sobres y
-DevSessions v1 activas durante su ventana de compatibilidad.
-
 1. Exigir veredicto `aprobado`.
 2. Eliminar únicamente tests creados en esta DevSession, marcados como
    temporales y cuya eliminación permita el contrato efectivo. Nunca eliminar
@@ -634,7 +612,10 @@ DevSessions v1 activas durante su ventana de compatibilidad.
    abrirlo con la selección explícita de sobres pertinente; en caso contrario,
    registrar `No aplica` con su motivo sin crear ese contexto.
 5. Confirmar que Evaluador y, cuando se abrió, Documentador ya consumieron sus
-   sobres y ejecutar `cleanup`.
+   sobres.
 6. Consolidar en Engram los candidatos durables.
-7. Ejecutar `close` para eliminar la DevSession.
-8. Informar cambios, evidencia, límites y próximos pasos al usuario.
+7. Ejecutar `close-session`; el snapshot terminal y su evidencia permanecen en
+   el store hasta que una política externa de retención los retire.
+8. Aplicar, solo si corresponde, la limpieza exacta registrada para el contexto
+   de una tarea anterior y verificar su ausencia.
+9. Informar cambios, evidencia, límites y próximos pasos al usuario.

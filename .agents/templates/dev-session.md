@@ -1,16 +1,16 @@
 # DevSession: <slug>
 
-<!-- agentic-template:v2 -->
+<!-- agentic-template -->
 
-> Vista humana generada desde el snapshot y el event log V2. No es fuente de
-> transiciones. Las sesiones v1 existentes conservan su bloque administrado.
+> Vista humana generada desde el snapshot y el event log. No es fuente de
+> transiciones.
 
 - Objetivo:
 - Protocolo: 2
 - Hash de `AcceptanceContract`:
 - Workflow: feature | bugfix | refactor | architecture
 - Modo: full | light
-- Estrategia light: compact | legacy | No aplica
+- Estrategia light: compact | No aplica
 - Fase actual:
 
 ## Presupuesto y capacidad
@@ -83,7 +83,7 @@
 
 ## Índice compacto de reportes
 
-<!-- Una referencia atribuible por intento; el cuerpo íntegro vive en la SubDevSession indicada. -->
+<!-- Una referencia atribuible por intento; el cuerpo íntegro vive en el RoleReport asociado. -->
 
 ## Veredicto del evaluador
 

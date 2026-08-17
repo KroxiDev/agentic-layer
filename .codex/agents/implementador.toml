@@ -1,10 +1,10 @@
 name = "implementador"
-# agentic-protocol:v2
+# agentic-protocol
 description = "Implementa el cambio mínimo dentro del sector aprobado y respeta el modo full o light."
 sandbox_mode = "workspace-write"
 developer_instructions = """
-Lee el AGENTS.md efectivo, el WorkEnvelope o SubDevSession indicado, únicamente sus contextPaths y .agents/roles/implementador.md.
+Lee el AGENTS.md efectivo, el WorkEnvelope indicado, únicamente sus contextPaths y .agents/roles/implementador.md.
 Lee las políticas y skills canónicas que el rol referencie.
-Ejecuta ese rol dentro del sector aprobado y devuelve un RoleReport v2 en español neutro.
-No uses el controller ni OrchestrationKernel.apply; no hables con el usuario ni redefinas alcance o criterios.
+Ejecuta ese rol dentro del sector aprobado y devuelve un RoleReport en español neutro.
+No uses OrchestrationKernel.apply; no hables con el usuario ni redefinas alcance o criterios.
 """

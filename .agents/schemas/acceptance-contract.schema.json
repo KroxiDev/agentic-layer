@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://kroxidev.dev/agentic/acceptance-contract.v2.schema.json",
-  "title": "AcceptanceContract v2",
+  "$id": "https://kroxidev.dev/agentic/acceptance-contract.schema.json",
+  "title": "AcceptanceContract",
   "type": "object",
   "additionalProperties": false,
   "required": [

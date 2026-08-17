@@ -3,15 +3,25 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 
-import { KernelError, digestObject } from "../kernel/protocol-v2.mjs";
+import { KernelError, digestObject } from "../kernel/protocol.mjs";
 
 const ROLES = ["documentador", "evaluador", "explorador", "implementador", "planificador", "tester"];
 const WORKFLOWS = ["architecture", "bugfix", "feature", "refactor"];
 const SCHEMAS = [
-  "acceptance-contract.v2.schema.json",
-  "role-report.v2.schema.json",
-  "session-event.v2.schema.json",
-  "validation-evidence.v2.schema.json",
+  "acceptance-contract.schema.json",
+  "role-report.schema.json",
+  "session-event.schema.json",
+  "validation-evidence.schema.json",
+];
+const ARTIFACT_GROUPS = [
+  "adapters",
+  "kernel",
+  "policies",
+  "roles",
+  "schemas",
+  "skill",
+  "templates",
+  "workflows",
 ];
 
 async function source(root, relativePath) {
@@ -19,15 +29,6 @@ async function source(root, relativePath) {
     return await readFile(join(root, ...relativePath.split("/")), "utf8");
   } catch (error) {
     throw new KernelError("conformance_missing_artifact", `Falta ${relativePath}: ${error.message}`);
-  }
-}
-
-function exactVersion(manifest, artifact) {
-  if (manifest.artifacts?.[artifact] !== 2) {
-    throw new KernelError(
-      "conformance_version_mismatch",
-      `${artifact} declara versión ${manifest.artifacts?.[artifact] ?? "ausente"}; se esperaba 2.`,
-    );
   }
 }
 
@@ -50,8 +51,14 @@ export async function assertProtocolConformance({ root, overrides = {} }) {
   } catch (error) {
     throw new KernelError("conformance_invalid_manifest", `protocol.json inválido: ${error.message}`);
   }
-  if (protocol.schemaVersion !== 2 || protocol.protocolVersion !== 2) {
-    throw new KernelError("conformance_version_mismatch", "La distribución debe declarar protocolo 2.");
+  if (protocol.schemaVersion !== 2) {
+    throw new KernelError("conformance_version_mismatch", "La distribución debe declarar schemaVersion 2.");
+  }
+  if (JSON.stringify(protocol.artifacts) !== JSON.stringify(ARTIFACT_GROUPS)) {
+    throw new KernelError(
+      "conformance_inventory_mismatch",
+      "protocol.json no declara el inventario canónico de artefactos.",
+    );
   }
   let installedDistributionVersion;
   try {
@@ -75,10 +82,7 @@ export async function assertProtocolConformance({ root, overrides = {} }) {
         `package.json inválido: ${parseError.message}`,
       );
     }
-    if (
-      packageManifest.agentic?.protocolVersion !== 2 ||
-      packageManifest.agentic?.distributionVersion !== packageManifest.version
-    ) {
+    if (packageManifest.agentic?.distributionVersion !== packageManifest.version) {
       throw new KernelError(
         "conformance_version_mismatch",
         "La fuente canónica debe alinear package.json.version y agentic.distributionVersion.",
@@ -98,42 +102,6 @@ export async function assertProtocolConformance({ root, overrides = {} }) {
         protocolDistributionVersion: protocol.distributionVersion,
       },
     );
-  }
-  const retirementDate = protocol.v1Retirement?.date;
-  const retirementTimestamp =
-    typeof retirementDate === "string" ? Date.parse(`${retirementDate}T00:00:00Z`) : Number.NaN;
-  if (
-    typeof protocol.v1Retirement?.condition !== "string" ||
-    !protocol.v1Retirement.condition.trim() ||
-    typeof retirementDate !== "string" ||
-    !/^\d{4}-\d{2}-\d{2}$/.test(retirementDate) ||
-    Number.isNaN(retirementTimestamp) ||
-    new Date(retirementTimestamp).toISOString().slice(0, 10) !== retirementDate
-  ) {
-    throw new KernelError(
-      "conformance_retirement_undefined",
-      "El adapter v1 debe declarar fecha ISO y condición objetiva de retiro.",
-    );
-  }
-  for (const artifact of [
-    "adapters",
-    "kernel",
-    "policies",
-    "roles",
-    "schemas",
-    "skill",
-    "templates",
-    "workflows",
-  ]) {
-    exactVersion(protocol, artifact);
-  }
-  for (const artifact of ["legacyAdapter", "legacyController"]) {
-    if (protocol.artifacts?.[artifact] !== 1) {
-      throw new KernelError(
-        "conformance_version_mismatch",
-        `${artifact} debe permanecer marcado como compatibilidad v1.`,
-      );
-    }
   }
   const allowed = new Set(protocol.allowedOverrides ?? []);
   for (const key of Object.keys(overrides)) {
@@ -155,15 +123,6 @@ export async function assertProtocolConformance({ root, overrides = {} }) {
     );
   }
   if (
-    Object.hasOwn(overrides, "protocolWriteVersion") &&
-    ![1, 2].includes(overrides.protocolWriteVersion)
-  ) {
-    throw new KernelError(
-      "conformance_override_invalid",
-      "protocolWriteVersion debe ser 1 o 2 durante la ventana de compatibilidad.",
-    );
-  }
-  if (
     Object.hasOwn(overrides, "telemetrySink") &&
     (typeof overrides.telemetrySink !== "string" || !overrides.telemetrySink.trim())
   ) {
@@ -176,20 +135,19 @@ export async function assertProtocolConformance({ root, overrides = {} }) {
   const artifacts = { ".agents/protocol.json": protocolSource };
   const policyPath = ".agents/policies/orquestacion.md";
   artifacts[policyPath] = await source(projectRoot, policyPath);
-  marker(artifacts[policyPath], "<!-- agentic-protocol:v2 -->", policyPath);
-  marker(artifacts[policyPath], "<!-- agentic-bootstrap-repair:v1 -->", policyPath);
+  marker(artifacts[policyPath], "<!-- agentic-protocol -->", policyPath);
+  marker(artifacts[policyPath], "<!-- agentic-bootstrap-repair -->", policyPath);
 
   for (const role of ROLES) {
     const path = `.agents/roles/${role}.md`;
     artifacts[path] = await source(projectRoot, path);
-    marker(artifacts[path], "<!-- agentic-role-report:v2 -->", path);
+    marker(artifacts[path], "<!-- agentic-role-report -->", path);
     for (const adapterPath of [`.codex/agents/${role}.toml`, `.claude/agents/${role}.md`]) {
       artifacts[adapterPath] = await source(projectRoot, adapterPath);
-      marker(artifacts[adapterPath], "agentic-protocol:v2", adapterPath);
+      marker(artifacts[adapterPath], "agentic-protocol", adapterPath);
       if (
         !artifacts[adapterPath].includes("RoleReport") ||
-        !artifacts[adapterPath].includes("contextPaths") ||
-        /Usa [`]?\.agents\/scripts\/session-controller\.mjs/.test(artifacts[adapterPath])
+        !artifacts[adapterPath].includes("contextPaths")
       ) {
         throw new KernelError(
           "conformance_ownership_drift",
@@ -200,18 +158,14 @@ export async function assertProtocolConformance({ root, overrides = {} }) {
   }
   const skillPath = ".agents/skills/orquestar/SKILL.md";
   artifacts[skillPath] = await source(projectRoot, skillPath);
-  marker(artifacts[skillPath], "<!-- agentic-protocol:v2 -->", skillPath);
+  marker(artifacts[skillPath], "<!-- agentic-protocol -->", skillPath);
   for (const claudeEntrypoint of ["CLAUDE.md", ".claude/skills/orquestar/SKILL.md"]) {
     artifacts[claudeEntrypoint] = await source(projectRoot, claudeEntrypoint);
-    marker(artifacts[claudeEntrypoint], "<!-- agentic-protocol:v2 -->", claudeEntrypoint);
-    if (
-      !artifacts[claudeEntrypoint].includes(".agents/kernel/orchestration-kernel.mjs") ||
-      !artifacts[claudeEntrypoint].includes("compatibilidad") ||
-      !artifacts[claudeEntrypoint].includes("v1")
-    ) {
+    marker(artifacts[claudeEntrypoint], "<!-- agentic-protocol -->", claudeEntrypoint);
+    if (!artifacts[claudeEntrypoint].includes(".agents/kernel/orchestration-kernel.mjs")) {
       throw new KernelError(
         "conformance_ownership_drift",
-        `${claudeEntrypoint} no reserva el kernel v2 para sesiones nuevas y el controller para compatibilidad v1.`,
+        `${claudeEntrypoint} no reserva el runtime al kernel actual.`,
       );
     }
   }
@@ -227,16 +181,15 @@ export async function assertProtocolConformance({ root, overrides = {} }) {
   for (const workflow of WORKFLOWS) {
     const path = `.agents/workflows/${workflow}.md`;
     artifacts[path] = await source(projectRoot, path);
-    marker(artifacts[path], "<!-- agentic-workflow:v2 -->", path);
+    marker(artifacts[path], "<!-- agentic-workflow -->", path);
     if (workflow !== "architecture") {
-      marker(artifacts[path], "<!-- agentic-light-sequence:v2 ", path);
-      marker(artifacts[path], "<!-- agentic-light-sequence:v1 ", path);
+      marker(artifacts[path], "<!-- agentic-light-sequence ", path);
     }
   }
   for (const template of ["dev-session.md", "subdev-session.md"]) {
     const path = `.agents/templates/${template}`;
     artifacts[path] = await source(projectRoot, path);
-    marker(artifacts[path], "<!-- agentic-template:v2 -->", path);
+    marker(artifacts[path], "<!-- agentic-template -->", path);
   }
   for (const schema of SCHEMAS) {
     const path = `.agents/schemas/${schema}`;
@@ -246,18 +199,9 @@ export async function assertProtocolConformance({ root, overrides = {} }) {
       throw new KernelError("conformance_version_mismatch", `${path} no fija schemaVersion 2.`);
     }
   }
-  const legacyControllerPath = ".agents/scripts/session-controller.mjs";
-  artifacts[legacyControllerPath] = await source(projectRoot, legacyControllerPath);
-  marker(
-    artifacts[legacyControllerPath],
-    "agentic-session-controller:v1-compatibility",
-    legacyControllerPath,
-  );
-
   for (const [relativePath, expectedMarker] of [
-    [".agents/kernel/adapters.mjs", "agentic-adapters:v2"],
-    [".agents/kernel/protocol-v2.mjs", "agentic-protocol-core:v2"],
-    [".agents/kernel/v1-compatibility.mjs", "agentic-v1-compatibility-adapter:v1"],
+    [".agents/kernel/adapters.mjs", "agentic-adapters"],
+    [".agents/kernel/protocol.mjs", "agentic-protocol-core"],
   ]) {
     artifacts[relativePath] = await source(projectRoot, relativePath);
     marker(artifacts[relativePath], expectedMarker, relativePath);
@@ -281,7 +225,7 @@ export async function assertProtocolConformance({ root, overrides = {} }) {
   artifacts[".agents/kernel/orchestration-kernel.mjs"] = await readFile(kernelPath, "utf8");
   marker(
     artifacts[".agents/kernel/orchestration-kernel.mjs"],
-    "agentic-kernel:v2",
+    "agentic-kernel",
     ".agents/kernel/orchestration-kernel.mjs",
   );
 
@@ -289,6 +233,6 @@ export async function assertProtocolConformance({ root, overrides = {} }) {
     artifactHash: digestObject(artifacts),
     distributionVersion: protocol.distributionVersion,
     overrides: { ...overrides },
-    protocolVersion: protocol.protocolVersion,
+    schemaVersion: protocol.schemaVersion,
   };
 }

@@ -1,6 +1,6 @@
 # Workflow: refactor
 
-<!-- agentic-workflow:v2 -->
+<!-- agentic-workflow -->
 
 Usar para reestructurar una implementación sin cambiar su comportamiento
 observable.
@@ -8,19 +8,18 @@ Las mecánicas comunes de modo, unidades, validación, evaluación y cierre
 pertenecen a la [política de orquestación](../policies/orquestacion.md); este
 archivo fija únicamente el orden y la intención de las fases de `refactor`.
 
-<!-- agentic-light-sequence:v2 {"phases":["refactor-plan","refactor-implement","refactor-evaluate"]} -->
-<!-- agentic-light-sequence:v1 {"phases":["refactor-plan","refactor-implement","refactor-evaluate"]} -->
+<!-- agentic-light-sequence {"phases":["refactor-plan","refactor-implement","refactor-evaluate"]} -->
 
-1. **Explorar — Explorador:** <!-- agentic-phase:v1 {"id":"refactor-explore","role":"explorador"} --> delimitar sector, dependientes, seams y reglas
+1. **Explorar — Explorador:** <!-- agentic-phase {"id":"refactor-explore","role":"explorador"} --> delimitar sector, dependientes, seams y reglas
    efectivas.
-2. **Definir invariantes — Planificador:** <!-- agentic-phase:v1 {"id":"refactor-plan","role":"planificador"} --> enumerar lo que no debe cambiar y la
+2. **Definir invariantes — Planificador:** <!-- agentic-phase {"id":"refactor-plan","role":"planificador"} --> enumerar lo que no debe cambiar y la
    evidencia que lo protege.
-3. **Implementar — Implementador:** <!-- agentic-phase:v1 {"id":"refactor-implement","role":"implementador"} --> cambiar en pasos pequeños dentro del sector
+3. **Implementar — Implementador:** <!-- agentic-phase {"id":"refactor-implement","role":"implementador"} --> cambiar en pasos pequeños dentro del sector
    aprobado.
-4. **Testear — Tester:** <!-- agentic-phase:v1 {"id":"refactor-test","role":"tester"} --> comprobar invariantes con la validación declarada.
-5. **Evaluar — Evaluador:** <!-- agentic-phase:v1 {"id":"refactor-evaluate","role":"evaluador"} --> verificar ausencia de regresiones y una mejora real
+4. **Testear — Tester:** <!-- agentic-phase {"id":"refactor-test","role":"tester"} --> comprobar invariantes con la validación declarada.
+5. **Evaluar — Evaluador:** <!-- agentic-phase {"id":"refactor-evaluate","role":"evaluador"} --> verificar ausencia de regresiones y una mejora real
    de profundidad, leverage o localidad, sin abstracción gratuita.
-6. **Documentar — Documentador (condicional):** <!-- agentic-phase:v1 {"id":"refactor-document","role":"documentador"} --> ejecutar solo cuando el gate canónico
+6. **Documentar — Documentador (condicional):** <!-- agentic-phase {"id":"refactor-document","role":"documentador"} --> ejecutar solo cuando el gate canónico
    autorice trabajo documental o de memoria durable.
 
 En `light` compacto, el marcador estructural anterior sustituye la secuencia
@@ -31,6 +30,5 @@ abstracciones nuevas salvo que sean el objeto explícito aprobado.
 Cada unidad declarada debe preservar los invariantes observables de este
 workflow. Dependencias, ownership, testing, retrabajo y cierre consumen los
 contratos de la política canónica sin redefinirlos aquí. Cada fase devuelve un
-`RoleReport` v2 y solo el orquestador lo entrega a
-`OrchestrationKernel.apply`. El marcador de secuencia v2 gobierna sesiones
-nuevas; su equivalente v1 se conserva exclusivamente para sesiones legacy.
+`RoleReport` y solo el orquestador lo entrega a
+`OrchestrationKernel.apply`.

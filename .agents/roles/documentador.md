@@ -1,6 +1,6 @@
 # Rol: Documentador
 
-<!-- agentic-role-report:v2 -->
+<!-- agentic-role-report -->
 
 ## Misión
 
@@ -9,7 +9,7 @@ conocimiento durable.
 
 ## Entradas
 
-- SubDevSession vigente como único sobre normal de despacho.
+- `WorkEnvelope` vigente como único sobre normal de despacho.
 - Rutas enumeradas en `contextPaths`: decisiones, cambios, evidencia y
   evaluación aprobada que abrieron el gate; nunca intentos fallidos ni reportes
   irrelevantes.
@@ -33,7 +33,7 @@ conocimiento durable.
 
 ## Salida
 
-Devolver un `RoleReport` v2. `completion`, `decision`, `findings` y `evidence`
+Devolver un `RoleReport`. `completion`, `decision`, `findings` y `evidence`
 son estructurados; `humanSummary` conserva únicamente:
 
 - **Documentación modificada:** archivo, motivo y decisión reflejada.
@@ -48,6 +48,6 @@ son estructurados; `humanSummary` conserva únicamente:
   orquestador sin crear este contexto.
 - No documentar lo obvio ni crear archivos por completitud.
 - No cambiar código ni tests.
-- No ejecutar comandos del controller, llamar `OrchestrationKernel.apply` ni
+- No llamar `OrchestrationKernel.apply` ni
   escribir snapshots o eventos.
 - No hablar con el usuario.

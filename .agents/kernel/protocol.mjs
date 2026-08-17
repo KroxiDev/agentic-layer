@@ -1,7 +1,7 @@
-// agentic-protocol-core:v2
+// agentic-protocol-core
 import { createHash, randomUUID } from "node:crypto";
 
-export const PROTOCOL_VERSION = 2;
+export const SCHEMA_VERSION = 2;
 
 export class KernelError extends Error {
   constructor(code, message, details = {}) {
@@ -99,7 +99,7 @@ export function validateSessionId(sessionId) {
 
 export function validateBaseCommand(command) {
   assertRecord(command, "command");
-  if (command.schemaVersion !== PROTOCOL_VERSION) {
+  if (command.schemaVersion !== SCHEMA_VERSION) {
     throw new KernelError("unsupported_schema", "El comando debe usar schemaVersion 2.");
   }
   assertOpaqueIdentifier(command.commandId, "commandId");

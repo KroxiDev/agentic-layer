@@ -1,6 +1,6 @@
 # SubDevSession: <attempt-id>
 
-<!-- agentic-template:v2 -->
+<!-- agentic-template -->
 
 > Vista humana de un `WorkEnvelope` inmutable. El reporte autoritativo es el
 > `RoleReport` estructurado; ninguna prosa de esta vista decide transiciones.
@@ -47,11 +47,11 @@
 
 <!-- Única fuente del cuerpo íntegro; la DevSession global conserva solo su referencia compacta. -->
 
-<!-- agentic-role-report:v2:start -->
+<!-- agentic-role-report:start -->
 
 - Pendiente.
 
-<!-- agentic-role-report:v2:end -->
+<!-- agentic-role-report:end -->
 
 ## Estado de consolidación en la DevSession global
 

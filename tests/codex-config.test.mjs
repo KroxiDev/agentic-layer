@@ -28,20 +28,12 @@ import {
   BIN,
   CLI,
   ROOT,
-  SESSION_CONTROLLER,
   SIN_HERRAMIENTAS,
-  controllerOutcome,
-  controllerResponse,
   countPendingFields,
-  createManagedAttempt,
-  createManagedSession,
-  createPreTraceWorkUnitSession,
   createRepository,
   linksToPolicy,
   markdownLinks,
   markdownSection,
-  parseManagedState,
-  replaceManagedState,
   roleOutputLabels,
   runExecutable,
   runExecutableWithEnvironment,
@@ -49,8 +41,6 @@ import {
   runInitializerWithoutFlags,
   runInteractiveExecutableWithEnvironment,
   runInteractiveUpdate,
-  runSessionController,
-  seedSessionContracts,
   snapshotDirectory,
 } from "./agentic-test-helpers.mjs";
 
@@ -152,7 +142,7 @@ test("Codex local crea o migra max_threads solo con autorización explícita", a
     "package.json": JSON.stringify({ name: "codex-local", description: "Edita local." }),
   });
   const codexHome = await createRepository({
-    "config.toml": "[agents]\nmax_threads = 5 # legacy\nmodel_reasoning_effort = \"high\"\n",
+    "config.toml": "[agents]\nmax_threads = 5 # anterior\nmodel_reasoning_effort = \"high\"\n",
   });
   assert.equal(runInitializer(repository).status, SIN_HERRAMIENTAS);
 
@@ -193,7 +183,7 @@ test("Codex local crea o migra max_threads solo con autorización explícita", a
   assert.equal(global.status, SIN_HERRAMIENTAS, global.stderr || global.stdout);
   assert.equal(
     await readFile(join(codexHome, "config.toml"), "utf8"),
-    "[agents]\nmax_concurrent_threads_per_session = 12 # legacy\nmodel_reasoning_effort = \"high\"\n",
+    "[agents]\nmax_concurrent_threads_per_session = 12 # anterior\nmodel_reasoning_effort = \"high\"\n",
   );
 });
 
@@ -367,7 +357,7 @@ test("Codex global revalida ancestros no-follow justo antes de la mutación fina
 
 test("Codex delimita agents ante tablas-array y conserva sus claves objetivo byte a byte", async () => {
   const source =
-    "[agents]\r\nfoo = true\r\n\r\n[[workers]]\r\nmax_concurrent_threads_per_session = 3 # worker\r\nmax_threads = 4 # legacy worker\r\n";
+    "[agents]\r\nfoo = true\r\n\r\n[[workers]]\r\nmax_concurrent_threads_per_session = 3 # worker\r\nmax_threads = 4 # worker anterior\r\n";
   const repository = await createRepository({
     "package.json": JSON.stringify({ name: "toml-array", description: "Prueba límite TOML." }),
     ".codex/config.toml": source,

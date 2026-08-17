@@ -49,12 +49,8 @@ Estándares y Especificación, también en `full`.
 La estrategia dual mantiene dos Evaluadores independientes, uno por eje. Ambas
 estrategias conservan intentos monotónicos, permiso `read-only`, generación
 vigente, invalidación completa tras retrabajo y aprobación de todos los ejes
-requeridos. El controlador rechaza estrategias, riesgos y ejes incompatibles.
-
-Una DevSession `full` creada antes de estos campos conserva los ejes duales
-implícitos. Un `init` explícito puede completar el plan con
-`evaluationStrategy: dual` y `evaluationRisk: legacy-full-mode`; ese valor es
-sólo de compatibilidad y no puede solicitarse para una sesión nueva.
+requeridos. El kernel rechaza estrategias, riesgos y ejes incompatibles. Toda
+DevSession declara la estrategia vigente al aceptar el plan.
 
 ### Cierre de `architecture`
 
@@ -82,7 +78,7 @@ gratuitas.
 Esta ADR sustituye únicamente la fuerza 8 y la regla de D5 de la ADR 0009 que
 ligaban `full` a dos Evaluadores. Conserva D1–D4 y D6–D8: identidad de unidades e
 intentos, DAG, gates, capacidad, ownership, writer lock, generaciones,
-invalidación, recuperación, paridad y compatibilidad.
+invalidación, recuperación y paridad.
 
 En el momento de esta decisión no modificó la activación de `full` o `light`,
 los seis roles, el Documentador obligatorio, la disciplina de diagnóstico de
@@ -112,7 +108,7 @@ bugs entonces vigente ni las garantías de seguridad e integridad.
 
 Las pruebas permanentes de la CLI cubren el default combinado, el rechazo de
 dual sin riesgo válido, la apertura de ambos tipos de eje, el cierre por todos
-los ejes requeridos, la invalidación de aprobaciones obsoletas y el upgrade
-compatible. Las pruebas estructurales verifican el cierre único de
+los ejes requeridos y la invalidación de aprobaciones obsoletas. Las pruebas
+estructurales verifican el cierre único de
 `architecture`, la validación completa única, las reglas TDD y la ausencia de la
 regla anterior por modo.

@@ -1,7 +1,6 @@
-import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdtempSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -11,7 +10,6 @@ import { fileURLToPath } from "node:url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CLI = join(ROOT, "scripts", "agentic-init.mjs");
 const BIN = join(ROOT, "bin", "agentic.mjs");
-const SESSION_CONTROLLER = join(ROOT, ".agents", "scripts", "session-controller.mjs");
 // Las simulaciones se ejecutan con un PATH vacío, así que toda adopción
 // completa informa CodeGraph y Engram ausentes y sale con el código 4.
 const SIN_HERRAMIENTAS = 4;
@@ -189,197 +187,16 @@ function runInteractiveUpdate(repository, codexHome, answers, environment = {}) 
   );
 }
 
-function runSessionController(directory, command, options = {}, payload) {
-  const arguments_ = [SESSION_CONTROLLER, command, "--root", directory, "--session", options.session];
-  if (options.attempt) arguments_.push("--attempt", options.attempt);
-  if (options.expectedRevision !== undefined) {
-    arguments_.push("--expected-revision", String(options.expectedRevision));
-  }
-  const input =
-    command === "open" && payload !== undefined
-      ? {
-          contextPaths: [],
-          findings: "No aplica",
-          objective: "Ejecutar el contrato del rol para la fase asignada.",
-          rules: "Aplicar las reglas efectivas indicadas para el intento.",
-          tasks: "Completar las tareas y criterios asignados al intento.",
-          ...payload,
-        }
-      : payload;
-  return spawnSync(process.execPath, arguments_, {
-    cwd: ROOT,
-    encoding: "utf8",
-    input: input === undefined ? undefined : JSON.stringify(input),
-  });
-}
-
-async function seedSessionContracts(repository) {
-  const paths = [
-    ".agents/templates/dev-session.md",
-    ".agents/templates/subdev-session.md",
-    ...["documentador", "evaluador", "explorador", "implementador", "planificador", "tester"].map(
-      (role) => `.agents/roles/${role}.md`,
-    ),
-    ...["architecture", "bugfix", "feature", "refactor"].map(
-      (workflow) => `.agents/workflows/${workflow}.md`,
-    ),
-  ];
-  for (const relativePath of paths) {
-    const source = join(ROOT, ...relativePath.split("/"));
-    if (!existsSync(source)) continue;
-    const target = join(repository, ...relativePath.split("/"));
-    await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, await readFile(source, "utf8"), "utf8");
-  }
-}
-
-async function createManagedSession(session) {
-  const repository = await createRepository();
-  await seedSessionContracts(repository);
-  const initialized = runSessionController(
-    repository,
-    "init",
-    { session, expectedRevision: 0 },
-    { workflow: "feature" },
-  );
-  assert.equal(initialized.status, 0, initialized.stderr);
-  return {
-    globalPath: join(repository, ".agents", "sessions", `${session}.md`),
-    repository,
-  };
-}
-
-async function createManagedAttempt(session, attempt) {
-  const fixture = await createManagedSession(session);
-  const opened = runSessionController(
-    fixture.repository,
-    "open",
-    { session, attempt, expectedRevision: 1 },
-    { phaseId: "feature-implement", role: "implementador" },
-  );
-  assert.equal(opened.status, 0, opened.stderr);
-  return {
-    ...fixture,
-    envelopePath: join(fixture.repository, ".agents", "sessions", session, `${attempt}.md`),
-  };
-}
-
-function parseManagedState(source) {
-  const match = source.match(
-    /<!-- agentic-session:v1:start -->\n```json\n([\s\S]+?)\n```\n<!-- agentic-session:v1:end -->/,
-  );
-  assert.ok(match, "El artefacto debe contener un bloque administrado.");
-  return JSON.parse(match[1]);
-}
-
-function replaceManagedState(source, managed) {
-  return source.replace(
-    /<!-- agentic-session:v1:start -->\n```json\n[\s\S]+?\n```\n<!-- agentic-session:v1:end -->/,
-    `<!-- agentic-session:v1:start -->\n\`\`\`json\n${JSON.stringify(managed, null, 2)}\n\`\`\`\n<!-- agentic-session:v1:end -->`,
-  );
-}
-
-async function createPreTraceWorkUnitSession(session) {
-  const repository = await createRepository();
-  await seedSessionContracts(repository);
-  const approvedPlan = {
-    isolationCapacity: 1,
-    mode: "full",
-    platformCapacity: 6,
-    readOnlyCapacity: 5,
-    workUnits: [
-      {
-        acceptanceCriteria: ["C01"],
-        dependsOn: [],
-        ownedPaths: ["src/legacy.mjs"],
-        permission: "writer",
-        workUnitId: "unidad-legacy",
-      },
-    ],
-    workflow: "feature",
-    writerIsolationCapacity: 1,
-  };
-  const initialized = runSessionController(
-    repository,
-    "init",
-    { session, expectedRevision: 0 },
-    approvedPlan,
-  );
-  assert.equal(initialized.status, 0, initialized.stderr);
-
-  const globalPath = join(repository, ".agents", "sessions", `${session}.md`);
-  const source = await readFile(globalPath, "utf8");
-  const managed = parseManagedState(source);
-  const preservedAttempt = "feature-implement--implementador--a01";
-  managed.attempts = {
-    [preservedAttempt]: {
-      attempt: 1,
-      evidence: { reportHash: "hash-evidencia" },
-      failureCause: "fallo heredado",
-      openPayloadHash: "hash-apertura",
-      permission: "writer",
-      phaseId: "feature-implement",
-      reportHash: "hash-reporte",
-      role: "implementador",
-      state: "completed",
-      workUnitId: "unidad-legacy",
-    },
-  };
-  managed.currentPhase = "feature-implement";
-  managed.evaluations = {
-    standards: { attempt: "feature-evaluate--evaluador--a01", state: "changes_required" },
-  };
-  managed.revision = 30;
-  Object.assign(managed.workUnits["unidad-legacy"], {
-    consolidated: false,
-    failureCause: "regresion heredada",
-    impact: "impacto preservado",
-    implementationAttempt: preservedAttempt,
-    implementationEvidence: { reportHash: "hash-implementacion" },
-    ownedPaths: ["SRC/Legacy.mjs. "],
-    state: "implemented",
-    validated: false,
-  });
-  delete managed.readOnlyCapacity;
-  delete managed.writerIsolationCapacity;
-  delete managed.evaluationGeneration;
-  delete managed.evaluationRisk;
-  delete managed.evaluationStrategy;
-  delete managed.workUnits["unidad-legacy"].acceptanceCriteria;
-  await writeFile(globalPath, replaceManagedState(source, managed), "utf8");
-  return { approvedPlan, globalPath, repository, session };
-}
-
-function controllerOutcome(result) {
-  return result.status === 0
-    ? { code: 0, error: "unexpected_success" }
-    : { code: result.status, error: JSON.parse(result.stderr).error };
-}
-
-function controllerResponse(result) {
-  return result.status === 0
-    ? JSON.parse(result.stdout)
-    : { failure: JSON.parse(result.stderr).error };
-}
-
 export {
   BIN,
   CLI,
   ROOT,
-  SESSION_CONTROLLER,
   SIN_HERRAMIENTAS,
-  controllerOutcome,
-  controllerResponse,
   countPendingFields,
-  createManagedAttempt,
-  createManagedSession,
-  createPreTraceWorkUnitSession,
   createRepository,
   linksToPolicy,
   markdownLinks,
   markdownSection,
-  parseManagedState,
-  replaceManagedState,
   roleOutputLabels,
   runExecutable,
   runExecutableWithEnvironment,
@@ -387,7 +204,5 @@ export {
   runInitializerWithoutFlags,
   runInteractiveExecutableWithEnvironment,
   runInteractiveUpdate,
-  runSessionController,
-  seedSessionContracts,
   snapshotDirectory,
 };

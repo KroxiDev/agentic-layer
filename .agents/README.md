@@ -5,13 +5,11 @@ interface de configuración es el contrato delimitado de `AGENTS.md`: un
 proyecto consumidor declara allí sus hechos, comandos y restricciones sin
 editar roles, workflows, políticas, skills ni adapters.
 
-Las sesiones nuevas usan el protocolo declarado en `protocol.json` y el módulo
+Las sesiones usan el protocolo declarado en `protocol.json` y el módulo
 profundo `kernel/`. Su instancia pública expone solo `apply` e `inspect`; los
 roles reciben un `WorkEnvelope` sin capacidad de mutación y devuelven un
-`RoleReport` v2. `scripts/session-controller.mjs` permanece distribuido como
-compatibilidad para sesiones v1 activas, no como runtime de sesiones nuevas.
-El lector v1 no se retira antes del 2026-11-17 y exige además dos releases V2
-estables y cero sesiones v1 activas en consumidores prioritarios.
+`RoleReport`. `schemaVersion` identifica el formato persistido actual sin
+negociación ni rutas alternativas.
 
 `scripts/agentic-init.mjs` es la única superficie automatizada y la única
 implementación de adopción y actualización. No forma parte del núcleo de
@@ -46,7 +44,8 @@ La capa se obtiene desde GitHub como paquete ejecutable y se adopta con
 copia: el proyecto consumidor no declara dependencia, no consulta un upstream
 y no recibe actualizaciones automáticas. Una copia existente se actualiza solo
 por orden explícita con `agentic update`: el comando conserva DevSessions y
-archivos ajenos, repara el inventario incluso con la misma versión y escribe
+archivos ajenos fuera de directorios gestionados, repara el inventario incluso
+con la misma versión y escribe
 `.agents/VERSION` al final de la transacción.
 
 Después de actualizar la capa, `update` puede habilitar explícitamente capacidad
@@ -61,30 +60,29 @@ antes de la mutación final.
 ## Mapa
 
 - `policies/`: orquestación, SDD/TDD y Regla de Oro para código y pruebas.
-- `kernel/`: estado estructurado V2, idempotencia, ownership, aceptación,
-  lanes, presupuesto, stores, reloj, preflight, telemetría y adapter v1.
-- `schemas/`: contratos JSON V2 de aceptación, reporte, evento y validación.
-- `conformance/`: gate ejecutable de versiones, overrides e interface.
-- `protocol.json`: versión indivisible de los artefactos y overrides admitidos.
+- `kernel/`: estado estructurado, idempotencia, ownership, aceptación, lanes,
+  presupuesto, stores, reloj, preflight y telemetría.
+- `schemas/`: contratos JSON de aceptación, reporte, evento y validación.
+- `conformance/`: gate ejecutable de schema, overrides e interface.
+- `protocol.json`: inventario indivisible de artefactos y overrides admitidos.
 - `roles/`: responsabilidades, límites y contratos de salida de seis roles.
-- `scripts/session-controller.mjs`: runtime de compatibilidad para terminar
-  DevSessions v1 sin reescribirlas ni inferir su estado.
 - `workflows/`: orden de fases para feature, bugfix, refactor y architecture.
 - `skills/`: routing portable de orquestación y procedimientos especializados
   invocados por los roles.
 - `templates/`: formatos de la DevSession global y de los sobres de fase.
-- `sessions/`: DevSessions globales y SubDevSessions efímeras ignoradas por
+- `sessions/`: estado del propietario y vistas humanas por intento, ignorados por
   control de versiones; `gitignore.asset` es el `.gitignore` que el
   inicializador instala allí.
 - `VERSION`: versión de la capa adoptada. La genera el inicializador en el
   destino, no viaja en el paquete y permite clasificar una instalación como
-  legacy, anterior, igual o posterior durante `update`. `policies/`, `roles/`, `skills/`, `templates/` y
-  `workflows/` se gestionan por completo: al reemplazar, todo archivo ajeno al
-  inventario canónico se elimina como residuo. `sessions/` y esta raíz no.
+  sin versión, anterior, igual o posterior durante `update`. Los directorios
+  declarados por el actualizador se gestionan por completo: al reemplazar, todo
+  archivo ajeno al inventario canónico se elimina como residuo. `sessions/` y
+  esta raíz no.
 - `../bin/agentic.mjs`: ejecutable `agentic` con `init` y `update`.
 - `../scripts/agentic-init.mjs`: inicializador y actualizador sin dependencias externas.
 - `../tests/*.test.mjs`: pruebas por interfaz de adopción, `update`, Codex,
-  session-controller y distribución/contratos; `agentic-test-helpers.mjs`
+  kernel y distribución/contratos; `agentic-test-helpers.mjs`
   concentra fixtures sin estado global mutable.
 
 ## Mapa de propietarios
@@ -95,11 +93,10 @@ referencia:
 | Tipo de decisión | Propietario canónico | Responsabilidad de los consumidores |
 | --- | --- | --- |
 | Activación, modos, presupuestos, unidades, validación, evaluación y cierre | [Política de orquestación](policies/orquestacion.md) | Enlazar la política sin copiar categorías, límites ni excepciones. |
-| Estado durable e invariantes ejecutables V2 | [`OrchestrationKernel`](kernel/orchestration-kernel.mjs) | El orquestador usa solo `apply/inspect`; los roles devuelven reportes sin mutar. |
-| Compatibilidad de sesiones v1 | [`session-controller.mjs`](scripts/session-controller.mjs) y [`v1-compatibility.mjs`](kernel/v1-compatibility.mjs) | Terminar en v1 o migrar explícitamente en un checkpoint seguro. |
-| Orden e intención propios de cada flujo | [`workflows/`](workflows/) | Conservar marcadores `agentic-phase:v1` y referenciar reglas comunes. |
+| Estado durable e invariantes ejecutables | [`OrchestrationKernel`](kernel/orchestration-kernel.mjs) | El orquestador usa solo `apply/inspect`; los roles devuelven reportes sin mutar. |
+| Orden e intención propios de cada flujo | [`workflows/`](workflows/) | Conservar marcadores `agentic-phase` y referenciar reglas comunes. |
 | Entradas, proceso, salida y límites exclusivos de un rol | [`roles/`](roles/) | Mantener el contrato aislado y enlazar la política transversal. |
-| Routing operativo | [`skills/orquestar/SKILL.md`](skills/orquestar/SKILL.md) | Cargar política, workflow y kernel V2; usar el controller solo para compatibilidad v1. |
+| Routing operativo | [`skills/orquestar/SKILL.md`](skills/orquestar/SKILL.md) | Cargar política, workflow y kernel actuales sin duplicar reglas. |
 | Datos que persisten durante la tarea | [`templates/dev-session.md`](templates/dev-session.md) | Declarar campos sin explicar de nuevo sus reglas. |
 | Descubrimiento de plataforma | [`.codex/`](../.codex/) y [`.claude/`](../.claude/) | Aplicar solo restricciones técnicas y apuntar al núcleo. |
 | Inventario y estructura distribuible | [`agentic-init.mjs`](../scripts/agentic-init.mjs) | Validar archivos, enlaces, secciones y marcadores estables. |
@@ -184,27 +181,21 @@ estado y los gates ejecutables; Planificador, Tester, Evaluador y Documentador
 aplican sus contratos de rol mediante esa referencia.
 
 La adquisición del writer lock publica por hard link un dueño exacto
-`{session, attempt, workingTreeId}`. Una transición inicial o un checkpoint
-recuperable exige seguir siendo dueño para liberar. Un terminal ya reconocido
-libera sólo si el lock continúa siendo suyo: si un intento sucesor lo adquirió,
-el reintento idempotente preserva la reserva ajena. Así `commit` y `fail`
-recuperan interrupciones reales sin romper exclusión entre sesiones.
+`{session, attempt, workingTreeId}`. Una transición terminal libera sólo si el
+lock continúa siendo suyo: si un intento sucesor lo adquirió, el reintento
+idempotente preserva la reserva ajena. Así la aceptación de reportes y el
+registro de fallos recuperan interrupciones reales sin romper exclusión entre
+sesiones.
 
-Las sesiones v1 sin unidades no se reinterpretan. Para una DevSession por
-unidades creada antes de que existiera toda la trazabilidad, `open` falla
-cerrado y exige repetir `init` con el plan aprobado. Ese upgrade sólo completa
-campos ausentes —criterios, capacidades separadas, estrategia de evaluación y
-generación inicial—, preserva estado e intentos y es byte-idempotente al
-repetirse. Una sesión `full` creada antes de `evaluationStrategy` conserva el
-esquema dual implícito como compatibilidad; las sesiones nuevas usan `combined`
-por defecto. Del mismo modo, solo una sesión `light` nueva persiste
-`lightStrategy: "compact"`; su ausencia conserva la secuencia separada legacy y
-no se completa durante un upgrade.
+El kernel acepta únicamente snapshots con `schemaVersion: 2`. Una sesión
+`light` persiste `lightStrategy: "compact"`; `full` usa el lane integral de su
+generación. Un estado ausente o inválido falla de forma cerrada y no se
+reinterpreta desde Markdown.
 
 ## Invariantes
 
 1. CodeGraph, Engram y subagentes son requisitos obligatorios con fallo cerrado.
-2. Cada fase corre en un contexto aislado, recibe una SubDevSession mínima y
+2. Cada fase corre en un contexto aislado, recibe un `WorkEnvelope` mínimo y
    devuelve solo el reporte del rol.
 3. `policies/orquestacion.md` decide la activación por riesgo; dentro de la capa,
    `full` es el modo predeterminado y `light` requiere petición explícita. La
@@ -231,7 +222,7 @@ no se completa durante un upgrade.
     ángulos, no se confunden con placeholders pendientes.
 14. Los límites, categorías y excepciones transversales tienen un único
     propietario humano: `policies/orquestacion.md`.
-15. El kernel V2 hace cumplir ownership, gates, evidencia y generaciones sin
+15. El kernel hace cumplir ownership, gates, evidencia y generaciones sin
     convertir su implementación en otra fuente de prosa normativa.
 16. Roles, workflows, skills, templates y adapters consumen a sus propietarios
     mediante referencias y marcadores estables.
@@ -239,7 +230,7 @@ no se completa durante un upgrade.
     desconocida puede salir del bloque únicamente por elección interactiva
     explícita y permanece efectiva bajo `## Reglas adicionales del proyecto`;
     cancelar o ejecutar sin interacción conserva el destino byte a byte.
-18. Solo una capacidad opaca del orquestador puede mutar V2; nunca aparece en
+18. Solo una capacidad opaca del orquestador puede mutar el estado; nunca aparece en
     `contextPaths`, prompts, sobres, reportes, snapshots ni eventos.
 19. La aceptación cambia únicamente mediante un amendment aprobado y un hash
     nuevo; un finding técnico nuevo no amplía alcance por sí mismo.

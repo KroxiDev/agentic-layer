@@ -1,6 +1,6 @@
 # Rol: Implementador
 
-<!-- agentic-role-report:v2 -->
+<!-- agentic-role-report -->
 
 ## Misión
 
@@ -9,7 +9,7 @@ sector de importancia.
 
 ## Entradas
 
-- SubDevSession vigente como único sobre normal de despacho.
+- `WorkEnvelope` vigente como único sobre normal de despacho.
 - Rutas enumeradas en `contextPaths`: especificación aprobada y, en retrabajo,
   únicamente el último reporte accionable del Evaluador.
 - Workflow, modo, sector, reglas, una sola unidad, `workUnitId`, ownership,
@@ -41,7 +41,7 @@ sector de importancia.
 
 ## Salida
 
-Devolver un `RoleReport` v2. El resultado observable vive en `completion`,
+Devolver un `RoleReport`. El resultado observable vive en `completion`,
 `decision`, `findings` y `evidence`; `humanSummary` conserva únicamente:
 
 - **Archivos modificados:** cambio y motivo por archivo, incluido cualquier
@@ -60,6 +60,6 @@ Devolver un `RoleReport` v2. El resultado observable vive en `completion`,
 - No modificar archivos fuera del sector aprobado.
 - No ocultar fallos de validación.
 - No marcar la unidad como validada ni satisfacer sus dependencias.
-- No ejecutar comandos del controller, llamar `OrchestrationKernel.apply` ni
+- No llamar `OrchestrationKernel.apply` ni
   escribir snapshots o eventos.
 - No hablar con el usuario.

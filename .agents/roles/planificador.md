@@ -1,6 +1,6 @@
 # Rol: Planificador
 
-<!-- agentic-role-report:v2 -->
+<!-- agentic-role-report -->
 
 ## Misión
 
@@ -9,7 +9,7 @@ proporcional, verificable y ejecutable.
 
 ## Entradas
 
-- SubDevSession vigente como único sobre normal de despacho.
+- `WorkEnvelope` vigente como único sobre normal de despacho.
 - Rutas enumeradas en `contextPaths`: reporte vigente del Explorador o de la
   reproducción previa, decisiones del usuario y referencias precisas a ADR o
   memorias relevantes.
@@ -50,7 +50,7 @@ proporcional, verificable y ejecutable.
 
 ## Salida
 
-Devolver un `RoleReport` v2. `completion`, `decision`, `findings` y `evidence`
+Devolver un `RoleReport`. `completion`, `decision`, `findings` y `evidence`
 son campos estructurados; la especificación y el `AcceptanceContract`
 versionado y hasheado viajan como artefactos de `evidence`. `humanSummary`
 presenta únicamente esta especificación legible:
@@ -75,6 +75,6 @@ presenta únicamente esta especificación legible:
 - No inflar la especificación ni agregar alcance especulativo.
 - No declarar estrategia compacta con decisiones pendientes ni riesgos que
   exijan `full`; devolver únicamente cambio de modo o reducción de alcance.
-- No invocar el controller, `OrchestrationKernel.apply` ni escribir el ledger;
+- No invocar `OrchestrationKernel.apply` ni escribir el ledger;
   el orquestador es el único dueño de mutación.
 - No hablar con el usuario.

@@ -41,8 +41,7 @@ const TEMPLATE_FILES = [
   ".agents/conformance/protocol-conformance.mjs",
   ".agents/kernel/adapters.mjs",
   ".agents/kernel/orchestration-kernel.mjs",
-  ".agents/kernel/protocol-v2.mjs",
-  ".agents/kernel/v1-compatibility.mjs",
+  ".agents/kernel/protocol.mjs",
   ORCHESTRATION_POLICY,
   GOLDEN_RULE_POLICY,
   ".agents/policies/sdd-tdd.md",
@@ -53,11 +52,10 @@ const TEMPLATE_FILES = [
   ".agents/roles/implementador.md",
   ".agents/roles/planificador.md",
   ".agents/roles/tester.md",
-  ".agents/scripts/session-controller.mjs",
-  ".agents/schemas/acceptance-contract.v2.schema.json",
-  ".agents/schemas/role-report.v2.schema.json",
-  ".agents/schemas/session-event.v2.schema.json",
-  ".agents/schemas/validation-evidence.v2.schema.json",
+  ".agents/schemas/acceptance-contract.schema.json",
+  ".agents/schemas/role-report.schema.json",
+  ".agents/schemas/session-event.schema.json",
+  ".agents/schemas/validation-evidence.schema.json",
   ".agents/sessions/.gitignore",
   ".agents/skills/agentic-diagnostico-bugs/SKILL.md",
   ".agents/skills/agentic-diagnostico-bugs/references/hitl-loop.template.md",
@@ -111,8 +109,7 @@ const DEVELOPMENT_FILES = [
   "tests/agentic-update.test.mjs",
   "tests/codex-config.test.mjs",
   "tests/distribution-contracts.test.mjs",
-  "tests/orchestration-kernel-v2.test.mjs",
-  "tests/session-controller.test.mjs",
+  "tests/orchestration-kernel.test.mjs",
 ];
 const PACKAGE_FILES = [
   ...TEMPLATE_FILES.map((relativePath) => TEMPLATE_ASSET_SOURCES.get(relativePath) ?? relativePath),
@@ -153,8 +150,11 @@ const LAYER_MARKERS = [
 // `.agents/sessions/` queda fuera porque guarda DevSessions del propietario, y
 // la raíz de `.agents/` porque aloja el VERSION generado.
 const MANAGED_DIRECTORIES = [
+  ".agents/conformance",
+  ".agents/kernel",
   ".agents/policies",
   ".agents/roles",
+  ".agents/schemas",
   ".agents/scripts",
   ".agents/skills",
   ".agents/templates",
@@ -918,7 +918,9 @@ const CONTRACT_FIELD_LABELS = new Map([
   ["adrs", "ADRs"],
 ]);
 const CONTRACT_FIELD_IDS = new Set(REQUIRED_CONTRACT_FIELDS);
-const CONTRACT_FIELD_MARKER_PATTERN = /^<!-- agentic-contract-field:v1 ([A-Za-z][A-Za-z0-9]*) -->$/;
+const CONTRACT_FIELD_MARKER_PATTERN = /^<!-- agentic-contract-field ([A-Za-z][A-Za-z0-9]*) -->$/;
+const PREVIOUS_CONTRACT_FIELD_MARKER_PATTERN =
+  /^<!-- agentic-contract-field:[^\s]+ ([A-Za-z][A-Za-z0-9]*) -->$/;
 const CONTRACT_FIELD_MARKER_LIKE = /<!--\s*agentic-contract-field\b/i;
 const ADDITIONAL_RULES_HEADING = "## Reglas adicionales del proyecto";
 
@@ -976,10 +978,12 @@ function parseContract(source) {
       activeKey = null;
       continue;
     }
-    const marker = line.trim().match(CONTRACT_FIELD_MARKER_PATTERN);
+    const marker =
+      line.trim().match(CONTRACT_FIELD_MARKER_PATTERN) ??
+      line.trim().match(PREVIOUS_CONTRACT_FIELD_MARKER_PATTERN);
     if (!marker && CONTRACT_FIELD_MARKER_LIKE.test(line.trim())) {
       const error = new Error(
-        `AGENTS.md contiene un marcador contractual con versión o sintaxis desconocida: ${line.trim()}.`,
+        `AGENTS.md contiene un marcador contractual con formato o sintaxis desconocida: ${line.trim()}.`,
       );
       error.exitCode = 2;
       throw error;
@@ -1120,50 +1124,50 @@ ${GOLDEN_RULE_DEVELOPMENT}
 
 ## Proyecto
 
-<!-- agentic-contract-field:v1 purpose -->
+<!-- agentic-contract-field purpose -->
 - Propósito: ${contractValue(existingFields, "purpose", project.purpose)}
-<!-- agentic-contract-field:v1 architecture -->
+<!-- agentic-contract-field architecture -->
 - Arquitectura: ${contractValue(existingFields, "architecture", project.architecture)}
-<!-- agentic-contract-field:v1 entrypoints -->
+<!-- agentic-contract-field entrypoints -->
 - Entrypoints: ${contractValue(existingFields, "entrypoints", project.entrypoints)}
 
 ## Validación
 
-<!-- agentic-contract-field:v1 focusedValidation -->
+<!-- agentic-contract-field focusedValidation -->
 - Focalizada: ${contractValue(existingFields, "focusedValidation", project.focusedValidation)}
-<!-- agentic-contract-field:v1 completeValidation -->
+<!-- agentic-contract-field completeValidation -->
 - Completa: ${contractValue(existingFields, "completeValidation", project.completeValidation)}
 
 ## Tests
 
-<!-- agentic-contract-field:v1 testFramework -->
+<!-- agentic-contract-field testFramework -->
 - Framework: ${contractValue(existingFields, "testFramework", project.testFramework)}
-<!-- agentic-contract-field:v1 testLocation -->
+<!-- agentic-contract-field testLocation -->
 - Ubicación: ${contractValue(existingFields, "testLocation", project.testLocation)}
-<!-- agentic-contract-field:v1 testLifecycle -->
+<!-- agentic-contract-field testLifecycle -->
 - Ciclo de vida: ${contractValue(existingFields, "testLifecycle", "conservar tests de regresión y retirar solo pruebas explícitamente temporales.")}
 
 ## Git
 
-<!-- agentic-contract-field:v1 gitStrategy -->
+<!-- agentic-contract-field gitStrategy -->
 - Rama o estrategia permitida: ${gitStrategy}
 
 ## Seguridad
 
-<!-- agentic-contract-field:v1 secrets -->
+<!-- agentic-contract-field secrets -->
 - Secretos: ${contractValue(existingFields, "secrets", "no almacenar credenciales; usar mecanismos externos o variables de entorno.")}
-<!-- agentic-contract-field:v1 protectedPaths -->
+<!-- agentic-contract-field protectedPaths -->
 - Rutas protegidas: ${contractValue(existingFields, "protectedPaths", "`.git/`, `.codegraph/`, `.engram/` y archivos de secretos.")}
-<!-- agentic-contract-field:v1 immutableData -->
+<!-- agentic-contract-field immutableData -->
 - Datos inmutables: ${contractValue(existingFields, "immutableData", "No aplica.")}
-<!-- agentic-contract-field:v1 restrictedActions -->
+<!-- agentic-contract-field restrictedActions -->
 - Acciones restringidas: ${contractValue(existingFields, "restrictedActions", "no instalar herramientas, acceder a remotos, publicar paquetes ni modificar Git sin autorización explícita.")}
-<!-- agentic-contract-field:v1 originContamination -->
+<!-- agentic-contract-field originContamination -->
 - Contaminación de origen: ${contractValue(existingFields, "originContamination", "No aplica; esta adopción parte de la plantilla canónica y no de una extracción manual de otro repositorio.")}
 
 ## Documentación
 
-<!-- agentic-contract-field:v1 documentation -->
+<!-- agentic-contract-field documentation -->
 - README y documentación técnica: ${contractValue(
     existingFields,
     "documentation",
@@ -1171,7 +1175,7 @@ ${GOLDEN_RULE_DEVELOPMENT}
       ? `${project.documentation}; actualizar cuando cambien uso, arquitectura o validación.`
       : pendingField("ubicaciones de documentación y criterio de actualización"),
   )}
-<!-- agentic-contract-field:v1 adrs -->
+<!-- agentic-contract-field adrs -->
 - ADRs: ${contractValue(existingFields, "adrs", "No aplica mientras el proyecto no declare una ubicación.")}
 
 ${CONTRACT_END}`;
@@ -1387,7 +1391,7 @@ async function detectInstalledLayer(destination) {
 }
 
 function classifyInstalledLayer(layer, distributionVersion) {
-  if (!layer.version) return "legacy-sin-version";
+  if (!layer.version) return "sin-version";
   const comparison = compareSemVer(layer.version, distributionVersion);
   if (comparison < 0) return "anterior";
   if (comparison > 0) return "posterior";
@@ -2120,7 +2124,7 @@ async function applyLayerTransaction({
 }
 
 const CODEX_THREADS_KEY = "max_concurrent_threads_per_session";
-const CODEX_THREADS_LEGACY_KEY = "max_threads";
+const CODEX_THREADS_PREVIOUS_KEY = "max_threads";
 const CODEX_SUBAGENT_CAPACITY = 12;
 
 function hasTomlMultilineString(text) {
@@ -2182,7 +2186,7 @@ function parseCodexToml(source, pathLabel) {
     if (
       inAgents &&
       new RegExp(
-        `(?:["'](?:${CODEX_THREADS_KEY}|${CODEX_THREADS_LEGACY_KEY})["']|(?:^|\\.)\\s*(?:${CODEX_THREADS_KEY}|${CODEX_THREADS_LEGACY_KEY})\\s*\\.)`,
+        `(?:["'](?:${CODEX_THREADS_KEY}|${CODEX_THREADS_PREVIOUS_KEY})["']|(?:^|\\.)\\s*(?:${CODEX_THREADS_KEY}|${CODEX_THREADS_PREVIOUS_KEY})\\s*\\.)`,
       ).test(key)
     ) {
       return { ambiguous: `${pathLabel} contiene una clave de concurrencia TOML no soportada.` };
@@ -2194,7 +2198,7 @@ function parseCodexToml(source, pathLabel) {
   }
   if (
     new RegExp(
-      `^[ \\t]*agents\\.(?:${CODEX_THREADS_KEY}|${CODEX_THREADS_LEGACY_KEY})\\b`,
+      `^[ \\t]*agents\\.(?:${CODEX_THREADS_KEY}|${CODEX_THREADS_PREVIOUS_KEY})\\b`,
       "m",
     ).test(text)
   ) {
@@ -2214,13 +2218,13 @@ function parseCodexToml(source, pathLabel) {
   const content = text.slice(contentStart, contentEnd);
   const possible = [
     ...content.matchAll(
-      new RegExp(`^[ \\t]*(?:${CODEX_THREADS_KEY}|${CODEX_THREADS_LEGACY_KEY})\\b[^\\r\\n]*$`, "gm"),
+      new RegExp(`^[ \\t]*(?:${CODEX_THREADS_KEY}|${CODEX_THREADS_PREVIOUS_KEY})\\b[^\\r\\n]*$`, "gm"),
     ),
   ];
   const parsed = [
     ...content.matchAll(
       new RegExp(
-        `^([ \\t]*)(${CODEX_THREADS_KEY}|${CODEX_THREADS_LEGACY_KEY})([ \\t]*=[ \\t]*)(\\d+)([ \\t]*(?:#[^\\r\\n]*)?)(\\r?)$`,
+        `^([ \\t]*)(${CODEX_THREADS_KEY}|${CODEX_THREADS_PREVIOUS_KEY})([ \\t]*=[ \\t]*)(\\d+)([ \\t]*(?:#[^\\r\\n]*)?)(\\r?)$`,
         "gm",
       ),
     ),
@@ -2241,7 +2245,6 @@ function parseCodexToml(source, pathLabel) {
           assignment: target[3],
           suffix: target[5],
           carriageReturn: target[6],
-          legacy: target[2] === CODEX_THREADS_LEGACY_KEY,
         }
       : null,
     sectionHeaderEnd: contentStart,
@@ -2546,13 +2549,13 @@ async function validateSubagentAdapters() {
       [`.claude/agents/${role}.md`, claude],
     ]) {
       if (!adapter.includes("RoleReport") || !adapter.includes("contextPaths")) {
-        errors.push(`${adapterPath} no consume WorkEnvelope/contextPaths ni devuelve RoleReport v2.`);
+        errors.push(`${adapterPath} no consume WorkEnvelope/contextPaths ni devuelve RoleReport.`);
       }
-      if (!/no\s+uses el controller/i.test(adapter) || !adapter.includes("OrchestrationKernel.apply")) {
+      if (!/no\s+uses/i.test(adapter) || !adapter.includes("OrchestrationKernel.apply")) {
         errors.push(`${adapterPath} no prohíbe la mutación de estado desde el rol.`);
       }
-      if (adapter.includes("Usa `.agents/scripts/session-controller.mjs`")) {
-        errors.push(`${adapterPath} todavía entrega ownership del controller al rol.`);
+      if (adapter.includes(".agents/kernel/orchestration-kernel.mjs")) {
+        errors.push(`${adapterPath} todavía entrega ownership del kernel al rol.`);
       }
     }
   }
@@ -2583,15 +2586,11 @@ async function validateSubagentAdapters() {
     ["CLAUDE.md", claudeImport],
     [".claude/skills/orquestar/SKILL.md", claudeSkill],
   ]) {
-    if (!adapter.includes("<!-- agentic-protocol:v2 -->")) {
-      errors.push(`${adapterPath} no declara el protocolo v2.`);
+    if (!adapter.includes("<!-- agentic-protocol -->")) {
+      errors.push(`${adapterPath} no declara el protocolo actual.`);
     }
-    if (
-      !adapter.includes(".agents/kernel/orchestration-kernel.mjs") ||
-      !adapter.includes("compatibilidad") ||
-      !adapter.includes("v1")
-    ) {
-      errors.push(`${adapterPath} no separa sesiones nuevas v2 de la compatibilidad v1.`);
+    if (!adapter.includes(".agents/kernel/orchestration-kernel.mjs")) {
+      errors.push(`${adapterPath} no reserva el runtime al kernel actual.`);
     }
   }
   if (!claudeSkill.includes("WorkEnvelope") || !claudeSkill.includes("RoleReport")) {
@@ -2628,9 +2627,6 @@ async function packageManifestErrors() {
   if (manifest.bin?.agentic !== "./bin/agentic.mjs") {
     errors.push("package.json no expone el ejecutable `agentic` en ./bin/agentic.mjs.");
   }
-  if (manifest.agentic?.protocolVersion !== 2) {
-    errors.push("package.json no declara agentic.protocolVersion = 2.");
-  }
   if (manifest.agentic?.distributionVersion !== manifest.version) {
     errors.push("agentic.distributionVersion debe coincidir con package.json.version.");
   }
@@ -2638,13 +2634,17 @@ async function packageManifestErrors() {
     "./conformance": "./.agents/conformance/protocol-conformance.mjs",
     "./kernel": "./.agents/kernel/orchestration-kernel.mjs",
     "./kernel/adapters": "./.agents/kernel/adapters.mjs",
-    "./kernel/protocol": "./.agents/kernel/protocol-v2.mjs",
-    "./kernel/v1-compatibility": "./.agents/kernel/v1-compatibility.mjs",
+    "./kernel/protocol": "./.agents/kernel/protocol.mjs",
     "./protocol.json": "./.agents/protocol.json",
   };
   for (const [key, target] of Object.entries(requiredExports)) {
     if (manifest.exports?.[key] !== target) {
       errors.push(`package.json no expone ${key} en ${target}.`);
+    }
+  }
+  for (const key of Object.keys(manifest.exports ?? {})) {
+    if (!Object.hasOwn(requiredExports, key)) {
+      errors.push(`package.json expone un entrypoint no canónico: ${key}.`);
     }
   }
   if (typeof manifest.engines?.node !== "string") {
@@ -2727,7 +2727,7 @@ async function validateTemplateDistribution() {
   try {
     await assertProtocolConformance({ root: SOURCE_ROOT });
   } catch (error) {
-    errors.push(`Conformidad del protocolo V2 inválida: ${error.message}`);
+    errors.push(`Conformidad del protocolo inválida: ${error.message}`);
   }
 
   const [sessionsIgnore, devSession, subdevSession, rootAgents, orchestration, orchestrationSkill] =
@@ -2758,7 +2758,7 @@ async function validateTemplateDistribution() {
       const rootFields = parseContractFields(rootAgents);
       const missingIds = REQUIRED_CONTRACT_FIELDS.filter((field) => !rootFields.has(field));
       const declaredIds = [
-        ...rootContract.text.matchAll(/<!-- agentic-contract-field:v1 ([A-Za-z][A-Za-z0-9]*) -->/g),
+        ...rootContract.text.matchAll(/<!-- agentic-contract-field ([A-Za-z][A-Za-z0-9]*) -->/g),
       ].map((match) => match[1]);
       if (missingIds.length || declaredIds.length !== REQUIRED_CONTRACT_FIELDS.length) {
         errors.push("AGENTS.md no declara una vez cada campo contractual canónico con ID estable.");
@@ -2822,8 +2822,8 @@ async function validateTemplateDistribution() {
   if (/Según la DevSession global|^- DevSession global:/m.test(subdevSession)) {
     errors.push("SubDevSession remite al ledger global en lugar de materializar el contexto mínimo.");
   }
-  if (!orchestration.includes(".agents/scripts/session-controller.mjs")) {
-    errors.push("orquestacion.md no referencia el controlador canónico de sesiones.");
+  if (!orchestration.includes(".agents/kernel/orchestration-kernel.mjs")) {
+    errors.push("orquestacion.md no referencia el kernel canónico de sesiones.");
   }
   if (
     !orchestration.includes("## Proyección mínima de contexto") ||
@@ -2851,7 +2851,7 @@ async function validateTemplateDistribution() {
       errors.push(`.agents/roles/${role}.md no enlaza ${ORCHESTRATION_POLICY}.`);
     }
     const inputs = content.match(/^## Entradas\r?\n([\s\S]*?)(?=^## |(?![\s\S]))/m)?.[1] ?? "";
-    if (!inputs.includes("SubDevSession vigente") || !inputs.includes("`contextPaths`")) {
+    if (!inputs.includes("`WorkEnvelope` vigente") || !inputs.includes("`contextPaths`")) {
       errors.push(`.agents/roles/${role}.md no consume el sobre mínimo común.`);
     }
     if (
@@ -2873,7 +2873,7 @@ async function validateTemplateDistribution() {
       errors.push(`.agents/workflows/${workflow}.md no enlaza ${ORCHESTRATION_POLICY}.`);
     }
     const phaseIds = new Set();
-    const phaseMarkers = [...content.matchAll(/<!-- agentic-phase:v1 (\{[^\n]+\}) -->/g)];
+    const phaseMarkers = [...content.matchAll(/<!-- agentic-phase (\{[^\n]+\}) -->/g)];
     if (!phaseMarkers.length) errors.push(`El workflow ${workflow} no declara fases canónicas.`);
     for (const match of phaseMarkers) {
       let phase;
@@ -2896,7 +2896,7 @@ async function validateTemplateDistribution() {
       }
     }
     const lightMarkers = [
-      ...content.matchAll(/<!-- agentic-light-sequence:v1 (\{[^\n]+\}) -->/g),
+      ...content.matchAll(/<!-- agentic-light-sequence (\{[^\n]+\}) -->/g),
     ];
     const expectedLightMarkers = workflow === "architecture" ? 0 : 1;
     if (lightMarkers.length !== expectedLightMarkers) {

@@ -9,7 +9,7 @@ documentación no se distribuye con la capa.
 El repositorio hace dos cosas independientes, y conviene no confundirlas:
 
 1. **El proceso** (`.agents/` y sus adapters): lo que gobierna cómo un agente
-   desarrolla en un proyecto. Las políticas y roles son contratos; el kernel V2
+   desarrolla en un proyecto. Las políticas y roles son contratos; el kernel
    ejecuta sus invariantes estructuradas.
 2. **La adopción y actualización** (`bin/` y `scripts/`): lo que copia o
    actualiza ese proceso y mantiene su contrato. Es código; se ejecuta solo por
@@ -64,7 +64,7 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 │   ├── agentic-init.test.mjs    # inicialización y adopción
 │   ├── agentic-update.test.mjs  # update y rollback
 │   ├── codex-config.test.mjs    # configuración Codex
-│   ├── session-controller.test.mjs
+│   ├── orchestration-kernel.test.mjs
 │   ├── distribution-contracts.test.mjs
 │   └── agentic-test-helpers.mjs # fixtures aislados compartidos
 ├── docs/                        # documentación interna (no se distribuye)
@@ -77,12 +77,11 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 │   │   ├── orquestacion.md      # precedencia, preflight, modos, delegación
 │   │   ├── regla-de-oro.md       # regla transversal para código y pruebas
 │   │   └── sdd-tdd.md            # SDD proporcional y vocabulario de diseño
-│   ├── protocol.json              # versión indivisible y overrides admitidos
+│   ├── protocol.json              # inventario y overrides admitidos
 │   ├── kernel/
 │   │   ├── orchestration-kernel.mjs # interface apply/inspect
 │   │   ├── adapters.mjs           # stores, clocks, probes y sinks
-│   │   ├── protocol-v2.mjs        # hashing y contratos base
-│   │   └── v1-compatibility.mjs   # lectura/migración explícita v1
+│   │   └── protocol.mjs           # hashing y contratos base
 │   ├── schemas/                   # AcceptanceContract, RoleReport, eventos y evidencia
 │   ├── conformance/               # gate de protocolo y drift
 │   ├── roles/                   # seis roles: entradas, proceso, salida, límites
@@ -92,8 +91,6 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 │   │   ├── tester.md
 │   │   ├── evaluador.md
 │   │   └── documentador.md
-│   ├── scripts/
-│   │   └── session-controller.mjs # runtime de compatibilidad para sesiones v1
 │   ├── workflows/
 │   │   ├── feature.md
 │   │   ├── bugfix.md
@@ -124,10 +121,9 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 | --- | --- | --- |
 | `.agents/policies/` | Orquestación, SDD/TDD y Regla de Oro para código y pruebas | Profundo: gobierna todo el proceso |
 | `.agents/roles/` | Seis contratos de salida con límites explícitos | Profundo: cada rol oculta su método |
-| `.agents/kernel/orchestration-kernel.mjs` | Estado V2, CAS, idempotencia, ownership, aceptación, lanes, presupuesto, persistencia y telemetría | Profundo: solo `apply/inspect` |
+| `.agents/kernel/orchestration-kernel.mjs` | Estado, CAS, idempotencia, ownership, aceptación, lanes, presupuesto, persistencia y telemetría | Profundo: solo `apply/inspect` |
 | `.agents/kernel/adapters.mjs` | Filesystem/memoria, reloj, preflight y event sinks | Profundo: seams de producción y tests |
-| `.agents/scripts/session-controller.mjs` | Terminar o recuperar sesiones v1 durante su ventana de soporte | Compatibilidad: no inicia V2 |
-| `.agents/schemas/` y `.agents/conformance/` | Versionar contratos y rechazar mezclas o drift | Gate distribuible |
+| `.agents/schemas/` y `.agents/conformance/` | Validar contratos y rechazar mezclas o drift | Gate distribuible |
 | `.agents/workflows/` | Orden de fases por intención | Delgado: sólo secuencia |
 | `.agents/skills/` | Routing de orquestación y disciplinas invocables (grilling, TDD, diagnóstico) | `orquestar` delgada; disciplinas especializadas profundas |
 | `.agents/templates/` | Formato de la DevSession global y de los sobres efímeros | Delgado: estructura |
@@ -135,16 +131,16 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 | `.codex/agents/*.toml` | Nombre, descripción, sandbox y puntero al rol canónico | Delgado por diseño |
 | `.claude/agents/*.md` | Frontmatter de herramientas y permisos, y puntero al rol | Delgado por diseño |
 | `.claude/skills/orquestar/` | Activación nativa que remite a la skill canónica | Delgado por diseño |
-| `CLAUDE.md` | Importa `AGENTS.md` y fija el routing v2/v1 sin duplicar política | Delgado por diseño |
+| `CLAUDE.md` | Importa `AGENTS.md` y fija el routing actual sin duplicar política | Delgado por diseño |
 | `bin/agentic.mjs` | Despacho de `init`, `update` y ayuda | Delgado: no reimplementa nada |
 | `scripts/agentic-init.mjs` | Detección, plan, copia/actualización recuperable, contrato, configuración opcional de Codex y comprobaciones | Profundo: toda la adopción y actualización |
 | `tests/*.test.mjs` | Comportamiento público por interfaz, en procesos paralelos con directorios raíz temporales exclusivos | Especificación ejecutable |
-| `tests/agentic-test-helpers.mjs` | Fixtures de filesystem, CLI y session-controller sin estado global mutable | Helper profundo de tests |
+| `tests/agentic-test-helpers.mjs` | Fixtures de filesystem y CLI sin estado global mutable | Helper profundo de tests |
 
 Este mapa expresa ownership, no una obligación de repetir reglas. El inventario
 operativo de propietarios y la responsabilidad exacta de cada consumidor se
 mantienen en el [README interno](../.agents/README.md#mapa-de-propietarios): la
-política posee decisiones humanas transversales, el controlador sus invariantes
+política posee decisiones humanas transversales, el kernel sus invariantes
 ejecutables, workflows el orden, roles sus contratos, la skill el routing y las
 plantillas solo los datos persistidos.
 
@@ -207,7 +203,7 @@ flowchart TD
     start["agentic update [destino]"] --> detect["detectar marcadores y VERSION"]
     detect --> exists{"¿existe la capa?"}
     exists -->|no| init["salida 2 · usar agentic init"]
-    exists -->|sí| version{"legacy, anterior,<br/>igual o posterior"}
+    exists -->|sí| version{"sin versión, anterior,<br/>igual o posterior"}
     version -->|posterior sin permiso| block["salida 2 · cero escrituras"]
     version --> unknown{"¿entradas contractuales<br/>no mapeables?"}
     unknown -->|"sí, sin terminal o dry-run"| unmapped["salida 2 · listar todas<br/>· cero escrituras"]
@@ -259,7 +255,7 @@ siempre inyectan una raíz temporal. El valor objetivo es 12 como capacidad
 técnica de Codex; los workflows aplican después sus topes independientes de 4
 (`light`) y 9 (`full`).
 
-## Flujo de orquestación V2
+## Flujo de orquestación
 
 El runtime principal no interpreta Markdown. El orquestador posee la única
 capacidad de mutación y los roles son productores aislados de reportes:
@@ -297,10 +293,7 @@ degradación observable. Cada evento se guarda primero en
 outbox sin repetir la transición. El sink JSONL relee los IDs durables antes de
 append para deduplicar incluso después de reiniciar el proceso.
 
-## Flujo de orquestación v1 (compatibilidad)
-
-El diagrama siguiente documenta el controller Markdown conservado solo para
-terminar sesiones v1 activas. Las sesiones nuevas no recorren esta ruta.
+## Activación del flujo
 
 La política canónica decide primero con hechos observables; este diagrama
 resume el enrutamiento y deja la lista cerrada de riesgos en
@@ -322,7 +315,7 @@ flowchart TD
     full --> pre["preflight:<br/>CodeGraph · Engram ·<br/>subagentes · contrato"]
     light --> pre
     pre -->|falla| stop["detenerse con<br/>diagnóstico breve"]
-    pre -->|pasa| sess["init DevSession:<br/>modo + capacidades +<br/>estrategia light"]
+    pre -->|pasa| sess["start-session:<br/>modo + capacidades +<br/>estrategia light"]
     sess --> topology{"¿light compacto?"}
     topology -->|no| plan["explorar y planificar<br/>DAG de 1–3 unidades"]
     topology -->|sí| bugcompact{"¿bugfix?"}
@@ -335,8 +328,8 @@ flowchart TD
     compactapproved -->|no, máximo 2 ciclos| compactimpl
     compactapproved -->|sí: validated + consolidated<br/>+ fan-in + eje combined| docgate
     plan --> ready["seleccionar unidades listas<br/>y formar oleada"]
-    ready --> open["open intento trazable:<br/>unidad · permiso · revisión · hilo"]
-    open --> perm{"permiso"}
+    ready --> dispatch["dispatch-attempt:<br/>unidad · permiso · revisión · hilo"]
+    dispatch --> perm{"permiso"}
     perm -->|read-only| lane["carril aislado<br/>dentro del fan-out"]
     perm -->|writer| lock["reserva global única<br/>del working tree"]
     lane --> work["ejecutar rol"]
@@ -364,7 +357,7 @@ flowchart TD
     approved -->|sí| docgate{"¿documentación o<br/>memoria durable?"}
     docgate -->|sí| document["Documentador"]
     docgate -->|no| nodoc["registrar No aplica"]
-    document --> close["consolidar Engram<br/>cleanup + close"]
+    document --> close["consolidar Engram<br/>close-session"]
     nodoc --> close
 ```
 
@@ -409,11 +402,11 @@ su marcador no los declara.
 
 ### Unidades, intentos, DAG y gates
 
-El Planificador registra de una a tres unidades verticales en `full` y `light`
-legacy. En compacto registra exactamente una unidad writer, sin dependencias y
+El Planificador registra de una a tres unidades verticales en `full`. En
+`light` registra exactamente una unidad writer, sin dependencias y
 con `focusedValidation`. Cada unidad guarda `workUnitId`,
 `acceptanceCriteria`, `dependsOn`, `ownedPaths`, `permission` y `wave`. El
-controlador rechaza contratos incompletos, IDs duplicados, dependencias
+kernel rechaza contratos incompletos, IDs duplicados, dependencias
 ausentes, ciclos y colisiones antes de crear la DevSession.
 
 La unidad y el intento son identidades distintas. La primera representa el
@@ -436,7 +429,7 @@ sobre `implemented` y su veredicto actualiza de forma atómica unidad, fan-in y
 eje `combined`; no existe un Tester posterior. La selección de estrategia, su
 vigencia y el momento de la validación integrada pertenecen a la
 [política de orquestación](../.agents/policies/orquestacion.md), no a este
-documento. El controlador persiste únicamente el estado necesario para rechazar
+documento. El kernel persiste únicamente el estado necesario para rechazar
 transiciones o evidencia obsoletas; no añade otra máquina para reinterpretar la
 decisión humana.
 
@@ -448,97 +441,58 @@ ancestro/descendiente, incluidas mayúsculas y aliases terminales de Windows.
 ### Proyección de contexto y traspaso de reportes
 
 La DevSession global es el ledger durable y recuperable. No se carga en cada
-contexto aislado: `open` proyecta una SubDevSession autocontenida con objetivo,
-reglas, tareas, hallazgos y una lista ordenada `contextPaths`. El controlador
+contexto aislado: `dispatch-attempt` proyecta un `WorkEnvelope` autocontenido con
+objetivo, reglas, tareas, hallazgos y una lista ordenada `contextPaths`. El kernel
 calcula `sourceRevision` desde la revisión global vigente, valida rutas relativas
 portables y rechaza índices protegidos, directorios, escapes, aliases y
 duplicados antes de escribir.
 
-El despacho normal contiene únicamente la ruta de la SubDevSession, la
-instrucción breve de ejecutar el contrato del rol y acceso a CodeGraph y Engram.
-El rol lee solo ese sobre y las referencias seleccionadas; no recibe cuerpos
+El despacho normal contiene únicamente el `WorkEnvelope`, la instrucción breve
+de ejecutar el contrato del rol y acceso a CodeGraph y Engram. El rol lee solo
+ese sobre y las referencias seleccionadas; no recibe cuerpos
 copiados. Ante un dato indispensable ausente devuelve la incógnita exacta. El
 orquestador puede fallar el intento y abrir otro con causa y contexto corregido,
 pero nunca reescribe retrospectivamente un sobre activo.
 
-`commit` escribe el cuerpo contractual íntegro solo en la SubDevSession. La
-parte humana global añade una referencia de tamaño acotado con identidad,
-atribución, resultado, hash y ruta; el bloque administrado global sigue siendo
-dueño de revisiones, gates, evidencia y evaluación. Por eso `status` no necesita
-abrir los sobres ni cargar sus cuerpos.
+`accept-role-report` incorpora el `RoleReport` estructurado. La vista humana
+global añade una referencia de tamaño acotado con identidad, atribución,
+resultado y hash; el snapshot sigue siendo dueño de revisiones, gates, evidencia
+y evaluación. Por eso `inspect` no necesita interpretar Markdown.
 
 La política canónica selecciona `contextPaths` mínimos para cada rol. Evaluador
 sigue siendo obligatorio. Documentador se abre después de la aprobación sólo si
 hay documentación afectada o una interfaz pública, un artefacto contractual,
 una decisión durable o memoria validada pendiente; en otro caso se registra `No
-aplica` sin crear el contexto. `cleanup` espera todos los consumos que realmente
-se abrieron. Las DevSessions y SubDevSessions heredadas se leen y consolidan sin
-reescribir su parte humana.
+aplica` sin crear el contexto. `close-session` exige que todos los intentos
+abiertos hayan terminado.
 
 ### Writer lock, recuperación e idempotencia
 
-El aislamiento writer no es local a una DevSession. El controlador deriva la
+El aislamiento writer no es local a una DevSession. El store deriva la
 identidad canónica del working tree y publica por hard link un único archivo
 `.writer-<workingTreeId>.lock`. Su dueño exacto contiene `session`, `attempt` y
 `workingTreeId`, por lo que dos DevSessions del mismo árbol compiten por la
 misma reserva aunque declaren rutas diferentes.
 
-Una transición inicial y la reparación de un checkpoint liberan de forma
-estricta: un dueño distinto es conflicto. Cuando `commit` o `fail` ya están
-terminales y el mismo payload se repite, la operación sigue siendo idempotente
-pero libera sólo si la reserva todavía coincide exactamente. Si un writer
-sucesor ya la adquirió, el reintento devuelve éxito sin eliminar, modificar ni
-reclamar su lock. Si una interrupción dejó el lock en el intento original, el
-checkpoint recuperado sí lo libera.
+Cada transición adquiere el lock correspondiente y valida ownership antes de
+liberarlo. Repetir un comando exacto mantiene la idempotencia sin reclamar ni
+retirar la reserva de un intento sucesor. Los temporales de publicación se
+limpian en la propia adquisición y los residuos ambiguos nunca se borran por
+edad.
 
-`status` y `recover` son de sólo lectura. Los temporales de publicación se
-eliminan en la propia adquisición y los residuos ambiguos nunca se borran por
-edad. `cleanup` continúa limitado a sobres acusados y `safe_to_delete`.
+### Fan-in y generaciones
 
-### Fan-in, generaciones y sesiones heredadas
-
-En la ruta separada, el controlador sólo marca la integración lista cuando todas
+En la ruta separada, el kernel sólo marca la integración lista cuando todas
 las unidades están validadas y consolidadas. En compacto, el Evaluador combinado
 puede abrir sobre la única unidad implementada y una aprobación produce
-simultáneamente consolidación y fan-in. El controlador persiste estrategia,
+simultáneamente consolidación y fan-in. El kernel persiste estrategia,
 riesgo y generación, valida sus valores ejecutables y, al reabrir una unidad,
 incrementa la generación e invalida resultados anteriores. La política canónica
 es la única propietaria de la elegibilidad humana de cada estrategia y de las
 categorías admitidas; esta sección documenta únicamente el estado y las
-transiciones del controlador.
-
-Las DevSessions v1 sin unidades conservan su comportamiento. Una sesión por
-unidades creada antes de que existieran criterios, capacidades separadas,
-estrategia o generación falla cerradamente antes de `open` cuando le falta la
-trazabilidad exigida. Repetir `init` con el plan aprobado completa únicamente
-esos campos ausentes, preserva intentos, estados, ownership y evidencia, y es
-byte-idempotente al volver a ejecutarse. Una sesión `full` heredada sin estrategia
-conserva dual implícito. Una sesión `light` sin `lightStrategy` conserva la ruta
-separada legacy; solo las nuevas registran `compact`, sin migración implícita. El
-modelo base está en
+transiciones del kernel. El modelo base está en
 [ADR 0009](adr/0009-paralelismo-controlado-por-unidades.md) y la simplificación
-vigente en [ADR 0010](adr/0010-cierre-y-evaluacion-proporcionales-al-riesgo.md);
-ambas extienden el controlador portable de
-[ADR 0008](adr/0008-controlador-portable-de-subdevsessions.md).
-
-## Compatibilidad y migración v1→v2
-
-`inspect` busca primero un snapshot V2 y, si no existe, delega en
-`LegacyV1Adapter`. El adapter puede mostrar una `SessionView` normalizada, pero
-marca `legacyAmbiguous` cuando la prosa no demuestra un veredicto; nunca inventa
-actor, tiempos, threat model ni aprobación histórica.
-
-`migrate-v1` siempre ofrece dry-run, registra el hash de origen y es
-idempotente. Una sesión con writer o reporte pendiente exige checkpoint: puede
-terminar en v1, migrarse cuando quede inactiva o cerrarse y reiniciarse mediante
-una decisión explícita. Una migración ambigua entra en
-`scope_decision_required`.
-
-Las sesiones nuevas escriben V2. El fallback de escritura v1 pertenece a la
-configuración de rollout y no convierte sesiones V2 activas hacia atrás. El
-lector v1 no se retira antes del 2026-11-17 ni hasta completar dos releases
-estables y llegar a cero sesiones v1 activas en consumidores prioritarios. La
-fecha y la condición acumulativa se publican en `.agents/protocol.json`.
+vigente en [ADR 0010](adr/0010-cierre-y-evaluacion-proporcionales-al-riesgo.md).
 
 ## Frontera de distribución
 

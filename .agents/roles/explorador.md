@@ -1,6 +1,6 @@
 # Rol: Explorador
 
-<!-- agentic-role-report:v2 -->
+<!-- agentic-role-report -->
 
 ## Misión
 
@@ -9,7 +9,7 @@ condicionan la tarea.
 
 ## Entradas
 
-- SubDevSession vigente como único sobre normal de despacho.
+- `WorkEnvelope` vigente como único sobre normal de despacho.
 - Rutas enumeradas en `contextPaths`: cadena `AGENTS.md` conocida y pistas o
   artefactos aprobados; no historial de implementación.
 - Objetivo, workflow, modo, reglas efectivas, carril, fronteras y pregunta
@@ -17,7 +17,7 @@ condicionan la tarea.
   [política de orquestación](../policies/orquestacion.md).
 
 La estrategia compacta no abre este rol: el Planificador absorbe su exploración
-mínima. Este contrato sigue vigente para `full` y sesiones `light` legacy.
+mínima. Este contrato aplica a los modos `full` y `light` compacto.
 
 ## Proceso
 
@@ -36,7 +36,7 @@ mínima. Este contrato sigue vigente para `full` y sesiones `light` legacy.
 
 ## Salida
 
-Devolver un `RoleReport` v2. Los hallazgos y la evidencia son estructurados;
+Devolver un `RoleReport`. Los hallazgos y la evidencia son estructurados;
 `humanSummary` conserva únicamente:
 
 - **Sector de importancia:** archivos, símbolos o superficies y su función.
@@ -54,6 +54,6 @@ Devolver un `RoleReport` v2. Los hallazgos y la evidencia son estructurados;
   proyecto.
 - No redactar la especificación ni proponer implementación.
 - No ampliar el sector por precaución sin evidencia.
-- No ejecutar comandos del controller, llamar `OrchestrationKernel.apply` ni
+- No llamar `OrchestrationKernel.apply` ni
   escribir snapshots o eventos.
 - No hablar con el usuario; devolver decisiones pendientes al orquestador.

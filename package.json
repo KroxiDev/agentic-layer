@@ -1,6 +1,6 @@
 {
   "name": "@kroxidev/agentic-layer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Capa agéntica reusable para Codex y Claude Code, adoptable en cualquier repositorio con un solo comando.",
   "license": "MIT",
   "type": "module",
@@ -11,13 +11,11 @@
     "./conformance": "./.agents/conformance/protocol-conformance.mjs",
     "./kernel": "./.agents/kernel/orchestration-kernel.mjs",
     "./kernel/adapters": "./.agents/kernel/adapters.mjs",
-    "./kernel/protocol": "./.agents/kernel/protocol-v2.mjs",
-    "./kernel/v1-compatibility": "./.agents/kernel/v1-compatibility.mjs",
+    "./kernel/protocol": "./.agents/kernel/protocol.mjs",
     "./protocol.json": "./.agents/protocol.json"
   },
   "agentic": {
-    "protocolVersion": 2,
-    "distributionVersion": "0.1.0"
+    "distributionVersion": "0.2.0"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -48,8 +46,7 @@
     ".agents/conformance/protocol-conformance.mjs",
     ".agents/kernel/adapters.mjs",
     ".agents/kernel/orchestration-kernel.mjs",
-    ".agents/kernel/protocol-v2.mjs",
-    ".agents/kernel/v1-compatibility.mjs",
+    ".agents/kernel/protocol.mjs",
     ".agents/policies/orquestacion.md",
     ".agents/policies/regla-de-oro.md",
     ".agents/policies/sdd-tdd.md",
@@ -60,11 +57,10 @@
     ".agents/roles/implementador.md",
     ".agents/roles/planificador.md",
     ".agents/roles/tester.md",
-    ".agents/scripts/session-controller.mjs",
-    ".agents/schemas/acceptance-contract.v2.schema.json",
-    ".agents/schemas/role-report.v2.schema.json",
-    ".agents/schemas/session-event.v2.schema.json",
-    ".agents/schemas/validation-evidence.v2.schema.json",
+    ".agents/schemas/acceptance-contract.schema.json",
+    ".agents/schemas/role-report.schema.json",
+    ".agents/schemas/session-event.schema.json",
+    ".agents/schemas/validation-evidence.schema.json",
     ".agents/sessions/gitignore.asset",
     ".agents/skills/agentic-diagnostico-bugs/SKILL.md",
     ".agents/skills/agentic-diagnostico-bugs/references/hitl-loop.template.md",

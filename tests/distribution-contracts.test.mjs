@@ -28,20 +28,12 @@ import {
   BIN,
   CLI,
   ROOT,
-  SESSION_CONTROLLER,
   SIN_HERRAMIENTAS,
-  controllerOutcome,
-  controllerResponse,
   countPendingFields,
-  createManagedAttempt,
-  createManagedSession,
-  createPreTraceWorkUnitSession,
   createRepository,
   linksToPolicy,
   markdownLinks,
   markdownSection,
-  parseManagedState,
-  replaceManagedState,
   roleOutputLabels,
   runExecutable,
   runExecutableWithEnvironment,
@@ -49,8 +41,6 @@ import {
   runInitializerWithoutFlags,
   runInteractiveExecutableWithEnvironment,
   runInteractiveUpdate,
-  runSessionController,
-  seedSessionContracts,
   snapshotDirectory,
 } from "./agentic-test-helpers.mjs";
 
@@ -273,7 +263,7 @@ test("los contratos canónicos enlazan políticas y exponen marcadores estables"
     ],
   };
   for (const [workflow, source] of Object.entries(workflows)) {
-    const phases = [...source.matchAll(/<!-- agentic-phase:v1 (\{[^\n]+\}) -->/g)].map(
+    const phases = [...source.matchAll(/<!-- agentic-phase (\{[^\n]+\}) -->/g)].map(
       (match) => JSON.parse(match[1]),
     );
     assert.deepEqual(phases, expectedPhases[workflow]);
@@ -353,11 +343,11 @@ test("los contratos proyectan el contexto mínimo mediante un único sobre", asy
     assert.ok(projection.includes(`**${role}:**`), `Falta la selección mínima de ${role}.`);
   }
   assert.ok(skill.includes("`contextPaths`"));
-  assert.match(skill, /SubDevSession vigente/);
+  assert.match(skill, /`WorkEnvelope` inmutable/);
 
   for (const source of roleSources) {
     const inputs = markdownSection(source, "Entradas") ?? "";
-    assert.ok(inputs.includes("SubDevSession vigente"));
+    assert.ok(inputs.includes("`WorkEnvelope` vigente"));
     assert.ok(inputs.includes("`contextPaths`"));
     assert.equal(inputs.includes("- DevSession vigente."), false);
     assert.equal(inputs.includes("Especificación y DevSession"), false);
@@ -414,23 +404,17 @@ test("los workflows declaran una única secuencia estructural para light compact
       "utf8",
     );
     const phases = new Map(
-      [...source.matchAll(/<!-- agentic-phase:v1 (\{[^\n]+\}) -->/g)].map((match) => {
+      [...source.matchAll(/<!-- agentic-phase (\{[^\n]+\}) -->/g)].map((match) => {
         const phase = JSON.parse(match[1]);
         return [phase.id, phase.role];
       }),
     );
-    const markers = [...source.matchAll(/<!-- agentic-light-sequence:v2 (\{[^\n]+\}) -->/g)];
-    const legacyMarkers = [
-      ...source.matchAll(/<!-- agentic-light-sequence:v1 (\{[^\n]+\}) -->/g),
-    ];
+    const markers = [...source.matchAll(/<!-- agentic-light-sequence (\{[^\n]+\}) -->/g)];
     if (workflow === "architecture") {
       assert.equal(markers.length, 0);
-      assert.equal(legacyMarkers.length, 0);
       continue;
     }
     assert.equal(markers.length, 1, `${workflow} debe declarar una sola secuencia compacta.`);
-    assert.equal(legacyMarkers.length, 1, `${workflow} debe conservar una secuencia legacy.`);
-    assert.equal(legacyMarkers[0][1], markers[0][1]);
     const contract = JSON.parse(markers[0][1]);
     assert.deepEqual(Object.keys(contract), ["phases"]);
     assert.ok(Array.isArray(contract.phases));
@@ -616,7 +600,7 @@ test("el cierre abre Documentador únicamente cuando existe una entrada real", a
   ]);
   for (const [index, workflow] of workflows.entries()) {
     const name = ["feature", "bugfix", "refactor"][index];
-    const phases = [...workflow.matchAll(/<!-- agentic-phase:v1 (\{[^\n]+\}) -->/g)].map(
+    const phases = [...workflow.matchAll(/<!-- agentic-phase (\{[^\n]+\}) -->/g)].map(
       (match) => JSON.parse(match[1]),
     );
     assert.deepEqual(phases.at(-1), { id: `${name}-document`, role: "documentador" });
@@ -624,11 +608,26 @@ test("el cierre abre Documentador únicamente cuando existe una entrada real", a
   }
 });
 
-test("kernel v2 y controller v1 se distribuyen con ownership único y sin sesiones activas", async () => {
-  const controllerPath = ".agents/scripts/session-controller.mjs";
+test("el contrato estructurado único se distribuye con ownership único y preserva sesiones", async () => {
   const kernelPath = ".agents/kernel/orchestration-kernel.mjs";
-  const protocolPath = ".agents/protocol.json";
+  const protocolModulePath = ".agents/kernel/protocol.mjs";
+  const protocolManifestPath = ".agents/protocol.json";
   const subdevTemplatePath = ".agents/templates/subdev-session.md";
+  const schemaPaths = [
+    ".agents/schemas/acceptance-contract.schema.json",
+    ".agents/schemas/role-report.schema.json",
+    ".agents/schemas/session-event.schema.json",
+    ".agents/schemas/validation-evidence.schema.json",
+  ];
+  const currentPaths = [
+    ".agents/conformance/protocol-conformance.mjs",
+    ".agents/kernel/adapters.mjs",
+    kernelPath,
+    protocolModulePath,
+    protocolManifestPath,
+    ...schemaPaths,
+    subdevTemplatePath,
+  ];
   const manifest = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8"));
   const orchestration = await readFile(
     join(ROOT, ".agents", "policies", "orquestacion.md"),
@@ -644,20 +643,21 @@ test("kernel v2 y controller v1 se distribuyen con ownership único y sin sesion
   );
   const repository = await createRepository({
     "package.json": JSON.stringify({
-      name: "adopcion-controlador",
-      description: "Comprueba la distribución del controlador.",
+      name: "adopcion-contrato",
+      description: "Comprueba la distribución del contrato estructurado.",
     }),
   });
   const codexHome = await createRepository();
   const adoption = runInitializer(repository);
   const activeSession = join(repository, ".agents", "sessions", "validacion-activa.md");
+  await mkdir(dirname(activeSession), { recursive: true });
   await writeFile(activeSession, "# DevSession: validacion-activa\n", "utf8");
   try {
     const validation = runExecutableWithEnvironment(
       { CODEX_HOME: codexHome },
       "update",
       repository,
-      "--dry-run",
+      "--yes",
       "--codex-config",
       "none",
     );
@@ -665,43 +665,32 @@ test("kernel v2 y controller v1 se distribuyen con ownership único y sin sesion
     assert.deepEqual(
       {
         adaptersPortable:
-          codex.includes("RoleReport v2") &&
-          claude.includes("RoleReport` v2") &&
-          !codex.includes(controllerPath) &&
-          !claude.includes(controllerPath) &&
-          codex.includes("No uses el controller") &&
-          claude.includes("No uses el controller") &&
-          !codex.includes("session-controller.py") &&
-          !claude.includes("session-controller.py"),
-        adopted:
-          existsSync(join(repository, ...controllerPath.split("/"))) &&
-          existsSync(join(repository, ...kernelPath.split("/"))) &&
-          existsSync(join(repository, ...protocolPath.split("/"))) &&
-          existsSync(join(repository, ...subdevTemplatePath.split("/"))),
+          codex.includes("RoleReport") &&
+          claude.includes("RoleReport") &&
+          codex.includes("No uses OrchestrationKernel.apply") &&
+          claude.includes("No uses") &&
+          claude.includes("OrchestrationKernel.apply"),
+        adopted: currentPaths.every((path) =>
+          existsSync(join(repository, ...path.split("/"))),
+        ),
         adoptionStatus: adoption.status,
         inventories: {
-          manifest: [controllerPath, kernelPath, protocolPath, subdevTemplatePath].every((path) =>
-            manifest.files.includes(path),
-          ),
-          package: [controllerPath, kernelPath, protocolPath, subdevTemplatePath].every((path) =>
-            PACKAGE_FILES.includes(path),
-          ),
-          template: [controllerPath, kernelPath, protocolPath, subdevTemplatePath].every((path) =>
-            TEMPLATE_FILES.includes(path),
-          ),
+          manifest: currentPaths.every((path) => manifest.files.includes(path)),
+          package: currentPaths.every((path) => PACKAGE_FILES.includes(path)),
+          template: currentPaths.every((path) => TEMPLATE_FILES.includes(path)),
         },
         orchestrationContract:
           orchestration.includes("OrchestrationKernel") &&
-          orchestration.includes("agentic-bootstrap-repair:v1") &&
-          markdownLinks(skill).some((target) => target.split("#")[0].endsWith("/kernel/orchestration-kernel.mjs")) &&
-          markdownLinks(skill).some((target) => target.split("#")[0].endsWith("/scripts/session-controller.mjs")),
+          orchestration.includes("agentic-bootstrap-repair") &&
+          orchestration.includes("Contexto de una tarea anterior") &&
+          markdownLinks(skill).some((target) =>
+            target.split("#")[0].endsWith("/kernel/orchestration-kernel.mjs"),
+          ),
         claudeEntrypoints:
           [claudeImport, claudeSkill].every(
             (entrypoint) =>
-              entrypoint.includes("agentic-protocol:v2") &&
-              entrypoint.includes(".agents/kernel/orchestration-kernel.mjs") &&
-              entrypoint.includes("compatibilidad") &&
-              entrypoint.includes("v1"),
+              entrypoint.includes("agentic-protocol") &&
+              entrypoint.includes(".agents/kernel/orchestration-kernel.mjs"),
           ) &&
           claudeSkill.includes("WorkEnvelope") &&
           claudeSkill.includes("RoleReport"),
@@ -709,6 +698,7 @@ test("kernel v2 y controller v1 se distribuyen con ownership único y sin sesion
           (path) => !path.startsWith(".agents/sessions/") || path === ".agents/sessions/gitignore.asset",
         ),
         validation: { code: validation.status, stderr: validation.stderr },
+        sessionPreserved: existsSync(activeSession),
       },
       {
         adaptersPortable: true,
@@ -719,6 +709,7 @@ test("kernel v2 y controller v1 se distribuyen con ownership único y sin sesion
         claudeEntrypoints: true,
         packageExcludesSessions: true,
         validation: { code: SIN_HERRAMIENTAS, stderr: "" },
+        sessionPreserved: true,
       },
     );
   } finally {

@@ -5,11 +5,11 @@ tools: Read, Grep, Glob, Bash, mcp__codegraph__codegraph_explore, mcp__engram__m
 permissionMode: plan
 ---
 
-<!-- agentic-protocol:v2 -->
+<!-- agentic-protocol -->
 
-Lee el `AGENTS.md` efectivo, el WorkEnvelope o SubDevSession indicado,
+Lee el `AGENTS.md` efectivo, el WorkEnvelope indicado,
 únicamente sus `contextPaths` y `.agents/roles/evaluador.md`. Ejecuta ese rol y
-devuelve un `RoleReport` v2. No uses el controller ni
+devuelve un `RoleReport`. No uses
 `OrchestrationKernel.apply`; no hables con el usuario ni edites código, tests o
 documentación. La única escritura externa permitida es la memoria crítica
 validada que autoriza el rol.
