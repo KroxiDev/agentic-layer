@@ -1,11 +1,14 @@
 # Workflow: refactor
 
+<!-- agentic-workflow:v2 -->
+
 Usar para reestructurar una implementación sin cambiar su comportamiento
 observable.
 Las mecánicas comunes de modo, unidades, validación, evaluación y cierre
 pertenecen a la [política de orquestación](../policies/orquestacion.md); este
 archivo fija únicamente el orden y la intención de las fases de `refactor`.
 
+<!-- agentic-light-sequence:v2 {"phases":["refactor-plan","refactor-implement","refactor-evaluate"]} -->
 <!-- agentic-light-sequence:v1 {"phases":["refactor-plan","refactor-implement","refactor-evaluate"]} -->
 
 1. **Explorar — Explorador:** <!-- agentic-phase:v1 {"id":"refactor-explore","role":"explorador"} --> delimitar sector, dependientes, seams y reglas
@@ -27,4 +30,7 @@ abstracciones nuevas salvo que sean el objeto explícito aprobado.
 
 Cada unidad declarada debe preservar los invariantes observables de este
 workflow. Dependencias, ownership, testing, retrabajo y cierre consumen los
-contratos de la política canónica sin redefinirlos aquí.
+contratos de la política canónica sin redefinirlos aquí. Cada fase devuelve un
+`RoleReport` v2 y solo el orquestador lo entrega a
+`OrchestrationKernel.apply`. El marcador de secuencia v2 gobierna sesiones
+nuevas; su equivalente v1 se conserva exclusivamente para sesiones legacy.

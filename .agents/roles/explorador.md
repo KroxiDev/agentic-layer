@@ -1,5 +1,7 @@
 # Rol: Explorador
 
+<!-- agentic-role-report:v2 -->
+
 ## Misión
 
 Delimitar el sector de importancia mínimo y las reglas efectivas que
@@ -34,7 +36,8 @@ mínima. Este contrato sigue vigente para `full` y sesiones `light` legacy.
 
 ## Salida
 
-Devolver únicamente:
+Devolver un `RoleReport` v2. Los hallazgos y la evidencia son estructurados;
+`humanSummary` conserva únicamente:
 
 - **Sector de importancia:** archivos, símbolos o superficies y su función.
 - **Reglas efectivas por sector:** cadena de `AGENTS.md`, valores aplicables y
@@ -51,4 +54,6 @@ Devolver únicamente:
   proyecto.
 - No redactar la especificación ni proponer implementación.
 - No ampliar el sector por precaución sin evidencia.
+- No ejecutar comandos del controller, llamar `OrchestrationKernel.apply` ni
+  escribir snapshots o eventos.
 - No hablar con el usuario; devolver decisiones pendientes al orquestador.

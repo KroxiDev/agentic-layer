@@ -23,6 +23,8 @@ import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { assertProtocolConformance } from "../.agents/conformance/protocol-conformance.mjs";
+
 const CONTRACT_START = "<!-- AGENTIC_PROJECT_CONTRACT_START -->";
 const CONTRACT_END = "<!-- AGENTIC_PROJECT_CONTRACT_END -->";
 const GENERATED_CONTRACT_MARKER = "<!-- AGENTIC_PROJECT_CONTRACT_GENERATED -->";
@@ -36,9 +38,15 @@ ${GOLDEN_RULE_DEVELOPMENT_BULLET}`;
 const SOURCE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TEMPLATE_FILES = [
   ".agents/README.md",
+  ".agents/conformance/protocol-conformance.mjs",
+  ".agents/kernel/adapters.mjs",
+  ".agents/kernel/orchestration-kernel.mjs",
+  ".agents/kernel/protocol-v2.mjs",
+  ".agents/kernel/v1-compatibility.mjs",
   ORCHESTRATION_POLICY,
   GOLDEN_RULE_POLICY,
   ".agents/policies/sdd-tdd.md",
+  ".agents/protocol.json",
   ".agents/roles/documentador.md",
   ".agents/roles/evaluador.md",
   ".agents/roles/explorador.md",
@@ -46,6 +54,10 @@ const TEMPLATE_FILES = [
   ".agents/roles/planificador.md",
   ".agents/roles/tester.md",
   ".agents/scripts/session-controller.mjs",
+  ".agents/schemas/acceptance-contract.v2.schema.json",
+  ".agents/schemas/role-report.v2.schema.json",
+  ".agents/schemas/session-event.v2.schema.json",
+  ".agents/schemas/validation-evidence.v2.schema.json",
   ".agents/sessions/.gitignore",
   ".agents/skills/agentic-diagnostico-bugs/SKILL.md",
   ".agents/skills/agentic-diagnostico-bugs/references/hitl-loop.template.md",
@@ -99,6 +111,7 @@ const DEVELOPMENT_FILES = [
   "tests/agentic-update.test.mjs",
   "tests/codex-config.test.mjs",
   "tests/distribution-contracts.test.mjs",
+  "tests/orchestration-kernel-v2.test.mjs",
   "tests/session-controller.test.mjs",
 ];
 const PACKAGE_FILES = [
@@ -2528,6 +2541,20 @@ async function validateSubagentAdapters() {
     if (!claude.includes(`.agents/roles/${role}.md`)) {
       errors.push(`.claude/agents/${role}.md no apunta al rol canónico.`);
     }
+    for (const [adapterPath, adapter] of [
+      [`.codex/agents/${role}.toml`, codex],
+      [`.claude/agents/${role}.md`, claude],
+    ]) {
+      if (!adapter.includes("RoleReport") || !adapter.includes("contextPaths")) {
+        errors.push(`${adapterPath} no consume WorkEnvelope/contextPaths ni devuelve RoleReport v2.`);
+      }
+      if (!/no\s+uses el controller/i.test(adapter) || !adapter.includes("OrchestrationKernel.apply")) {
+        errors.push(`${adapterPath} no prohíbe la mutación de estado desde el rol.`);
+      }
+      if (adapter.includes("Usa `.agents/scripts/session-controller.mjs`")) {
+        errors.push(`${adapterPath} todavía entrega ownership del controller al rol.`);
+      }
+    }
   }
 
   const [codexEvaluator, claudeEvaluator, claudeImport, claudeSkill] = await Promise.all([
@@ -2551,6 +2578,24 @@ async function validateSubagentAdapters() {
   }
   if (!claudeSkill.includes(".agents/skills/orquestar/SKILL.md")) {
     errors.push("El wrapper de Claude no apunta a la skill canónica.");
+  }
+  for (const [adapterPath, adapter] of [
+    ["CLAUDE.md", claudeImport],
+    [".claude/skills/orquestar/SKILL.md", claudeSkill],
+  ]) {
+    if (!adapter.includes("<!-- agentic-protocol:v2 -->")) {
+      errors.push(`${adapterPath} no declara el protocolo v2.`);
+    }
+    if (
+      !adapter.includes(".agents/kernel/orchestration-kernel.mjs") ||
+      !adapter.includes("compatibilidad") ||
+      !adapter.includes("v1")
+    ) {
+      errors.push(`${adapterPath} no separa sesiones nuevas v2 de la compatibilidad v1.`);
+    }
+  }
+  if (!claudeSkill.includes("WorkEnvelope") || !claudeSkill.includes("RoleReport")) {
+    errors.push("El wrapper de Claude no conserva WorkEnvelope → RoleReport.");
   }
 
   if (errors.length) {
@@ -2582,6 +2627,25 @@ async function packageManifestErrors() {
   }
   if (manifest.bin?.agentic !== "./bin/agentic.mjs") {
     errors.push("package.json no expone el ejecutable `agentic` en ./bin/agentic.mjs.");
+  }
+  if (manifest.agentic?.protocolVersion !== 2) {
+    errors.push("package.json no declara agentic.protocolVersion = 2.");
+  }
+  if (manifest.agentic?.distributionVersion !== manifest.version) {
+    errors.push("agentic.distributionVersion debe coincidir con package.json.version.");
+  }
+  const requiredExports = {
+    "./conformance": "./.agents/conformance/protocol-conformance.mjs",
+    "./kernel": "./.agents/kernel/orchestration-kernel.mjs",
+    "./kernel/adapters": "./.agents/kernel/adapters.mjs",
+    "./kernel/protocol": "./.agents/kernel/protocol-v2.mjs",
+    "./kernel/v1-compatibility": "./.agents/kernel/v1-compatibility.mjs",
+    "./protocol.json": "./.agents/protocol.json",
+  };
+  for (const [key, target] of Object.entries(requiredExports)) {
+    if (manifest.exports?.[key] !== target) {
+      errors.push(`package.json no expone ${key} en ${target}.`);
+    }
   }
   if (typeof manifest.engines?.node !== "string") {
     errors.push("package.json no declara la versión mínima de Node.js.");
@@ -2660,6 +2724,11 @@ async function validateTemplateDistribution() {
     }
   }
   errors.push(...(await packageManifestErrors()));
+  try {
+    await assertProtocolConformance({ root: SOURCE_ROOT });
+  } catch (error) {
+    errors.push(`Conformidad del protocolo V2 inválida: ${error.message}`);
+  }
 
   const [sessionsIgnore, devSession, subdevSession, rootAgents, orchestration, orchestrationSkill] =
     await Promise.all([

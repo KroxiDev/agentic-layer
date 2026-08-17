@@ -19,6 +19,8 @@ No añade código de producto, no instala herramientas, no gestiona Git ni se si
 - **Consistencia:** el mismo proceso funciona en repositorios y hosts distintos.
 - **Proporcionalidad:** una tarea pequeña puede ejecutarse directamente; el aislamiento completo se reserva para el riesgo que lo justifica.
 - **Trazabilidad:** cada cambio conserva alcance, criterios y evidencia, en vez de depender de contexto implícito.
+- **Estado determinista:** las sesiones nuevas usan protocolo V2 estructurado;
+  la prosa de un reporte nunca decide un gate.
 - **Mantenimiento simple:** `.agents/` es la única fuente de verdad y los adapters solo apuntan a ella.
 
 ## Requisitos
@@ -106,14 +108,23 @@ npx --yes github:KroxiDev/agentic-layer update --help
 
 ## Cómo se usa
 
-En Codex basta con describir la tarea. La política decide si puede ejecutarse directamente o si necesita la capa completa; también puedes indicar la intención de forma explícita:
+En Codex basta con describir la tarea. La política decide el modo y también
+admite una elección explícita:
 
-| Instrucción | Cuándo usarla |
+| Modo | Cuándo usarlo |
 | --- | --- |
-| Describir la tarea sin modo | Dejar que la política clasifique el riesgo |
-| `orquestar <tarea>` o `full` | Exigir el workflow completo |
-| `light` | Pedir la ruta compacta para un alcance pequeño y elegible |
-| `sin orquestar` | Exigir ejecución directa; si no es segura, la tarea se detiene |
+| Directa verificada | Tarea pequeña, de un sector y sin riesgos de arquitectura, seguridad o migración |
+| `light` | Ruta compacta solicitada explícitamente para un alcance elegible |
+| `full` | Workflow completo, pedido explícitamente o activado por una categoría de riesgo |
+
+`sin orquestar` exige la primera ruta; si sus límites no se cumplen, la tarea se
+detiene en vez de degradar garantías.
+
+Existe una única excepción bootstrap: el propietario puede exigir ejecución
+directa para reparar un defecto demostrado de esta capa canónica desde una
+especificación externa cerrada, evitando ejecutar el runtime defectuoso sobre
+sí mismo. Sigue siendo obligatorio trabajar con un solo writer, aplicar
+seguridad y ejecutar las validaciones focalizada, completa y de distribución.
 
 En Claude Code, abre también la raíz del proyecto y usa `/orquestar <tarea>` cuando quieras activar la capa de forma explícita.
 
@@ -136,6 +147,31 @@ flowchart LR
 ```
 
 La política canónica define la clasificación, los límites y las excepciones. Los detalles de módulos, roles, sesiones, paralelismo, gates, recuperación y distribución están en la [documentación de arquitectura](docs/arquitectura.md).
+
+## Protocolo de orquestación V2
+
+Las sesiones nuevas se coordinan mediante `OrchestrationKernel`, cuya única
+interface operativa es `apply(command)` e `inspect(sessionId)`. El kernel
+concentra revisión CAS, idempotencia, ownership, aceptación congelada, lanes,
+presupuesto, persistencia y telemetría. El controller Markdown anterior se
+distribuye únicamente para terminar o migrar sesiones v1 en un checkpoint
+seguro.
+
+Cada rol recibe un `WorkEnvelope` inmutable: enumera referencias deduplicadas en
+`contextPaths`, registra su `sourceRevision` y el hash del contrato de
+aceptación, pero no incluye la capacidad del orquestador. El rol devuelve un
+`RoleReport` estructurado; `humanSummary` es legible para personas y nunca
+determina una transición.
+
+El protocolo se publica como conjunto indivisible de kernel, políticas, roles,
+workflows, templates y schemas. `.agents/protocol.json` declara la versión y los
+overrides permitidos; la suite de conformidad detecta mezclas de versiones o
+modificaciones de la interface antes de distribuirlas.
+
+El lector v1 tiene una ventana publicada hasta el 17 de noviembre de 2026. Esa
+fecha no provoca un retiro automático: solo puede retirarse después de ella y
+cuando existan dos releases V2 estables y cero sesiones v1 activas en los
+consumidores prioritarios.
 
 ## Errores de setup o actualización
 

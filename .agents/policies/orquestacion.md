@@ -1,5 +1,8 @@
 # Política de orquestación
 
+<!-- agentic-protocol:v2 -->
+<!-- agentic-bootstrap-repair:v1 -->
+
 El orquestador es el único interlocutor del usuario. Selecciona el workflow,
 mantiene el plan y la DevSession, delega cada fase e indexa sus reportes. Los
 roles no hablan con el usuario ni se coordinan entre sí.
@@ -40,6 +43,10 @@ silenciosa antes de crear la DevSession:
 2. Engram está disponible e identifica sin ambigüedad el repositorio actual.
 3. La plataforma puede crear los subagentes aislados requeridos.
 4. El contrato efectivo de `AGENTS.md` está completo.
+5. `EnvironmentProbe` confirma antes de persistir una sesión que el store puede
+   crear, reemplazar y retirar archivos, que el lock se adquiere y libera, que
+   temporales y cachés son escribibles, que los comandos obligatorios se
+   resuelven y que existen las capacidades de navegador o red declaradas.
 
 No incorporar al contexto salidas extensas del preflight. Si una comprobación
 falla, detenerse y mostrar únicamente el diagnóstico breve necesario. No usar
@@ -73,15 +80,37 @@ superiores.
 
 | Orden | Hecho observable | Decisión |
 | ---: | --- | --- |
-| 1 | El usuario pide trabajar `sin orquestar`. | No activar la capa y comprobar los límites de ejecución directa. Si alguno falla, detenerse y explicar el límite concreto; no sustituir la instrucción por activación silenciosa. |
-| 2 | El usuario pide `orquestar` o `full`. | Activar la capa en `full`, salvo que también elija `light` explícitamente. |
-| 3 | El usuario pide `light`. | Activar la capa en `light`; nunca elegirlo automáticamente. |
-| 4 | Sin instrucción explícita, existe al menos una categoría respaldada de `full` automático. | Activar la capa en `full`. |
-| 5 | No existe una categoría de `full` y se cumplen todos los límites de ejecución directa verificada. | Ejecutar directamente, sin DevSession ni roles aislados. |
-| 6 | Falta un hecho que cambiaría la categoría. | Consultar antes de mutar, preguntando solo por ese hecho. |
+| 1 | El propietario pide `sin orquestar` para reparar un defecto demostrado de esta capa canónica y aporta una especificación externa cerrada. | Aplicar la excepción bootstrap de reparación: ejecución directa por un solo agente, sin DevSession, roles ni runtime bajo reparación. |
+| 2 | El usuario pide trabajar `sin orquestar` fuera de esa excepción. | No activar la capa y comprobar los límites de ejecución directa. Si alguno falla, detenerse y explicar el límite concreto; no sustituir la instrucción por activación silenciosa. |
+| 3 | El usuario pide `orquestar` o `full`. | Activar la capa en `full`, salvo que también elija `light` explícitamente. |
+| 4 | El usuario pide `light`. | Activar la capa en `light`; nunca elegirlo automáticamente. |
+| 5 | Sin instrucción explícita, existe al menos una categoría respaldada de `full` automático. | Activar la capa en `full`. |
+| 6 | No existe una categoría de `full` y se cumplen todos los límites de ejecución directa verificada. | Ejecutar directamente, sin DevSession ni roles aislados. |
+| 7 | Falta un hecho que cambiaría la categoría. | Consultar antes de mutar, preguntando solo por ese hecho. |
 
 La cantidad de archivos y la mera presencia de comportamiento nuevo pueden
 aportar contexto, pero nunca activan por sí solas la orquestación.
+
+### Excepción bootstrap de reparación
+
+La capa no se ejecuta sobre sí misma cuando hacerlo ejercitaría precisamente el
+defecto que se está corrigiendo. Esta excepción solo existe si concurren todos
+estos hechos:
+
+- el propietario ordena explícitamente trabajar `sin orquestar` por ese riesgo
+  circular;
+- el objetivo es la fuente canónica de la capa, no código de producto;
+- existe diagnóstico y especificación externa cerrada, con criterios
+  verificables;
+- trabaja un único agente y un único writer, sin DevSession, subagentes ni
+  workflow `orquestar`;
+- se conservan Regla de Oro, CodeGraph, Engram, restricciones, revisión del
+  diff y las validaciones focalizada, completa y de distribución.
+
+La excepción no reduce el alcance de seguridad ni autoriza decisiones ausentes.
+Si falta un criterio, la especificación deja de estar cerrada o una validación
+falla, la reparación se detiene; no se activa como fallback el runtime bajo
+reparación.
 
 ### Categorías de `full` automático
 
@@ -129,9 +158,10 @@ Ejemplos de clasificación:
 - Un bug reproducible con causa directa puede usar ejecución directa; uno
   intermitente o con hipótesis competidoras activa `full`.
 
-`Sin orquestar` nunca autoriza a omitir seguridad, integridad, acciones
-restringidas ni una decisión indispensable. La duda genérica no es motivo para
-preguntar: solo se consulta cuando falta un hecho que cambiaría la categoría.
+Fuera de la excepción bootstrap, `sin orquestar` nunca autoriza a omitir
+seguridad, integridad, acciones restringidas ni una decisión indispensable. La
+duda genérica no es motivo para preguntar: solo se consulta cuando falta un
+hecho que cambiaría la categoría.
 
 ## Modos
 
@@ -168,10 +198,10 @@ Si una condición falla, detenerse antes de implementar y ofrecer únicamente
 cambiar a `full` o reducir el alcance. Pedir `light` no autoriza a degradar
 seguridad, integridad, compatibilidad, aislamiento ni evidencia.
 
-Cada workflow elegible declara una única secuencia ejecutable mediante
-`agentic-light-sequence:v1`. El controlador interpreta ese marcador solo para
-sesiones `lightStrategy: "compact"`; las fases canónicas generales siguen
-vigentes para `full` y para `light` legacy. El Planificador absorbe la
+Cada workflow elegible declara una secuencia V2 ejecutable mediante
+`agentic-light-sequence:v2`; el marcador equivalente v1 queda reservado al
+controller de sesiones legacy. Las fases canónicas generales siguen vigentes
+para `full` y para `light` legacy. El Planificador absorbe la
 exploración mínima con CodeGraph, Engram y la cadena efectiva de `AGENTS.md`;
 en `bugfix` consume antes la reproducción del Tester. Después intervienen el
 Implementador y un Evaluador combinado independiente `read-only`. No se abre
@@ -357,6 +387,11 @@ Los subagentes:
 - heredan modelo, nivel de razonamiento, permisos, aprobaciones y herramientas
   de la sesión principal, salvo una restricción técnica más estricta del rol.
 
+Cada rol recibe un `WorkEnvelope` inmutable y devuelve un `RoleReport` v2. Nunca
+recibe una capacidad de mutación, ejecuta comandos del controller, llama
+`OrchestrationKernel.apply` ni escribe snapshots o eventos. Solo el orquestador
+presenta el reporte estructurado al kernel.
+
 El orquestador presenta preguntas y advertencias, mantiene el plan, actualiza la
 DevSession y decide la fase siguiente. Si la plataforma no puede crear
 subagentes, se detiene. No adopta roles secuencialmente ni lanza procesos de
@@ -414,14 +449,87 @@ los mismos roles, workflows, contratos y garantías observables. Una
 optimización exclusiva de Codex debe ser opcional y ninguna capacidad esencial
 puede depender de ella.
 
+## `OrchestrationKernel` v2
+
+Las sesiones nuevas usan el módulo profundo `.agents/kernel/` mediante una
+única interface pública de dos operaciones:
+
+- `apply(command)`: autentica la capacidad del orquestador y concentra máquina
+  de estados, CAS, idempotencia global por `commandId`, presupuesto, aceptación,
+  lanes, persistencia y telemetría;
+- `inspect(sessionId)`: devuelve una vista sin capacidades ni secretos y puede
+  normalizar una sesión v1 mediante el adapter de compatibilidad.
+
+El orquestador es el único caller mutador. `start-session` ejecuta el preflight
+antes del primer snapshot y emite una capacidad opaca, limitada y exclusiva de
+esa sesión. Los sobres y reportes nunca la contienen. Repetir el mismo
+`commandId` y payload devuelve el resultado original; reutilizarlo con otro
+payload produce `idempotency_conflict`, y un comando nuevo con una revisión
+obsoleta produce `stale_revision` sin mutar.
+
+Una interrupción o timeout se cierra con `record-attempt-failure`, causa de
+retry estructurada y timestamps atribuibles. El orquestador no fabrica un
+`RoleReport`: cerrar el intento libera su reserva y un retry abre un sobre
+nuevo.
+
+El estado autoritativo es un snapshot V2 más un event log append-only. Markdown
+es únicamente una vista humana: ninguna regex narrativa decide una transición.
+Todo `RoleReport` declara `completion`, `decision`, `findings` y `evidence` de
+forma estructurada y referencia el hash vigente del `AcceptanceContract`.
+
+El `AcceptanceContract` queda versionado y congelado al aceptar el plan. Un
+cambio exige `amend-scope`, aprobación atribuible y un hash nuevo. Una tarea
+destructiva sin puntos de commit y semánticas pre/postcommit completas vuelve a
+`awaiting_input`; el kernel nunca inventa rollback, papelera ni cleanup.
+
+Los findings se clasifican de forma cerrada:
+
+- `acceptance_violation` cita un criterio vigente y puede abrir retrabajo;
+- `transversal_policy_violation` cita una política vigente y puede abrir
+  retrabajo;
+- `novel_adversarial_finding` crítico produce
+  `scope_decision_required`; si no es crítico se difiere con evidencia;
+- `informational` no bloquea.
+
+El Evaluador aporta clasificación y reproducción; el kernel deriva el efecto.
+Un ID inexistente o una contradicción entre `decision` y findings rechaza el
+reporte completo sin cambiar revisión.
+
+En `full`, después de consolidar todas las unidades existe el lane persistido
+`full:<generation>`. La evaluación no abre hasta que su evidencia, identificada
+por fingerprints de árbol, entorno y comandos, esté verde. Ambos ejes de una
+evaluación dual consumen la misma evidencia. El mismo fingerprint se reutiliza
+sin una segunda transición funcional; un cambio exige validación nueva.
+
+La evaluación inicial no consume presupuesto. Cada rechazo de una generación
+abre como máximo un ciclo, aunque ambos ejes encuentren el mismo defecto. El
+tope base de dos `evaluationReworkCycles` rige por igual en `full`,
+`light` legacy y compacto; el intento de abrir un tercero produce
+`rework_budget_exhausted` y `scope_decision_required`.
+
+Cada transición registra actor autenticado, timestamps UTC, duración
+monotónica, revisiones y estados, bytes y rutas del manifiesto de contexto,
+comandos de validación, causa de retry y espera de elevación cuando exista. No
+registra contenido completo de prompts, capacidades ni secretos. Si el
+`EventSink` falla después de guardar el snapshot, el ledger sigue coherente y
+la degradación queda observable.
+
+`MemoryStateStore`, `FakeClock`, `FakeEnvironmentProbe` y `MemoryEventSink`
+ejercitan la misma interface que los adapters de filesystem, reloj del sistema,
+entorno real y JSONL. Los proyectos solo pueden configurar los overrides
+declarados por `.agents/protocol.json`; modificar la interface del kernel es
+drift y falla la suite de conformidad.
+
 ## DevSession
 
-Después del preflight, crear una instancia a partir de
-`templates/dev-session.md` en `.agents/sessions/<slug>.md`. Usar el mismo
-formato en `full` y `light`; completar proporcionalmente y usar `No aplica`
-cuando corresponda.
+Para sesiones nuevas, el snapshot y el event log V2 son el ledger y
+`templates/dev-session.md` es solo su vista humana generada. Este apartado
+conserva el protocolo v1 durante su ventana de soporte: una sesión v1 activa
+puede terminar con su runtime original o migrarse explícitamente en un
+checkpoint sin writers ni reportes pendientes; nunca se reescribe por
+inferencia.
 
-El orquestador administra el ciclo con
+El orquestador administra exclusivamente una sesión v1 activa con
 `node .agents/scripts/session-controller.mjs <comando> --session <slug>` y una
 revisión esperada en cada mutación. Usa `init`, `open`, `await-input`, `resume`,
 `commit`, `fail`, `recover`, `cleanup` y `close` según la transición requerida.
@@ -485,11 +593,12 @@ Solo el orquestador conversa con el usuario.
 
 ## Ciclo Evaluador → Implementador
 
-Si el Evaluador devuelve `cambios requeridos`, iniciar un nuevo subagente
-Implementador con la lista accionable y luego repetir la validación independiente
-y la evaluación que correspondan a la ruta. Permitir como máximo dos ciclos de
-retrabajo. Si persiste el rechazo, detenerse y presentar el diagnóstico al
-usuario.
+Si un `RoleReport` del Evaluador contiene una violación vigente, el kernel
+deduplica findings, aplica el presupuesto y, cuando corresponda, habilita un
+nuevo Implementador con la lista accionable. Después se repiten la validación
+independiente, el lane `full` y la evaluación de la nueva generación. Un finding
+nuevo crítico o el presupuesto agotado se presentan al usuario como decisión de
+alcance; no abren Implementador automáticamente.
 
 ## Engram
 
@@ -509,6 +618,11 @@ usuario.
   transitorio de la DevSession.
 
 ## Cierre
+
+En V2, el gate documental produce un `RoleReport` o la decisión estructurada
+`not_applicable`; después `close-session` conserva estado terminal y evidencia.
+Los pasos `cleanup` y `close` siguientes se aplican únicamente a sobres y
+DevSessions v1 activas durante su ventana de compatibilidad.
 
 1. Exigir veredicto `aprobado`.
 2. Eliminar únicamente tests creados en esta DevSession, marcados como

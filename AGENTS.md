@@ -18,6 +18,11 @@ deben duplicar sus políticas.
 - Una instrucción explícita de trabajar `sin orquestar` no permite omitir
   seguridad, acciones restringidas ni una decisión indispensable. Si impide una
   ejecución directa válida, detenerse y explicar el límite concreto.
+- Excepción bootstrap: si el propietario exige `sin orquestar` para reparar un
+  defecto demostrado de esta misma capa canónica desde una especificación
+  externa cerrada, aplicar la excepción delimitada por la política. Trabajar un
+  solo agente, sin DevSession ni roles, y conservar todas las validaciones y
+  restricciones.
 - Consultar antes de mutar solo cuando falte un hecho que cambiaría la categoría.
 - Responder en español neutro, salvo instrucción explícita en contrario.
 
@@ -27,10 +32,11 @@ deben duplicar sus políticas.
   en repositorios indexados.
 - Engram es obligatorio para historial y conocimiento durable, con ámbito de
   proyecto por defecto.
-- La plataforma debe poder crear los subagentes aislados requeridos.
-- El preflight falla de forma cerrada: no sustituir un requisito ausente con
-  búsquedas manuales, memoria improvisada, ejecución secuencial ni procesos
-  auxiliares.
+- La plataforma debe poder crear los subagentes aislados requeridos por toda
+  tarea orquestada.
+- El preflight de una tarea orquestada falla de forma cerrada: no sustituir un
+  requisito ausente con búsquedas manuales, memoria improvisada, ejecución
+  secuencial ni procesos auxiliares.
 
 ## Precedencia
 
@@ -64,21 +70,24 @@ validaciones compatibles y consultar cualquier conflicto real.
   asistido por agentes, adoptable con un solo comando mediante una CLI
   distribuible y sin dependencias.
 <!-- agentic-contract-field:v1 architecture -->
-- Arquitectura: núcleo canónico en `.agents/`, seam de configuración en
-  `AGENTS.md`, única implementación del inicializador en
-  `scripts/agentic-init.mjs`, ejecutable delgado en `bin/agentic.mjs`,
-  manifiesto e inventario de distribución en `package.json`, adapters delgados
-  en `.codex/`, `.claude/` y `CLAUDE.md`, y pruebas de la interfaz CLI en
-  `tests/`.
+- Arquitectura: núcleo canónico en `.agents/`, protocolo V2 estructurado en
+  `.agents/kernel/` con única interface `apply/inspect`, schemas y conformidad
+  versionada; `session-controller.mjs` queda como compatibilidad v1. El seam de
+  configuración vive en `AGENTS.md`, el inicializador único en
+  `scripts/agentic-init.mjs`, el ejecutable delgado en `bin/agentic.mjs`, el
+  inventario en `package.json`, los adapters delgados en `.codex/`, `.claude/`
+  y `CLAUDE.md`, y las pruebas públicas en `tests/`.
 <!-- agentic-contract-field:v1 entrypoints -->
 - Entrypoints: `AGENTS.md`, `bin/agentic.mjs`, `scripts/agentic-init.mjs`,
+  `.agents/kernel/orchestration-kernel.mjs`, `.agents/protocol.json`,
   `.agents/skills/orquestar/SKILL.md` y `CLAUDE.md`.
 
 ## Validación
 
 <!-- agentic-contract-field:v1 focusedValidation -->
 - Focalizada: ejecutar `node --check scripts/agentic-init.mjs`,
-  `node --check bin/agentic.mjs` y el caso relacionado de
+  `node --check bin/agentic.mjs`,
+  `node --check .agents/kernel/orchestration-kernel.mjs` y el caso relacionado de
   `node --test --test-name-pattern="<patrón concreto del caso relacionado>"`;
   sustituir el placeholder por el nombre o patrón exacto antes de ejecutar el
   comando.
@@ -95,7 +104,8 @@ validaciones compatibles y consultar cualquier conflicto real.
 <!-- agentic-contract-field:v1 testFramework -->
 - Framework: `node:test`, sin dependencias externas.
 <!-- agentic-contract-field:v1 testLocation -->
-- Ubicación: `tests/*.test.mjs`, por interfaz pública, con helpers compartidos
+- Ubicación: `tests/*.test.mjs`, por interfaz pública; el kernel V2 se cubre en
+  `tests/orchestration-kernel-v2.test.mjs` y los helpers CLI compartidos viven
   en `tests/agentic-test-helpers.mjs`.
 <!-- agentic-contract-field:v1 testLifecycle -->
 - Ciclo de vida: conservar casos permanentes para el comportamiento público del
@@ -138,9 +148,11 @@ validaciones compatibles y consultar cualquier conflicto real.
 - README y documentación técnica: `README.md` documenta adopción, opciones,
   modos, roles y errores comunes; `CONTEXT.md` fija el glosario del dominio;
   `docs/arquitectura.md` mantiene la estructura, los flujos y la frontera de
-  distribución; `.agents/README.md` documenta el módulo interno. `CONTEXT.md` y
-  `docs/` no se distribuyen. Actualizar los pertinentes cuando cambien el
-  inicializador, el ejecutable, sus pruebas o las garantías de distribución.
+  distribución; `.agents/README.md` documenta el módulo interno y
+  `docs/adr/0011-kernel-estructurado-y-compatibilidad-v1.md` fija la frontera
+  V2. `CONTEXT.md` y `docs/` no se distribuyen. Actualizar los pertinentes
+  cuando cambien el kernel, protocolo, inicializador, ejecutable, sus pruebas o
+  las garantías de distribución.
 <!-- agentic-contract-field:v1 adrs -->
 - ADRs: `docs/adr/`, con numeración secuencial `NNNN-slug.md`; crear una sólo
   cuando la decisión sea difícil de revertir, sorprendente sin contexto y

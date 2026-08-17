@@ -2,6 +2,9 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+// agentic-session-controller:v1-compatibility
+// Runtime heredado para terminar sesiones v1; las sesiones nuevas usan
+// OrchestrationKernel V2 mediante su interface apply/inspect.
 import {
   link,
   lstat,

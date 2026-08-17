@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kroxidev.dev/agentic/role-report.v2.schema.json",
+  "title": "RoleReport v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "sessionId",
+    "attemptId",
+    "acceptanceContractHash",
+    "role",
+    "completion",
+    "decision",
+    "findings",
+    "evidence",
+    "humanSummary"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "sessionId": { "type": "string", "minLength": 1 },
+    "attemptId": { "type": "string", "minLength": 1 },
+    "acceptanceContractHash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "role": {
+      "enum": ["documentador", "evaluador", "explorador", "implementador", "planificador", "tester"]
+    },
+    "completion": { "enum": ["completed", "needs_input"] },
+    "decision": { "enum": ["pass", "fail"] },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "findingId",
+          "classification",
+          "severity",
+          "criterionIds",
+          "policyIds",
+          "summary"
+        ],
+        "properties": {
+          "findingId": { "type": "string", "minLength": 1 },
+          "classification": {
+            "enum": [
+              "acceptance_violation",
+              "transversal_policy_violation",
+              "novel_adversarial_finding",
+              "informational"
+            ]
+          },
+          "severity": { "enum": ["low", "medium", "high", "critical"] },
+          "criterionIds": { "type": "array", "items": { "type": "string" } },
+          "policyIds": { "type": "array", "items": { "type": "string" } },
+          "summary": { "type": "string", "minLength": 1 },
+          "reproduction": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["commandDigest", "expected", "observed"],
+            "properties": {
+              "commandDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+              "expected": { "type": "string", "minLength": 1 },
+              "observed": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "commandDigest", "exitCode", "durationMs"],
+        "properties": {
+          "kind": { "const": "command" },
+          "commandDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "exitCode": { "type": "integer", "minimum": 0 },
+          "durationMs": { "type": "number", "minimum": 0 }
+        }
+      }
+    },
+    "humanSummary": { "type": "string", "minLength": 1 }
+  }
+}

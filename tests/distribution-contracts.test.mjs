@@ -419,14 +419,18 @@ test("los workflows declaran una única secuencia estructural para light compact
         return [phase.id, phase.role];
       }),
     );
-    const markers = [
+    const markers = [...source.matchAll(/<!-- agentic-light-sequence:v2 (\{[^\n]+\}) -->/g)];
+    const legacyMarkers = [
       ...source.matchAll(/<!-- agentic-light-sequence:v1 (\{[^\n]+\}) -->/g),
     ];
     if (workflow === "architecture") {
       assert.equal(markers.length, 0);
+      assert.equal(legacyMarkers.length, 0);
       continue;
     }
     assert.equal(markers.length, 1, `${workflow} debe declarar una sola secuencia compacta.`);
+    assert.equal(legacyMarkers.length, 1, `${workflow} debe conservar una secuencia legacy.`);
+    assert.equal(legacyMarkers[0][1], markers[0][1]);
     const contract = JSON.parse(markers[0][1]);
     assert.deepEqual(Object.keys(contract), ["phases"]);
     assert.ok(Array.isArray(contract.phases));
@@ -460,7 +464,11 @@ test("la activación canónica decide por riesgo y mantiene consumidores delgado
   assert.ok(activationSeam.includes(".agents/policies/orquestacion.md"));
   assert.deepEqual(
     [...decisionSeam.matchAll(/^\|\s*(\d+)\s*\|/gm)].map((match) => Number(match[1])),
-    [1, 2, 3, 4, 5, 6],
+    [1, 2, 3, 4, 5, 6, 7],
+  );
+  assert.match(
+    activationSeam + decisionSeam,
+    /excepción bootstrap[\s\S]*un solo agente[\s\S]*sin DevSession/i,
   );
   assert.doesNotMatch(
     [activationSeam, skill, claudeAdapter].join("\n"),
@@ -616,8 +624,10 @@ test("el cierre abre Documentador únicamente cuando existe una entrada real", a
   }
 });
 
-test("session controller se distribuye con contratos portables y excluye sesiones activas", async () => {
+test("kernel v2 y controller v1 se distribuyen con ownership único y sin sesiones activas", async () => {
   const controllerPath = ".agents/scripts/session-controller.mjs";
+  const kernelPath = ".agents/kernel/orchestration-kernel.mjs";
+  const protocolPath = ".agents/protocol.json";
   const subdevTemplatePath = ".agents/templates/subdev-session.md";
   const manifest = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8"));
   const orchestration = await readFile(
@@ -627,6 +637,11 @@ test("session controller se distribuye con contratos portables y excluye sesione
   const skill = await readFile(join(ROOT, ".agents", "skills", "orquestar", "SKILL.md"), "utf8");
   const codex = await readFile(join(ROOT, ".codex", "agents", "implementador.toml"), "utf8");
   const claude = await readFile(join(ROOT, ".claude", "agents", "implementador.md"), "utf8");
+  const claudeImport = await readFile(join(ROOT, "CLAUDE.md"), "utf8");
+  const claudeSkill = await readFile(
+    join(ROOT, ".claude", "skills", "orquestar", "SKILL.md"),
+    "utf8",
+  );
   const repository = await createRepository({
     "package.json": JSON.stringify({
       name: "adopcion-controlador",
@@ -650,24 +665,46 @@ test("session controller se distribuye con contratos portables y excluye sesione
     assert.deepEqual(
       {
         adaptersPortable:
-          codex.includes(controllerPath) &&
-          claude.includes(controllerPath) &&
+          codex.includes("RoleReport v2") &&
+          claude.includes("RoleReport` v2") &&
+          !codex.includes(controllerPath) &&
+          !claude.includes(controllerPath) &&
+          codex.includes("No uses el controller") &&
+          claude.includes("No uses el controller") &&
           !codex.includes("session-controller.py") &&
           !claude.includes("session-controller.py"),
         adopted:
           existsSync(join(repository, ...controllerPath.split("/"))) &&
+          existsSync(join(repository, ...kernelPath.split("/"))) &&
+          existsSync(join(repository, ...protocolPath.split("/"))) &&
           existsSync(join(repository, ...subdevTemplatePath.split("/"))),
         adoptionStatus: adoption.status,
         inventories: {
-          manifest: [controllerPath, subdevTemplatePath].every((path) => manifest.files.includes(path)),
-          package: [controllerPath, subdevTemplatePath].every((path) => PACKAGE_FILES.includes(path)),
-          template: [controllerPath, subdevTemplatePath].every((path) => TEMPLATE_FILES.includes(path)),
+          manifest: [controllerPath, kernelPath, protocolPath, subdevTemplatePath].every((path) =>
+            manifest.files.includes(path),
+          ),
+          package: [controllerPath, kernelPath, protocolPath, subdevTemplatePath].every((path) =>
+            PACKAGE_FILES.includes(path),
+          ),
+          template: [controllerPath, kernelPath, protocolPath, subdevTemplatePath].every((path) =>
+            TEMPLATE_FILES.includes(path),
+          ),
         },
         orchestrationContract:
-          orchestration.includes(controllerPath) &&
-          markdownLinks(skill).some((target) =>
-            target.split("#")[0].endsWith("/scripts/session-controller.mjs"),
-          ),
+          orchestration.includes("OrchestrationKernel") &&
+          orchestration.includes("agentic-bootstrap-repair:v1") &&
+          markdownLinks(skill).some((target) => target.split("#")[0].endsWith("/kernel/orchestration-kernel.mjs")) &&
+          markdownLinks(skill).some((target) => target.split("#")[0].endsWith("/scripts/session-controller.mjs")),
+        claudeEntrypoints:
+          [claudeImport, claudeSkill].every(
+            (entrypoint) =>
+              entrypoint.includes("agentic-protocol:v2") &&
+              entrypoint.includes(".agents/kernel/orchestration-kernel.mjs") &&
+              entrypoint.includes("compatibilidad") &&
+              entrypoint.includes("v1"),
+          ) &&
+          claudeSkill.includes("WorkEnvelope") &&
+          claudeSkill.includes("RoleReport"),
         packageExcludesSessions: manifest.files.every(
           (path) => !path.startsWith(".agents/sessions/") || path === ".agents/sessions/gitignore.asset",
         ),
@@ -679,6 +716,7 @@ test("session controller se distribuye con contratos portables y excluye sesione
         adoptionStatus: SIN_HERRAMIENTAS,
         inventories: { manifest: true, package: true, template: true },
         orchestrationContract: true,
+        claudeEntrypoints: true,
         packageExcludesSessions: true,
         validation: { code: SIN_HERRAMIENTAS, stderr: "" },
       },

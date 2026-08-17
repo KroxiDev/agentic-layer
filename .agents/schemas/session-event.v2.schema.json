@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kroxidev.dev/agentic/session-event.v2.schema.json",
+  "title": "SessionEvent v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "eventId",
+    "sessionId",
+    "commandId",
+    "commandType",
+    "actor",
+    "startedAt",
+    "endedAt",
+    "durationMs",
+    "fromRevision",
+    "toRevision",
+    "fromState",
+    "toState"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "eventId": { "type": "string", "minLength": 1 },
+    "sessionId": { "type": "string", "minLength": 1 },
+    "commandId": { "type": "string", "minLength": 1 },
+    "commandType": { "type": "string", "minLength": 1 },
+    "actor": { "const": "orchestrator" },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "endedAt": { "type": "string", "format": "date-time" },
+    "durationMs": { "type": "number", "minimum": 0 },
+    "fromRevision": { "type": "integer", "minimum": 0 },
+    "toRevision": { "type": "integer", "minimum": 1 },
+    "fromState": { "type": "string" },
+    "toState": { "type": "string" },
+    "stateDurationMs": { "type": "number", "minimum": 0 },
+    "contextBytes": { "type": "integer", "minimum": 0 },
+    "contextPaths": { "type": "array", "items": { "type": "string" } },
+    "validationCommands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["digest", "durationMs", "exitCode"],
+        "properties": {
+          "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "durationMs": { "type": "number", "minimum": 0 },
+          "exitCode": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "retryCause": { "enum": ["evaluation-rework", "interruption", "stale-read", "timeout"] },
+    "elevation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["durationMs", "required"],
+      "properties": {
+        "approved": { "type": "boolean" },
+        "durationMs": { "type": "number", "minimum": 0 },
+        "required": { "type": "boolean" }
+      }
+    }
+  }
+}

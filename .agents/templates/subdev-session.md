@@ -1,6 +1,13 @@
 # SubDevSession: <attempt-id>
 
+<!-- agentic-template:v2 -->
+
+> Vista humana de un `WorkEnvelope` inmutable. El reporte autoritativo es el
+> `RoleReport` estructurado; ninguna prosa de esta vista decide transiciones.
+
 - Sesión: `<session-slug>`
+- Protocolo: `2`
+- Hash de `AcceptanceContract`: `<acceptance-contract-hash>`
 - Fase: `<phase-id>`
 - Rol: `<role>`
 - Intento: `<attempt-number>`
@@ -40,7 +47,11 @@
 
 <!-- Única fuente del cuerpo íntegro; la DevSession global conserva solo su referencia compacta. -->
 
+<!-- agentic-role-report:v2:start -->
+
 - Pendiente.
+
+<!-- agentic-role-report:v2:end -->
 
 ## Estado de consolidación en la DevSession global
 

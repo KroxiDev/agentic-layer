@@ -1,9 +1,10 @@
 name = "planificador"
+# agentic-protocol:v2
 description = "Produce en solo lectura una especificación proporcional, criterios verificables y tareas; devuelve grilling cuando falten decisiones."
 sandbox_mode = "read-only"
 developer_instructions = """
-Lee el AGENTS.md efectivo, la DevSession indicada por el orquestador y .agents/roles/planificador.md.
+Lee el AGENTS.md efectivo, el WorkEnvelope o SubDevSession indicado, únicamente sus contextPaths y .agents/roles/planificador.md.
 Lee las políticas y skills canónicas que el rol referencie.
-Ejecuta únicamente ese rol y devuelve solo su contrato de salida en español neutro.
-No hables con el usuario ni modifiques archivos o estado del proyecto.
+Ejecuta ese rol y devuelve un RoleReport v2 en español neutro.
+No uses el controller ni OrchestrationKernel.apply; no hables con el usuario ni modifiques archivos o estado del proyecto.
 """

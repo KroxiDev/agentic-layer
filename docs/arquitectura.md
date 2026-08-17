@@ -9,7 +9,8 @@ documentación no se distribuye con la capa.
 El repositorio hace dos cosas independientes, y conviene no confundirlas:
 
 1. **El proceso** (`.agents/` y sus adapters): lo que gobierna cómo un agente
-   desarrolla en un proyecto. Es texto; no se ejecuta.
+   desarrolla en un proyecto. Las políticas y roles son contratos; el kernel V2
+   ejecuta sus invariantes estructuradas.
 2. **La adopción y actualización** (`bin/` y `scripts/`): lo que copia o
    actualiza ese proceso y mantiene su contrato. Es código; se ejecuta solo por
    orden explícita del propietario y no sincroniza el destino automáticamente.
@@ -76,6 +77,14 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 │   │   ├── orquestacion.md      # precedencia, preflight, modos, delegación
 │   │   ├── regla-de-oro.md       # regla transversal para código y pruebas
 │   │   └── sdd-tdd.md            # SDD proporcional y vocabulario de diseño
+│   ├── protocol.json              # versión indivisible y overrides admitidos
+│   ├── kernel/
+│   │   ├── orchestration-kernel.mjs # interface apply/inspect
+│   │   ├── adapters.mjs           # stores, clocks, probes y sinks
+│   │   ├── protocol-v2.mjs        # hashing y contratos base
+│   │   └── v1-compatibility.mjs   # lectura/migración explícita v1
+│   ├── schemas/                   # AcceptanceContract, RoleReport, eventos y evidencia
+│   ├── conformance/               # gate de protocolo y drift
 │   ├── roles/                   # seis roles: entradas, proceso, salida, límites
 │   │   ├── explorador.md
 │   │   ├── planificador.md
@@ -84,7 +93,7 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 │   │   ├── evaluador.md
 │   │   └── documentador.md
 │   ├── scripts/
-│   │   └── session-controller.mjs # ciclo portable de sesiones
+│   │   └── session-controller.mjs # runtime de compatibilidad para sesiones v1
 │   ├── workflows/
 │   │   ├── feature.md
 │   │   ├── bugfix.md
@@ -115,7 +124,10 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 | --- | --- | --- |
 | `.agents/policies/` | Orquestación, SDD/TDD y Regla de Oro para código y pruebas | Profundo: gobierna todo el proceso |
 | `.agents/roles/` | Seis contratos de salida con límites explícitos | Profundo: cada rol oculta su método |
-| `.agents/scripts/session-controller.mjs` | Unidades/DAG, gates, capacidades, generaciones, transiciones, locks globales, recuperación, acuses y limpieza | Profundo: una CLI portable y transaccional |
+| `.agents/kernel/orchestration-kernel.mjs` | Estado V2, CAS, idempotencia, ownership, aceptación, lanes, presupuesto, persistencia y telemetría | Profundo: solo `apply/inspect` |
+| `.agents/kernel/adapters.mjs` | Filesystem/memoria, reloj, preflight y event sinks | Profundo: seams de producción y tests |
+| `.agents/scripts/session-controller.mjs` | Terminar o recuperar sesiones v1 durante su ventana de soporte | Compatibilidad: no inicia V2 |
+| `.agents/schemas/` y `.agents/conformance/` | Versionar contratos y rechazar mezclas o drift | Gate distribuible |
 | `.agents/workflows/` | Orden de fases por intención | Delgado: sólo secuencia |
 | `.agents/skills/` | Routing de orquestación y disciplinas invocables (grilling, TDD, diagnóstico) | `orquestar` delgada; disciplinas especializadas profundas |
 | `.agents/templates/` | Formato de la DevSession global y de los sobres efímeros | Delgado: estructura |
@@ -123,7 +135,7 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 | `.codex/agents/*.toml` | Nombre, descripción, sandbox y puntero al rol canónico | Delgado por diseño |
 | `.claude/agents/*.md` | Frontmatter de herramientas y permisos, y puntero al rol | Delgado por diseño |
 | `.claude/skills/orquestar/` | Activación nativa que remite a la skill canónica | Delgado por diseño |
-| `CLAUDE.md` | `@AGENTS.md` y nada más | Delgado por diseño |
+| `CLAUDE.md` | Importa `AGENTS.md` y fija el routing v2/v1 sin duplicar política | Delgado por diseño |
 | `bin/agentic.mjs` | Despacho de `init`, `update` y ayuda | Delgado: no reimplementa nada |
 | `scripts/agentic-init.mjs` | Detección, plan, copia/actualización recuperable, contrato, configuración opcional de Codex y comprobaciones | Profundo: toda la adopción y actualización |
 | `tests/*.test.mjs` | Comportamiento público por interfaz, en procesos paralelos con directorios raíz temporales exclusivos | Especificación ejecutable |
@@ -247,7 +259,48 @@ siempre inyectan una raíz temporal. El valor objetivo es 12 como capacidad
 técnica de Codex; los workflows aplican después sus topes independientes de 4
 (`light`) y 9 (`full`).
 
-## Flujo de orquestación
+## Flujo de orquestación V2
+
+El runtime principal no interpreta Markdown. El orquestador posee la única
+capacidad de mutación y los roles son productores aislados de reportes:
+
+```mermaid
+flowchart TD
+    pre["EnvironmentProbe"] -->|verde| start["apply: start-session"]
+    pre -->|rojo| stop["environment_failed<br/>sin snapshot"]
+    start --> plan["AcceptanceContract<br/>versionado + hash"]
+    plan --> dispatch["dispatch-attempt<br/>WorkEnvelope inmutable"]
+    dispatch --> role["rol aislado<br/>sin capability"]
+    role --> report["RoleReport estructurado"]
+    report --> apply["apply: accept-role-report"]
+    apply --> unit["unidad validada y consolidada"]
+    unit --> lane["full:generation<br/>fingerprint único"]
+    lane --> eval["evaluación combined o dual"]
+    eval -->|violación vigente| rework["retrabajo acotado"]
+    eval -->|finding nuevo crítico| scope["scope_decision_required"]
+    eval -->|verde| doc["documenting o not_applicable"]
+    doc --> close["completed + close-session"]
+```
+
+`StateStore` serializa cada sesión y publica snapshots atómicos;
+`MemoryStateStore` ejecuta la misma suite pública que el adapter de filesystem.
+`Clock` separa timestamps UTC de duración monotónica, `EnvironmentProbe`
+comprueba el entorno antes del primer snapshot y `EventSink` conserva el log
+append-only sin prompts, capacidades ni secretos.
+
+La idempotencia se resuelve antes de CAS: el mismo `commandId` y payload devuelve
+el resultado original; un payload distinto produce `idempotency_conflict`; un
+comando nuevo con revisión vieja produce `stale_revision`. Un fallo del sink
+posterior al snapshot no revierte una transición confirmada: se registra como
+degradación observable. Cada evento se guarda primero en
+`telemetry.pendingEvents` dentro del snapshot; un retry exacto completa ese
+outbox sin repetir la transición. El sink JSONL relee los IDs durables antes de
+append para deduplicar incluso después de reiniciar el proceso.
+
+## Flujo de orquestación v1 (compatibilidad)
+
+El diagrama siguiente documenta el controller Markdown conservado solo para
+terminar sesiones v1 activas. Las sesiones nuevas no recorren esta ruta.
 
 La política canónica decide primero con hechos observables; este diagrama
 resume el enrutamiento y deja la lista cerrada de riesgos en
@@ -468,10 +521,31 @@ vigente en [ADR 0010](adr/0010-cierre-y-evaluacion-proporcionales-al-riesgo.md);
 ambas extienden el controlador portable de
 [ADR 0008](adr/0008-controlador-portable-de-subdevsessions.md).
 
+## Compatibilidad y migración v1→v2
+
+`inspect` busca primero un snapshot V2 y, si no existe, delega en
+`LegacyV1Adapter`. El adapter puede mostrar una `SessionView` normalizada, pero
+marca `legacyAmbiguous` cuando la prosa no demuestra un veredicto; nunca inventa
+actor, tiempos, threat model ni aprobación histórica.
+
+`migrate-v1` siempre ofrece dry-run, registra el hash de origen y es
+idempotente. Una sesión con writer o reporte pendiente exige checkpoint: puede
+terminar en v1, migrarse cuando quede inactiva o cerrarse y reiniciarse mediante
+una decisión explícita. Una migración ambigua entra en
+`scope_decision_required`.
+
+Las sesiones nuevas escriben V2. El fallback de escritura v1 pertenece a la
+configuración de rollout y no convierte sesiones V2 activas hacia atrás. El
+lector v1 no se retira antes del 2026-11-17 ni hasta completar dos releases
+estables y llegar a cero sesiones v1 activas en consumidores prioritarios. La
+fecha y la condición acumulativa se publican en `.agents/protocol.json`.
+
 ## Frontera de distribución
 
 Lo que viaja en el paquete está declarado dos veces —en el código y en
-`package.json`— y el inicializador falla si las dos listas no coinciden.
+`package.json`— y el inicializador falla si las dos listas no coinciden. Además,
+la conformidad exige que kernel, políticas, roles, workflows, templates y
+schemas declaren protocolo 2 como conjunto indivisible.
 
 | Categoría | Ejemplos | Viaja |
 | --- | --- | --- |

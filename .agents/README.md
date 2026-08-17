@@ -5,6 +5,14 @@ interface de configuración es el contrato delimitado de `AGENTS.md`: un
 proyecto consumidor declara allí sus hechos, comandos y restricciones sin
 editar roles, workflows, políticas, skills ni adapters.
 
+Las sesiones nuevas usan el protocolo declarado en `protocol.json` y el módulo
+profundo `kernel/`. Su instancia pública expone solo `apply` e `inspect`; los
+roles reciben un `WorkEnvelope` sin capacidad de mutación y devuelven un
+`RoleReport` v2. `scripts/session-controller.mjs` permanece distribuido como
+compatibilidad para sesiones v1 activas, no como runtime de sesiones nuevas.
+El lector v1 no se retira antes del 2026-11-17 y exige además dos releases V2
+estables y cero sesiones v1 activas en consumidores prioritarios.
+
 `scripts/agentic-init.mjs` es la única superficie automatizada y la única
 implementación de adopción y actualización. No forma parte del núcleo de
 orquestación: detecta hechos y versiones, planifica el inventario canónico,
@@ -53,9 +61,14 @@ antes de la mutación final.
 ## Mapa
 
 - `policies/`: orquestación, SDD/TDD y Regla de Oro para código y pruebas.
+- `kernel/`: estado estructurado V2, idempotencia, ownership, aceptación,
+  lanes, presupuesto, stores, reloj, preflight, telemetría y adapter v1.
+- `schemas/`: contratos JSON V2 de aceptación, reporte, evento y validación.
+- `conformance/`: gate ejecutable de versiones, overrides e interface.
+- `protocol.json`: versión indivisible de los artefactos y overrides admitidos.
 - `roles/`: responsabilidades, límites y contratos de salida de seis roles.
-- `scripts/session-controller.mjs`: ciclo portable, recuperable e idempotente
-  de DevSession global y SubDevSessions.
+- `scripts/session-controller.mjs`: runtime de compatibilidad para terminar
+  DevSessions v1 sin reescribirlas ni inferir su estado.
 - `workflows/`: orden de fases para feature, bugfix, refactor y architecture.
 - `skills/`: routing portable de orquestación y procedimientos especializados
   invocados por los roles.
@@ -82,10 +95,11 @@ referencia:
 | Tipo de decisión | Propietario canónico | Responsabilidad de los consumidores |
 | --- | --- | --- |
 | Activación, modos, presupuestos, unidades, validación, evaluación y cierre | [Política de orquestación](policies/orquestacion.md) | Enlazar la política sin copiar categorías, límites ni excepciones. |
-| Estado durable e invariantes ejecutables | [`session-controller.mjs`](scripts/session-controller.mjs) | Usar su CLI y comprobar comportamiento observable. |
+| Estado durable e invariantes ejecutables V2 | [`OrchestrationKernel`](kernel/orchestration-kernel.mjs) | El orquestador usa solo `apply/inspect`; los roles devuelven reportes sin mutar. |
+| Compatibilidad de sesiones v1 | [`session-controller.mjs`](scripts/session-controller.mjs) y [`v1-compatibility.mjs`](kernel/v1-compatibility.mjs) | Terminar en v1 o migrar explícitamente en un checkpoint seguro. |
 | Orden e intención propios de cada flujo | [`workflows/`](workflows/) | Conservar marcadores `agentic-phase:v1` y referenciar reglas comunes. |
 | Entradas, proceso, salida y límites exclusivos de un rol | [`roles/`](roles/) | Mantener el contrato aislado y enlazar la política transversal. |
-| Routing operativo | [`skills/orquestar/SKILL.md`](skills/orquestar/SKILL.md) | Cargar política, workflow y controlador; no actuar como otra política. |
+| Routing operativo | [`skills/orquestar/SKILL.md`](skills/orquestar/SKILL.md) | Cargar política, workflow y kernel V2; usar el controller solo para compatibilidad v1. |
 | Datos que persisten durante la tarea | [`templates/dev-session.md`](templates/dev-session.md) | Declarar campos sin explicar de nuevo sus reglas. |
 | Descubrimiento de plataforma | [`.codex/`](../.codex/) y [`.claude/`](../.claude/) | Aplicar solo restricciones técnicas y apuntar al núcleo. |
 | Inventario y estructura distribuible | [`agentic-init.mjs`](../scripts/agentic-init.mjs) | Validar archivos, enlaces, secciones y marcadores estables. |
@@ -112,7 +126,8 @@ monotónica de fase y rol asociada a esa unidad, carril o eje; conserva su propi
 `baseRevision`, `threadId`, permiso, criterios, causa de retrabajo y evidencia.
 Reintentar no crea otra unidad ni reactiva un intento terminal.
 
-El controlador concentra las invariantes mecánicas detrás de su CLI:
+`OrchestrationKernel` concentra las invariantes mecánicas detrás de
+`apply/inspect`:
 
 1. valida DAG, ciclos, dependencias y ownership portable antes de despachar;
 2. abre sólo unidades listas y hace cumplir los gates `implemented` →
@@ -120,30 +135,51 @@ El controlador concentra las invariantes mecánicas detrás de su CLI:
    los dos últimos de forma atómica;
 3. reserva un único writer por identidad canónica del working tree, incluso
    entre DevSessions distintas;
-4. calcula por separado capacidad total, carriles `read-only` y aislamiento de
-   escritores;
+4. valida los requisitos de herramientas, persistencia, aislamiento y
+   telemetría antes de crear la sesión; la capacidad efectiva de subagentes la
+   comprueba el host en el preflight canónico;
 5. valida la integración, la estrategia y la generación codificadas en el
    estado; la elegibilidad humana de esas transiciones pertenece a la
    [política canónica](policies/orquestacion.md).
 
-`commit` deja el cuerpo contractual íntegro únicamente en la SubDevSession del
-intento. La parte humana global mantiene un índice compacto atribuible —ruta y
-hash incluidos— y el bloque administrado mantiene el estado de coordinación que
-consume `status`. El orquestador resuelve ese índice y entrega al Evaluador y al
-Documentador, cuando su gate se abre, solo los sobres pertinentes antes de
-permitir `cleanup`.
+El constructor exige un `StateStore` explícito para no degradar producción a
+memoria volátil. El host normal inyecta `FileSystemStateStore({ root })`, que
+compone snapshots atómicos con `JsonlEventSink`; los tests inyectan
+`MemoryStateStore`. El `EnvironmentProbe` predeterminado es el adapter real.
 
-La DevSession global es el ledger durable, no un input de despacho. Antes de
-cada fase, `open` crea el único sobre normal con objetivo, reglas, tareas,
-hallazgos, `contextPaths` ordenados y `sourceRevision` calculada desde la revisión
-vigente. El rol recibe la ruta de esa SubDevSession y consulta únicamente los
-archivos seleccionados. Si el sobre resulta insuficiente, devuelve la incógnita
-exacta; el orquestador falla o cierra el intento y abre otro, sin modificar
-retrospectivamente un sobre activo.
+`accept-role-report` conserva el reporte estructurado atribuible al intento y
+el snapshot mantiene el estado de coordinación que devuelve `inspect`. Una
+vista Markdown puede representar ese estado, pero no se parsea para decidir
+gates. El orquestador entrega al Evaluador y al Documentador solo los sobres
+pertinentes.
+
+La telemetría usa un outbox en `telemetry.pendingEvents`: snapshot, resultado e
+evento pendiente se comprometen juntos. Un retry exacto entrega el evento sin
+repetir la transición, y el sink JSONL deduplica IDs ya durables tras un
+reinicio.
+
+Si un rol se interrumpe sin reporte, `record-attempt-failure` cierra el intento
+con causa estructurada y libera su reserva. El retry crea otro intento y otro
+sobre; el orquestador nunca sintetiza un `RoleReport` en nombre del rol.
+
+El snapshot y el event log forman el ledger durable, no un input de despacho.
+Antes de cada fase, `dispatch-attempt` crea el único `WorkEnvelope` normal con
+objetivo, reglas, tareas, findings, `contextPaths` ordenados, `sourceRevision` y
+hash de aceptación. El rol consulta únicamente los archivos seleccionados. Si
+el sobre resulta insuficiente, devuelve la incógnita exacta; el orquestador
+cierra el intento y abre otro sin modificar retrospectivamente un sobre activo.
+
+Antes de aceptar el plan, los sobres de Explorador, Planificador y la
+reproducción compacta de `bugfix` referencian un `planningScopeHash` inmutable y
+declaran `contractKind: planning-scope`. Después de `accept-plan`, todo sobre y
+reporte referencia exclusivamente el hash del `AcceptanceContract` vigente.
+`architecture` admite un contrato sin unidades cuando solo registra una
+decisión: pasa de planificación a evaluación y documentación, sin inventar
+implementación, Tester ni lane de código.
 
 Las estrategias de validación, su vigencia, la secuencia compacta, el cierre
 integrado, la evaluación y el gate de Documentador se definen una sola vez en la
-[política canónica](policies/orquestacion.md). El controlador conserva solo el
+[política canónica](policies/orquestacion.md). El kernel conserva solo el
 estado y los gates ejecutables; Planificador, Tester, Evaluador y Documentador
 aplican sus contratos de rol mediante esa referencia.
 
@@ -195,7 +231,7 @@ no se completa durante un upgrade.
     ángulos, no se confunden con placeholders pendientes.
 14. Los límites, categorías y excepciones transversales tienen un único
     propietario humano: `policies/orquestacion.md`.
-15. El controlador hace cumplir ownership, gates, evidencia y generaciones sin
+15. El kernel V2 hace cumplir ownership, gates, evidencia y generaciones sin
     convertir su implementación en otra fuente de prosa normativa.
 16. Roles, workflows, skills, templates y adapters consumen a sus propietarios
     mediante referencias y marcadores estables.
@@ -203,3 +239,9 @@ no se completa durante un upgrade.
     desconocida puede salir del bloque únicamente por elección interactiva
     explícita y permanece efectiva bajo `## Reglas adicionales del proyecto`;
     cancelar o ejecutar sin interacción conserva el destino byte a byte.
+18. Solo una capacidad opaca del orquestador puede mutar V2; nunca aparece en
+    `contextPaths`, prompts, sobres, reportes, snapshots ni eventos.
+19. La aceptación cambia únicamente mediante un amendment aprobado y un hash
+    nuevo; un finding técnico nuevo no amplía alcance por sí mismo.
+20. En `full`, el lane `full:<generation>` queda verde antes de evaluar y una
+    misma evidencia por fingerprint se consume una sola vez.

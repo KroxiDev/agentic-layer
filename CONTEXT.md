@@ -228,6 +228,58 @@ Detenerse ante un requisito ausente en lugar de degradar a una alternativa
 peor. No hay fallback a grep, memoria improvisada ni ejecución secuencial.
 _Evitar_: fail-safe, modo degradado, graceful degradation.
 
+**OrchestrationKernel**:
+Módulo profundo del protocolo V2. Su instancia expone solo `apply(command)` e
+`inspect(sessionId)` y oculta estado, CAS, idempotencia, autorización,
+persistencia, presupuesto, aceptación y telemetría.
+_Evitar_: controller V2, conjunto de helpers, API por transición.
+
+**Excepción bootstrap de reparación**:
+Ruta directa, explícita y de un solo agente para corregir un defecto demostrado
+de la propia capa canónica desde una especificación externa cerrada, sin
+ejecutar sobre sí mismo el runtime defectuoso. Conserva seguridad, Regla de Oro,
+CodeGraph, Engram y todos los gates de validación.
+_Evitar_: bypass genérico, fallback directo, autoorquestación circular.
+
+**Capacidad del orquestador**:
+Referencia opaca, limitada y exclusiva de una sesión que autoriza mutaciones
+V2. Nunca se persiste ni se entrega a un rol.
+_Evitar_: actor string, token en prompt, permiso del rol.
+
+**AcceptanceContract**:
+Contrato V2 versionado y hasheado que congela intención, no-objetivos,
+criterios, políticas transversales y threat model aprobados. Solo cambia mediante
+un `ScopeAmendment` atribuible.
+_Evitar_: especificación mutable, criterios narrativos, moving target.
+
+**WorkEnvelope**:
+Sobre inmutable V2 de un intento. Contiene hash de aceptación, generación,
+objetivo, reglas, tareas, findings y manifiesto deduplicado de contexto; nunca
+contiene capacidad de mutación.
+_Evitar_: DevSession completa, prompt libre, ledger.
+
+**RoleReport**:
+Reporte V2 con `completion`, `decision`, `findings` y `evidence` estructurados.
+`humanSummary` es una vista humana y no decide transiciones.
+_Evitar_: veredicto inferido por regex, commit del rol, prosa autoritativa.
+
+**Lane integral**:
+Validación pos–fan-in `full:<generation>` identificada por fingerprints de
+árbol, entorno y comandos. Los ejes duales consumen la misma evidencia.
+_Evitar_: Tester por unidad, suite duplicada por eje, workUnit ficticia.
+
+**Decisión de alcance**:
+Estado `scope_decision_required` que detiene writers ante un finding nuevo
+crítico, ambigüedad legacy o presupuesto agotado. Solo una decisión explícita
+puede ampliar, diferir, aceptar riesgo o cancelar.
+_Evitar_: changes required automático, scope creep, retry adicional.
+
+**Adapter v1**:
+Frontera no confiable que lee sesiones Markdown históricas, marca lo no
+demostrable como `unknown` o `legacyAmbiguous` y permite migración explícita en
+un checkpoint seguro.
+_Evitar_: parser principal, inferencia de pass/fail, migración automática.
+
 ### El contrato
 
 **Contrato de proyecto**:

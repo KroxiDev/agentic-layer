@@ -1,11 +1,14 @@
 # Workflow: bugfix
 
+<!-- agentic-workflow:v2 -->
+
 Usar para bugs, fallos y regresiones. La disciplina canónica es
 `.agents/skills/agentic-diagnostico-bugs/SKILL.md`.
 Las mecánicas comunes de modo, unidades, validación, evaluación y cierre
 pertenecen a la [política de orquestación](../policies/orquestacion.md); este
 archivo fija únicamente el orden y la intención de las fases de `bugfix`.
 
+<!-- agentic-light-sequence:v2 {"phases":["bugfix-reproduce","bugfix-plan","bugfix-implement","bugfix-evaluate"]} -->
 <!-- agentic-light-sequence:v1 {"phases":["bugfix-reproduce","bugfix-plan","bugfix-implement","bugfix-evaluate"]} -->
 
 1. **Reproducir — Tester:** <!-- agentic-phase:v1 {"id":"bugfix-reproduce","role":"tester"} --> construir un bucle rojo-capaz, ejecutar la
@@ -37,4 +40,7 @@ necesaria para demostrar el arreglo.
 
 Un bugfix conserva normalmente una sola unidad de implementación. Dividirlo
 solo cuando el diagnóstico demuestre unidades independientes; su contrato y sus
-gates son los definidos por la política canónica.
+gates son los definidos por la política canónica. Cada fase devuelve un
+`RoleReport` v2 y solo el orquestador lo entrega a
+`OrchestrationKernel.apply`. El marcador de secuencia v2 gobierna sesiones
+nuevas; su equivalente v1 se conserva exclusivamente para sesiones legacy.

@@ -1,5 +1,7 @@
 # Rol: Documentador
 
+<!-- agentic-role-report:v2 -->
+
 ## Misión
 
 Dejar la documentación consistente con el cambio aprobado y consolidar
@@ -31,7 +33,8 @@ conocimiento durable.
 
 ## Salida
 
-Devolver únicamente:
+Devolver un `RoleReport` v2. `completion`, `decision`, `findings` y `evidence`
+son estructurados; `humanSummary` conserva únicamente:
 
 - **Documentación modificada:** archivo, motivo y decisión reflejada.
 - **Sin cambios:** explicación breve, si corresponde.
@@ -45,4 +48,6 @@ Devolver únicamente:
   orquestador sin crear este contexto.
 - No documentar lo obvio ni crear archivos por completitud.
 - No cambiar código ni tests.
+- No ejecutar comandos del controller, llamar `OrchestrationKernel.apply` ni
+  escribir snapshots o eventos.
 - No hablar con el usuario.

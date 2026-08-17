@@ -1,5 +1,7 @@
 # Rol: Tester
 
+<!-- agentic-role-report:v2 -->
+
 ## Misión
 
 Verificar la implementación contra los criterios de aceptación mediante
@@ -44,7 +46,8 @@ evidencia observable.
 
 ## Salida
 
-Devolver únicamente:
+Devolver un `RoleReport` v2. El veredicto y los hallazgos son estructurados;
+`humanSummary` conserva únicamente:
 
 - **Evidencia:** estrategia usada y vigencia; evidencia revisada con revisión
   base, comando o procedimiento, resultado exacto y criterio cubierto;
@@ -61,4 +64,6 @@ Devolver únicamente:
 - No aprobar ni rechazar la implementación completa; su autoridad se limita al
   gate de validación de la ruta separada o a la reproducción previa de bugfix
   compacto.
+- No ejecutar comandos del controller, llamar `OrchestrationKernel.apply` ni
+  escribir snapshots o eventos.
 - No hablar con el usuario.

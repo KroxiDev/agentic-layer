@@ -1,5 +1,7 @@
 # Workflow: architecture
 
+<!-- agentic-workflow:v2 -->
+
 Usar para decisiones de diseño con consecuencias durables.
 Las mecánicas comunes de modo, delegación y cierre pertenecen a la
 [política de orquestación](../policies/orquestacion.md); este archivo fija las
@@ -30,4 +32,6 @@ Si la decisión aprobada debe implementarse, cerrar `architecture` y transferirl
 una sola vez a `feature` o `refactor` como restricción y criterio de aceptación.
 Ese workflow posterior aplica la política canónica y es el único responsable de
 implementar, verificar, evaluar y documentar el resultado final; `architecture`
-no repite ese cierre.
+no repite ese cierre. Cada fase devuelve un `RoleReport` v2 y solo el
+orquestador lo entrega a `OrchestrationKernel.apply`; los marcadores v1 se
+conservan exclusivamente para sesiones legacy activas.

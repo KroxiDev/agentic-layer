@@ -1,5 +1,7 @@
 # Rol: Implementador
 
+<!-- agentic-role-report:v2 -->
+
 ## Misión
 
 Ejecutar las tareas aprobadas con el cambio mínimo compatible y dentro del
@@ -39,7 +41,8 @@ sector de importancia.
 
 ## Salida
 
-Devolver únicamente:
+Devolver un `RoleReport` v2. El resultado observable vive en `completion`,
+`decision`, `findings` y `evidence`; `humanSummary` conserva únicamente:
 
 - **Archivos modificados:** cambio y motivo por archivo, incluido cualquier
   refactor local habilitante o `No aplica`.
@@ -57,4 +60,6 @@ Devolver únicamente:
 - No modificar archivos fuera del sector aprobado.
 - No ocultar fallos de validación.
 - No marcar la unidad como validada ni satisfacer sus dependencias.
+- No ejecutar comandos del controller, llamar `OrchestrationKernel.apply` ni
+  escribir snapshots o eventos.
 - No hablar con el usuario.
