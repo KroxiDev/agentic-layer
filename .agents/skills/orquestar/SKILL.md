@@ -14,11 +14,14 @@ description: Orquesta tareas de desarrollo mediante roles aislados, DevSession y
    modo, fases y excepciones solo desde esos contratos canónicos. Usar
    `agentic-light-sequence` para una sesión `light`, siempre compacta y con una
    sola unidad.
-3. Para una sesión nueva, crear una instancia del
-   [`OrchestrationKernel`](../../kernel/orchestration-kernel.mjs), ejecutar
-   `start-session` con la capacidad bootstrap y conservar la capacidad opaca
+3. Para una sesión nueva, crear el host mediante la composición productiva
+   [`createOrchestrationComposition`](../../kernel/composition.mjs), ejecutar
+   `start-session` con su capacidad bootstrap y conservar la capacidad opaca
    emitida fuera de sobres, prompts y reportes. Usar `inspect` para leer y
-   `apply` con `commandId` y revisión esperada para toda mutación.
+   `apply` con `commandId` y revisión esperada para toda mutación. Tras un
+   reinicio, recrear la composición sobre la misma raíz y repetir exactamente
+   el comando inicial para recuperar autoridad; no reconstruir manualmente los
+   adapters del `OrchestrationKernel`.
 4. Pedir al Planificador el plan exigido por la política, aceptar su
    `AcceptanceContract` versionado y despachar únicamente fases y unidades
    listas. En compacto, exigir una sola unidad y su validación focalizada antes

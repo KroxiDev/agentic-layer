@@ -1075,7 +1075,9 @@ async function commandAvailable(command, environmentPath = process.env.PATH ?? "
   if (!command) return false;
   if (command.includes("/") || command.includes("\\")) {
     try {
-      return (await stat(command)).isFile();
+      if (!(await stat(command)).isFile()) return false;
+      if (process.platform !== "win32") await access(command, fsConstants.X_OK);
+      return true;
     } catch {
       return false;
     }
@@ -1087,7 +1089,9 @@ async function commandAvailable(command, environmentPath = process.env.PATH ?? "
     for (const extension of extensions) {
       const candidate = join(directory, extname(command) ? command : `${command}${extension}`);
       try {
-        if ((await stat(candidate)).isFile()) return true;
+        if (!(await stat(candidate)).isFile()) continue;
+        if (process.platform !== "win32") await access(candidate, fsConstants.X_OK);
+        return true;
       } catch {
         // Continuar con el siguiente candidato.
       }

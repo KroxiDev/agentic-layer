@@ -15,6 +15,11 @@
       "markers": ["agentic-adapters"]
     },
     {
+      "path": ".agents/kernel/composition.mjs",
+      "kind": "kernel",
+      "markers": ["agentic-composition"]
+    },
+    {
       "path": ".agents/kernel/orchestration-kernel.mjs",
       "kind": "kernel",
       "markers": ["agentic-kernel"]
@@ -115,7 +120,8 @@
     {
       "path": ".agents/skills/orquestar/SKILL.md",
       "kind": "skill",
-      "markers": ["<!-- agentic-protocol -->"]
+      "markers": ["<!-- agentic-protocol -->"],
+      "contains": ["../../kernel/composition.mjs"]
     },
     {
       "path": ".agents/templates/dev-session.md",
@@ -228,13 +234,21 @@
       "path": ".claude/skills/orquestar/SKILL.md",
       "kind": "adapter",
       "markers": ["<!-- agentic-protocol -->"],
-      "contains": [".agents/kernel/orchestration-kernel.mjs", "WorkEnvelope", "RoleReport"]
+      "contains": [
+        ".agents/kernel/composition.mjs",
+        ".agents/kernel/orchestration-kernel.mjs",
+        "WorkEnvelope",
+        "RoleReport"
+      ]
     },
     {
       "path": "CLAUDE.md",
       "kind": "entrypoint",
       "markers": ["<!-- agentic-protocol -->"],
-      "contains": [".agents/kernel/orchestration-kernel.mjs"]
+      "contains": [
+        ".agents/kernel/composition.mjs",
+        ".agents/kernel/orchestration-kernel.mjs"
+      ]
     }
   ],
   "layerMarkers": [
@@ -263,6 +277,7 @@
     "README.md",
     "bin/agentic.mjs",
     "package.json",
+    "scripts/agentic-check.mjs",
     "scripts/agentic-init.mjs"
   ],
   "configuration": {

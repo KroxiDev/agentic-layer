@@ -75,13 +75,16 @@ validaciones compatibles y consultar cualquier conflicto real.
   `schemaVersion` identifica el formato persistido sin negociación. El seam de
   configuración del proyecto vive en `AGENTS.md`; `.agents/protocol.json`
   declara el inventario instalado y los overrides del host, consumidos mediante
-  `.agents/kernel/protocol-manifest.mjs`. El inicializador único vive en
-  `scripts/agentic-init.mjs`, el ejecutable delgado en `bin/agentic.mjs`, el
+  `.agents/kernel/protocol-manifest.mjs`. La composición productiva única vive
+  en `.agents/kernel/composition.mjs`; el inicializador único vive en
+  `scripts/agentic-init.mjs`, el check sintáctico derivado en
+  `scripts/agentic-check.mjs`, el ejecutable delgado en `bin/agentic.mjs`, el
   inventario npm de `package.json` es una proyección exacta, los adapters
   delgados viven en `.codex/`, `.claude/` y `CLAUDE.md`, y las pruebas públicas
   en `tests/`.
 <!-- agentic-contract-field entrypoints -->
 - Entrypoints: `AGENTS.md`, `bin/agentic.mjs`, `scripts/agentic-init.mjs`,
+  `scripts/agentic-check.mjs`, `.agents/kernel/composition.mjs`,
   `.agents/kernel/orchestration-kernel.mjs`,
   `.agents/kernel/protocol-manifest.mjs`, `.agents/protocol.json`,
   `.agents/skills/orquestar/SKILL.md` y `CLAUDE.md`.
@@ -89,10 +92,8 @@ validaciones compatibles y consultar cualquier conflicto real.
 ## Validación
 
 <!-- agentic-contract-field focusedValidation -->
-- Focalizada: ejecutar `node --check scripts/agentic-init.mjs`,
-  `node --check bin/agentic.mjs`,
-  `node --check .agents/kernel/protocol-manifest.mjs`,
-  `node --check .agents/kernel/orchestration-kernel.mjs` y el caso relacionado de
+- Focalizada: ejecutar `npm run check` —que deriva de `.agents/protocol.json`
+  todos los módulos distribuidos— y el caso relacionado de
   `node --test --test-name-pattern="<patrón concreto del caso relacionado>"`;
   sustituir el placeholder por el nombre o patrón exacto antes de ejecutar el
   comando.
@@ -110,8 +111,9 @@ validaciones compatibles y consultar cualquier conflicto real.
 - Framework: `node:test`, sin dependencias externas.
 <!-- agentic-contract-field testLocation -->
 - Ubicación: `tests/*.test.mjs`, por interfaz pública; el kernel se cubre en
-  `tests/orchestration-kernel.test.mjs` y los helpers CLI compartidos viven
-  en `tests/agentic-test-helpers.mjs`.
+  `tests/orchestration-kernel.test.mjs`, la composición distribuida en
+  `tests/productive-composition.test.mjs` y los helpers CLI compartidos viven en
+  `tests/agentic-test-helpers.mjs`.
 <!-- agentic-contract-field testLifecycle -->
 - Ciclo de vida: conservar casos permanentes para el comportamiento público del
   inicializador, `update`, Codex, el kernel y la distribución; cada archivo
@@ -155,7 +157,8 @@ validaciones compatibles y consultar cualquier conflicto real.
   `docs/arquitectura.md` mantiene la estructura, los flujos y la frontera de
   distribución; `.agents/README.md` documenta el módulo interno y
   `docs/adr/0011-kernel-estructurado.md` fija la frontera del kernel.
-  `CONTEXT.md` y `docs/` no se distribuyen. Actualizar los pertinentes
+  La composición, su recuperación y el inventario sintáctico se documentan en
+  esos mismos artefactos. `CONTEXT.md` y `docs/` no se distribuyen. Actualizar los pertinentes
   cuando cambien el kernel, protocolo, inicializador, ejecutable, sus pruebas o
   las garantías de distribución.
 <!-- agentic-contract-field adrs -->

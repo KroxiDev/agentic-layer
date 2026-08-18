@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
-import { once } from "node:events";
-import { afterEach, test } from "node:test";
 import {
   mkdir,
-  mkdtemp,
   readFile,
   readdir,
   rename,
@@ -12,34 +9,20 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises";
-import { existsSync, watch } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { spawn, spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { test } from "node:test";
+
+import { TEMPLATE_FILES } from "../scripts/agentic-init.mjs";
 
 import {
-  PACKAGE_FILES,
-  TEMPLATE_FILES,
-  isMissingContractValue,
-} from "../scripts/agentic-init.mjs";
-
-import {
-  BIN,
   CLI,
   ROOT,
   SIN_HERRAMIENTAS,
-  countPendingFields,
   createRepository,
-  linksToPolicy,
-  markdownLinks,
-  markdownSection,
-  roleOutputLabels,
   runExecutable,
   runExecutableWithEnvironment,
   runInitializer,
-  runInitializerWithoutFlags,
-  runInteractiveExecutableWithEnvironment,
   runInteractiveUpdate,
   snapshotDirectory,
 } from "./agentic-test-helpers.mjs";

@@ -11,6 +11,13 @@ roles reciben un `WorkEnvelope` sin capacidad de mutación y devuelven un
 `RoleReport`. `schemaVersion` identifica el formato persistido actual sin
 negociación ni rutas alternativas.
 
+`kernel/composition.mjs` es el único composition root productivo. Construye el
+store de filesystem, el preflight del sistema, el reloj y la telemetría durable,
+y devuelve `apply`, `inspect` y la capacidad bootstrap opaca necesaria para
+iniciar o recuperar autoridad. No crea agentes, instala herramientas ni toca
+Git. Recrearlo sobre la misma raíz permite inspeccionar el snapshot y recuperar
+la capacidad repitiendo exactamente `start-session`.
+
 `protocol.json` es también la fuente autoritativa de rutas instaladas, assets,
 markers, directorios gestionados y overrides del host. El consumidor compartido
 `kernel/protocol-manifest.mjs` valida esa declaración y la proyecta hacia
@@ -67,6 +74,8 @@ antes de la mutación final.
 - `policies/`: orquestación, SDD/TDD y Regla de Oro para código y pruebas.
 - `kernel/`: estado estructurado, idempotencia, ownership, aceptación, lanes,
   presupuesto, stores, reloj, preflight y telemetría.
+- `kernel/composition.mjs`: factory productiva única para construir esos
+  adapters sin ampliar las operaciones `apply/inspect`.
 - `kernel/protocol-manifest.mjs`: validación y proyección del inventario y de
   los overrides declarados por `protocol.json`.
 - `schemas/`: contratos JSON de aceptación, reporte, evento y validación.
@@ -87,9 +96,12 @@ antes de la mutación final.
   archivo ajeno al inventario canónico se elimina como residuo. `sessions/` y
   esta raíz no.
 - `../bin/agentic.mjs`: ejecutable `agentic` con `init` y `update`.
+- `../scripts/agentic-check.mjs`: deriva desde `protocol.json` los `.mjs`
+  distribuidos y ejecuta `node --check` sobre todos.
 - `../scripts/agentic-init.mjs`: inicializador y actualizador sin dependencias externas.
 - `../tests/*.test.mjs`: pruebas por interfaz de adopción, `update`, Codex,
-  kernel y distribución/contratos; `agentic-test-helpers.mjs`
+  kernel, composición productiva y distribución/contratos;
+  `agentic-test-helpers.mjs`
   concentra fixtures sin estado global mutable.
 
 ## Mapa de propietarios
@@ -101,6 +113,7 @@ referencia:
 | --- | --- | --- |
 | Activación, modos, presupuestos, unidades, validación, evaluación y cierre | [Política de orquestación](policies/orquestacion.md) | Enlazar la política sin copiar categorías, límites ni excepciones. |
 | Estado durable e invariantes ejecutables | [`OrchestrationKernel`](kernel/orchestration-kernel.mjs) | El orquestador usa solo `apply/inspect`; los roles devuelven reportes sin mutar. |
+| Composición de adapters productivos y bootstrap | [`createOrchestrationComposition`](kernel/composition.mjs) | El host aporta raíz, capacidades y configuración declarada; no reconstruye dependencias privadas. |
 | Orden e intención propios de cada flujo | [`workflows/`](workflows/) | Conservar marcadores `agentic-phase` y referenciar reglas comunes. |
 | Entradas, proceso, salida y límites exclusivos de un rol | [`roles/`](roles/) | Mantener el contrato aislado y enlazar la política transversal. |
 | Routing operativo | [`skills/orquestar/SKILL.md`](skills/orquestar/SKILL.md) | Cargar política, workflow y kernel actuales sin duplicar reglas. |
@@ -162,6 +175,14 @@ de escribir fuera de la raíz. El adapter
 compone reemplazos atómicos de snapshots con un `JsonlEventSink` exclusivo; los
 tests inyectan `MemoryStateStore`. El `EnvironmentProbe` predeterminado es el
 adapter real.
+
+El host normal obtiene esa composición mediante `createOrchestrationComposition`.
+La factory pasa los overrides públicos al kernel, resuelve `telemetrySinks` y
+mantiene `capabilityTtlMs`, cache, temporales y capacidades ambientales como
+opciones internas. Su objeto público tiene solo dos funciones, `apply` e
+`inspect`; `bootstrapCapability` es un dato opaco separado. Tras reiniciar, una
+factory nueva sobre la misma raíz puede inspeccionar el ledger y recuperar la
+capacidad repitiendo el comando inicial exacto.
 
 `accept-role-report` conserva el reporte estructurado atribuible al intento y
 el snapshot mantiene el estado de coordinación que devuelve `inspect`. El

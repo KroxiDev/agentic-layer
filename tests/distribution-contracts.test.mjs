@@ -1,47 +1,22 @@
 import assert from "node:assert/strict";
-import { once } from "node:events";
-import { afterEach, test } from "node:test";
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  symlink,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
-import { existsSync, watch } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { spawn, spawnSync } from "node:child_process";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { test } from "node:test";
+import { spawnSync } from "node:child_process";
+
+import { PACKAGE_FILES, TEMPLATE_FILES } from "../scripts/agentic-init.mjs";
 
 import {
-  PACKAGE_FILES,
-  TEMPLATE_FILES,
-  isMissingContractValue,
-} from "../scripts/agentic-init.mjs";
-
-import {
-  BIN,
-  CLI,
   ROOT,
   SIN_HERRAMIENTAS,
-  countPendingFields,
   createRepository,
   linksToPolicy,
   markdownLinks,
   markdownSection,
   roleOutputLabels,
-  runExecutable,
   runExecutableWithEnvironment,
   runInitializer,
-  runInitializerWithoutFlags,
-  runInteractiveExecutableWithEnvironment,
-  runInteractiveUpdate,
-  snapshotDirectory,
 } from "./agentic-test-helpers.mjs";
 
 test("--force reemplaza solo archivos canónicos divergentes", async () => {
@@ -176,6 +151,28 @@ test("el manifiesto empaqueta el inventario canónico y excluye artefactos local
     TEMPLATE_FILES.every((path) => !path.startsWith("tests/") && !path.startsWith("scripts/")),
     true,
   );
+});
+
+test("el check sintáctico deriva del inventario distribuido autoritativo", async () => {
+  const { protocolPackageFiles } = await import(
+    "../.agents/kernel/protocol-manifest.mjs"
+  );
+  const { SYNTAX_CHECK_FILES } = await import("../scripts/agentic-check.mjs");
+  const expected = protocolPackageFiles().filter((path) => path.endsWith(".mjs"));
+  const manifest = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8"));
+  const contract = await readFile(join(ROOT, "AGENTS.md"), "utf8");
+  const readme = await readFile(join(ROOT, "README.md"), "utf8");
+
+  assert.deepEqual(SYNTAX_CHECK_FILES, expected);
+  assert.equal(manifest.scripts.check, "node scripts/agentic-check.mjs");
+  assert.match(contract, /Focalizada: ejecutar `npm run check`/);
+  assert.match(readme, /Validación sintáctica autoritativa:\s*```bash\s*npm run check/);
+
+  const checked = spawnSync(process.execPath, [join(ROOT, "scripts", "agentic-check.mjs")], {
+    cwd: ROOT,
+    encoding: "utf8",
+  });
+  assert.equal(checked.status, 0, checked.stderr || checked.stdout);
 });
 
 test("los contratos canónicos enlazan políticas y exponen marcadores estables", async () => {
@@ -771,6 +768,7 @@ test("el cierre abre Documentador únicamente cuando existe una entrada real", a
 });
 
 test("el contrato estructurado único se distribuye con ownership único y preserva sesiones", async () => {
+  const compositionPath = ".agents/kernel/composition.mjs";
   const kernelPath = ".agents/kernel/orchestration-kernel.mjs";
   const protocolModulePath = ".agents/kernel/protocol.mjs";
   const protocolManifestPath = ".agents/protocol.json";
@@ -784,6 +782,7 @@ test("el contrato estructurado único se distribuye con ownership único y prese
   const currentPaths = [
     ".agents/conformance/protocol-conformance.mjs",
     ".agents/kernel/adapters.mjs",
+    compositionPath,
     kernelPath,
     protocolModulePath,
     protocolManifestPath,
@@ -843,15 +842,17 @@ test("el contrato estructurado único se distribuye con ownership único y prese
         },
         orchestrationContract:
           orchestration.includes("OrchestrationKernel") &&
+          orchestration.includes("createOrchestrationComposition") &&
           orchestration.includes("agentic-bootstrap-repair") &&
           orchestration.includes("Contexto de una tarea anterior") &&
           markdownLinks(skill).some((target) =>
-            target.split("#")[0].endsWith("/kernel/orchestration-kernel.mjs"),
+            target.split("#")[0].endsWith("/kernel/composition.mjs"),
           ),
         claudeEntrypoints:
           [claudeImport, claudeSkill].every(
             (entrypoint) =>
               entrypoint.includes("agentic-protocol") &&
+              entrypoint.includes(".agents/kernel/composition.mjs") &&
               entrypoint.includes(".agents/kernel/orchestration-kernel.mjs"),
           ) &&
           claudeSkill.includes("WorkEnvelope") &&

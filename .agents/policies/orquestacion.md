@@ -477,6 +477,15 @@ de dos operaciones:
   lanes, persistencia y telemetría;
 - `inspect(sessionId)`: devuelve una vista sin capacidades ni secretos.
 
+El host productivo construye esas operaciones únicamente mediante
+`createOrchestrationComposition` de `.agents/kernel/composition.mjs`. La factory
+instala `FileSystemStateStore`, `SystemEnvironmentProbe`, reloj y telemetría
+reales, resuelve los overrides declarados por `protocol.json` y devuelve la
+capacidad bootstrap opaca como dato separado. No crea agentes, instala
+herramientas, modifica Git ni introduce otro runtime. Tras un reinicio, recrear
+la composición sobre la misma raíz y repetir exactamente `start-session` es la
+única recuperación de autoridad admitida.
+
 El orquestador es el único caller mutador. `start-session` ejecuta el preflight
 antes del primer snapshot y emite una capacidad opaca, limitada y exclusiva de
 esa sesión. Los sobres y reportes nunca la contienen. Repetir el mismo

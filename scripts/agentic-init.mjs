@@ -57,6 +57,7 @@ const DEVELOPMENT_FILES = [
   "tests/codex-config.test.mjs",
   "tests/distribution-contracts.test.mjs",
   "tests/orchestration-kernel.test.mjs",
+  "tests/productive-composition.test.mjs",
 ];
 const PACKAGE_FILES = protocolPackageFiles();
 
@@ -2553,6 +2554,7 @@ async function packageManifestErrors() {
     "./conformance": "./.agents/conformance/protocol-conformance.mjs",
     "./kernel": "./.agents/kernel/orchestration-kernel.mjs",
     "./kernel/adapters": "./.agents/kernel/adapters.mjs",
+    "./kernel/composition": "./.agents/kernel/composition.mjs",
     "./kernel/protocol": "./.agents/kernel/protocol.mjs",
     "./protocol.json": "./.agents/protocol.json",
   };

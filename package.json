@@ -11,6 +11,7 @@
     "./conformance": "./.agents/conformance/protocol-conformance.mjs",
     "./kernel": "./.agents/kernel/orchestration-kernel.mjs",
     "./kernel/adapters": "./.agents/kernel/adapters.mjs",
+    "./kernel/composition": "./.agents/kernel/composition.mjs",
     "./kernel/protocol": "./.agents/kernel/protocol.mjs",
     "./protocol.json": "./.agents/protocol.json"
   },
@@ -22,7 +23,7 @@
   },
   "scripts": {
     "test": "node --test",
-    "check": "node --check scripts/agentic-init.mjs && node --check bin/agentic.mjs",
+    "check": "node scripts/agentic-check.mjs",
     "verify": "node scripts/agentic-init.mjs --dry-run --yes"
   },
   "keywords": [
@@ -45,6 +46,7 @@
     ".agents/README.md",
     ".agents/conformance/protocol-conformance.mjs",
     ".agents/kernel/adapters.mjs",
+    ".agents/kernel/composition.mjs",
     ".agents/kernel/orchestration-kernel.mjs",
     ".agents/kernel/protocol-manifest.mjs",
     ".agents/kernel/protocol.mjs",
@@ -97,6 +99,7 @@
     "README.md",
     "bin/agentic.mjs",
     "package.json",
+    "scripts/agentic-check.mjs",
     "scripts/agentic-init.mjs"
   ]
 }

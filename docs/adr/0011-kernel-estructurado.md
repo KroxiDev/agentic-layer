@@ -24,6 +24,12 @@ idempotencia global, CAS, aceptación congelada, presupuesto uniforme, lane
 `StateStore`, `Clock`, `EnvironmentProbe` y `EventSink` son seams internos con
 adapters de producción y memoria o fakes para tests.
 
+La única composición productiva es `createOrchestrationComposition` en
+`.agents/kernel/composition.mjs`. Construye los adapters reales y devuelve dos
+funciones (`apply` e `inspect`) junto con la capacidad bootstrap opaca como dato
+separado; no añade operaciones al kernel. No crea agentes, instala herramientas
+ni modifica Git.
+
 Los roles reciben un `WorkEnvelope` inmutable y devuelven un `RoleReport`;
 nunca poseen capacidad ni mutan el ledger. Markdown es solo una vista humana.
 `schemaVersion` identifica el único formato persistido admitido, sin
@@ -64,6 +70,9 @@ contrato configurable del proyecto.
 - La capacidad vive fuera de snapshots, sobres y reportes. Tras una expiración,
   el host solo puede obtener otra repitiendo exactamente el comando de inicio
   con la capacidad bootstrap.
+- Un reinicio recrea la composición sobre la misma raíz, inspecciona el ledger
+  persistido y recupera autoridad mediante ese retry exacto; no existe un
+  runtime alternativo de recuperación.
 - Una reparación demostrada del propio runtime puede usar la excepción
   bootstrap explícita: un solo agente, sin ejecutar DevSession ni roles del
   runtime defectuoso y con todos los gates de validación intactos.

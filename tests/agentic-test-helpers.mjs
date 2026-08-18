@@ -188,7 +188,6 @@ function runInteractiveUpdate(repository, codexHome, answers, environment = {}) 
 }
 
 export {
-  BIN,
   CLI,
   ROOT,
   SIN_HERRAMIENTAS,
@@ -202,7 +201,6 @@ export {
   runExecutableWithEnvironment,
   runInitializer,
   runInitializerWithoutFlags,
-  runInteractiveExecutableWithEnvironment,
   runInteractiveUpdate,
   snapshotDirectory,
 };

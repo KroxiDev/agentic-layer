@@ -59,12 +59,14 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 ├── bin/
 │   └── agentic.mjs              # ejecutable; despacha `init` y `update`
 ├── scripts/
+│   ├── agentic-check.mjs        # node --check derivado del inventario
 │   └── agentic-init.mjs         # única implementación de init/update
 ├── tests/
 │   ├── agentic-init.test.mjs    # inicialización y adopción
 │   ├── agentic-update.test.mjs  # update y rollback
 │   ├── codex-config.test.mjs    # configuración Codex
 │   ├── orchestration-kernel.test.mjs
+│   ├── productive-composition.test.mjs
 │   ├── distribution-contracts.test.mjs
 │   └── agentic-test-helpers.mjs # fixtures aislados compartidos
 ├── docs/                        # documentación interna (no se distribuye)
@@ -79,6 +81,7 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 │   │   └── sdd-tdd.md            # SDD proporcional y vocabulario de diseño
 │   ├── protocol.json              # inventario y schema de overrides admitidos
 │   ├── kernel/
+│   │   ├── composition.mjs        # única composición productiva
 │   │   ├── orchestration-kernel.mjs # interface apply/inspect
 │   │   ├── adapters.mjs           # stores, clocks, probes y sinks
 │   │   ├── protocol-manifest.mjs   # valida y proyecta protocol.json
@@ -122,6 +125,7 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 | --- | --- | --- |
 | `.agents/policies/` | Orquestación, SDD/TDD y Regla de Oro para código y pruebas | Profundo: gobierna todo el proceso |
 | `.agents/roles/` | Seis contratos de salida con límites explícitos | Profundo: cada rol oculta su método |
+| `.agents/kernel/composition.mjs` | Construir los adapters productivos y exponer `apply/inspect` más bootstrap opaco | Delgado: único composition root |
 | `.agents/kernel/orchestration-kernel.mjs` | Estado, CAS, idempotencia, ownership, aceptación, lanes, presupuesto, persistencia y telemetría | Profundo: solo `apply/inspect` |
 | `.agents/kernel/adapters.mjs` | Filesystem/memoria, reloj, preflight y event sinks | Profundo: seams de producción y tests |
 | `.agents/protocol.json` y `.agents/kernel/protocol-manifest.mjs` | Inventario instalado, assets, directorios gestionados y overrides del host | Fuente declarativa y consumidor compartido |
@@ -135,6 +139,7 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 | `.claude/skills/orquestar/` | Activación nativa que remite a la skill canónica | Delgado por diseño |
 | `CLAUDE.md` | Importa `AGENTS.md` y fija el routing actual sin duplicar política | Delgado por diseño |
 | `bin/agentic.mjs` | Despacho de `init`, `update` y ayuda | Delgado: no reimplementa nada |
+| `scripts/agentic-check.mjs` | Derivar los `.mjs` distribuidos y ejecutar `node --check` | Delgado: consumidor del manifiesto |
 | `scripts/agentic-init.mjs` | Detección, plan, copia/actualización recuperable, contrato, configuración opcional de Codex y comprobaciones | Profundo: toda la adopción y actualización |
 | `tests/*.test.mjs` | Comportamiento público por interfaz, en procesos paralelos con directorios raíz temporales exclusivos | Especificación ejecutable |
 | `tests/agentic-test-helpers.mjs` | Fixtures de filesystem y CLI sin estado global mutable | Helper profundo de tests |
@@ -264,6 +269,7 @@ capacidad de mutación y los roles son productores aislados de reportes:
 
 ```mermaid
 flowchart TD
+    compose["createOrchestrationComposition<br/>filesystem + entorno + reloj + JSONL"] --> pre
     pre["EnvironmentProbe"] -->|verde| start["apply: start-session"]
     pre -->|rojo| stop["environment_failed<br/>sin snapshot"]
     start --> plan["AcceptanceContract<br/>versionado + hash"]
@@ -278,7 +284,16 @@ flowchart TD
     eval -->|finding nuevo crítico| scope["scope_decision_required"]
     eval -->|verde| doc["documenting o not_applicable"]
     doc --> close["completed + close-session"]
+    restart["reinicio del host<br/>misma root"] --> inspect["inspect: snapshot persistido"]
+    inspect --> retry["retry exacto de start-session<br/>nueva bootstrap capability"]
 ```
+
+`createOrchestrationComposition` es el único composition root productivo. Su
+objeto público tiene `apply`, `inspect` y la capacidad bootstrap como dato
+opaco; no agrega operaciones al kernel. Construye `FileSystemStateStore`,
+`SystemEnvironmentProbe`, reloj y telemetría JSONL, y no crea agentes, instala
+herramientas ni modifica Git. Recrearlo sobre la misma raíz permite leer una
+DevSession y recuperar autoridad únicamente mediante el retry exacto mostrado.
 
 `StateStore` serializa cada sesión y publica snapshots atómicos.
 `FileSystemStateStore` vuelve a demostrar la contención física antes de crear,
@@ -305,6 +320,10 @@ resolución selecciona el `EventSink` observable. `capabilityTtlMs` conserva una
 entrada separada del constructor porque es una opción interna de seguridad, no
 un override público. La configuración del proyecto adoptante continúa viviendo
 en el contrato de `AGENTS.md`; son dos seams distintos.
+
+La factory recibe esos overrides en `configuration` y los resolvers en
+`telemetrySinks`. Cache, temporales, capacidades ambientales y TTL siguen siendo
+opciones internas de composición y nunca se incorporan a `protocol.json`.
 
 ## Activación del flujo
 
@@ -535,6 +554,10 @@ coincida exactamente. La conformidad recorre cada artefacto declarado, valida
 markers y requisitos de contenido, comprueba semánticamente todos los schemas y
 rechaza cualquier mezcla con `schemaVersion` distinto de `3` antes de abrir una
 DevSession.
+
+El mismo `protocolPackageFiles()` alimenta `scripts/agentic-check.mjs`: filtra
+los `.mjs` que viajan y ejecuta `node --check` sobre todos. Por eso `npm run
+check`, el contrato raíz y README no mantienen listas sintácticas paralelas.
 
 | Categoría | Ejemplos | Viaja |
 | --- | --- | --- |

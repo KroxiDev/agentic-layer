@@ -237,6 +237,13 @@ Módulo profundo del protocolo estructurado. Su instancia expone solo `apply(com
 persistencia, presupuesto, aceptación y telemetría.
 _Evitar_: conjunto de helpers, API por transición, mutación desde roles.
 
+**Composición productiva**:
+Factory única `createOrchestrationComposition` que conecta
+`OrchestrationKernel` con los adapters reales de filesystem, entorno, reloj y
+telemetría. Expone las operaciones `apply/inspect` y, como dato separado, la
+capacidad bootstrap opaca necesaria para iniciar o recuperar autoridad.
+_Evitar_: host alternativo, construcción manual de adapters, daemon, ejecutor de agentes.
+
 **Manifiesto del protocolo**:
 `.agents/protocol.json`, fuente declarativa única de artefactos instalados,
 assets, markers, directorios gestionados, interface del kernel y overrides del

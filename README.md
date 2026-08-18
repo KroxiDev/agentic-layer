@@ -71,6 +71,34 @@ Planificador y Evaluador son `read-only`; Implementador y Documentador son
 `WorkEnvelope` inmutable y autocontenido. Cada rol devuelve un `RoleReport` y
 solo el orquestador lo presenta al kernel.
 
+## Composición productiva
+
+El paquete expone una sola factory productiva:
+
+```js
+import { createOrchestrationComposition } from "@kroxidev/agentic-layer/kernel/composition";
+
+const host = createOrchestrationComposition({
+  root: process.cwd(),
+  configuration: { contextBudgetBytes: 128_000 },
+});
+```
+
+`host` ofrece `apply`, `inspect` y `bootstrapCapability`; las únicas operaciones
+del runtime siguen siendo `apply/inspect`. La factory compone
+`FileSystemStateStore`, `SystemEnvironmentProbe`, reloj y telemetría JSONL
+reales. `configuration` acepta solo los overrides de `protocol.json`;
+`telemetrySink` se resuelve mediante `telemetrySinks`. `cacheDirectory`,
+`temporaryDirectory`, `capabilities` y `capabilityTtlMs` son opciones internas
+del host, no campos del contrato del proyecto.
+
+La composición no crea agentes, no instala herramientas y no ejecuta ni
+modifica Git. Para recuperar una DevSession tras reiniciar el proceso, se crea
+otra composición con la misma `root`, se usa `inspect` para leer el snapshot y
+se repite exactamente el comando `start-session` original con la nueva
+`bootstrapCapability`; el kernel reemite la capacidad de la sesión sin repetir
+la transición.
+
 ## Contexto mínimo
 
 La DevSession es el ledger de coordinación, no el prompt de un rol. El caller
@@ -113,16 +141,16 @@ implementarla, la transfiere una sola vez a `feature` o `refactor`.
 
 ## Validación del repositorio
 
-Validación focalizada:
+Validación sintáctica autoritativa:
 
 ```bash
-node --check scripts/agentic-init.mjs
-node --check bin/agentic.mjs
-node --check .agents/kernel/protocol.mjs
-node --check .agents/kernel/protocol-manifest.mjs
-node --check .agents/kernel/adapters.mjs
-node --check .agents/kernel/orchestration-kernel.mjs
-node --check .agents/conformance/protocol-conformance.mjs
+npm run check
+```
+
+El comando deriva de `.agents/protocol.json` todos los módulos `.mjs` que
+viajan en el paquete. La validación focalizada añade el caso relacionado:
+
+```bash
 node --test --test-name-pattern="<caso relacionado>"
 ```
 
@@ -143,12 +171,14 @@ registro.
 - `AGENTS.md`: contrato configurable del proyecto.
 - `.agents/policies/`: activación, seguridad y reglas comunes.
 - `.agents/kernel/`: protocolo, estado y adapters de infraestructura.
+- `.agents/kernel/composition.mjs`: única composición productiva del runtime.
 - `.agents/kernel/protocol-manifest.mjs`: consumidor único del inventario y de
   la configuración declarados en `.agents/protocol.json`.
 - `.agents/schemas/`: contratos JSON actuales.
 - `.agents/conformance/`: verificación de estructura y distribución.
 - `.agents/roles/`, `.agents/workflows/`, `.agents/templates/`: proceso.
 - `.codex/`, `.claude/` y `CLAUDE.md`: adapters delgados.
+- `scripts/agentic-check.mjs`: check sintáctico derivado del inventario.
 - `scripts/agentic-init.mjs` y `bin/agentic.mjs`: adopción y CLI.
 - `tests/`: comportamiento público y distribución.
 
