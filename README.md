@@ -18,6 +18,12 @@ Desde este repositorio:
 node scripts/agentic-init.mjs --target <directorio>
 ```
 
+Para actualizar una capa agéntica existente:
+
+```bash
+npx --yes github:KroxiDev/agentic-layer update .
+```
+
 La inicialización detecta hechos del proyecto, solicita únicamente los campos
 contractuales que no puede inferir y escribe el inventario canónico. No instala
 herramientas, no accede a remotos y no modifica Git. `--dry-run` muestra el plan
