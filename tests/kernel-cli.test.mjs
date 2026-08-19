@@ -221,6 +221,28 @@ test("una sesión completa se conduce por procesos separados sin exponer capacid
     ),
   );
   assert.equal(dispatched.envelope.role, "implementador");
+
+  // El brief reimprime el prompt autocontenido del intento despachado: contrato
+  // del rol verbatim, sobre exacto y contrato del reporte derivado del schema.
+  const brief = runCli(repository, ["brief", SESSION, "attempt-impl"]);
+  assert.equal(brief.status, 0, brief.stderr);
+  assert.match(brief.stdout, /# Rol: Implementador/);
+  assert.ok(brief.stdout.includes(dispatched.envelope.objective));
+  const reportSchema = JSON.parse(
+    await readFile(
+      join(repository, ".agents", "schemas", "role-report.schema.json"),
+      "utf8",
+    ),
+  );
+  for (const key of reportSchema.required) {
+    assert.ok(brief.stdout.includes(key), `El brief omite la clave ${key}.`);
+  }
+  assert.doesNotMatch(brief.stdout, /actorCapability/);
+
+  const missingBrief = parseStderr(runCli(repository, ["brief", SESSION, "attempt-inexistente"]));
+  assert.equal(missingBrief.code, "attempt_not_found");
+  assert.equal(runCli(repository, ["brief"]).status, 2);
+
   const accepted = parseStdout(
     applyStep(
       "accept-role-report",

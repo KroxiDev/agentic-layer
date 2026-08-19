@@ -111,6 +111,7 @@ La vía normal de conducir el kernel desde un host es el CLI delgado
 ```bash
 node .agents/scripts/kernel-cli.mjs help dispatch-attempt   # claves exactas del payload
 node .agents/scripts/kernel-cli.mjs inspect <sessionId>     # vista JSON del snapshot
+node .agents/scripts/kernel-cli.mjs brief <sessionId> <attemptId>  # prompt del despacho
 node .agents/scripts/kernel-cli.mjs apply <tipo> --session <id> \
   --command-id <id> --expected-revision <n> --payload <archivo.json|->
 ```
@@ -198,7 +199,7 @@ registro.
 - `.agents/kernel/protocol-manifest.mjs`: consumidor único del inventario y de
   la configuración declarados en `.agents/protocol.json`.
 - `.agents/scripts/kernel-cli.mjs`: CLI delgado para conducir `apply`,
-  `inspect` y `help` del kernel desde procesos host.
+  `inspect`, `help` y `brief` del kernel desde procesos host.
 - `.agents/schemas/`: contratos JSON actuales.
 - `.agents/conformance/`: verificación de estructura y distribución.
 - `.agents/roles/`, `.agents/workflows/`, `.agents/templates/`: proceso.

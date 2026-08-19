@@ -20,10 +20,12 @@ la capacidad repitiendo exactamente `start-session`.
 
 `scripts/kernel-cli.mjs` es la vía normal de conducir esa composición desde el
 host: `apply`, `inspect` y `help <tipo>` con las claves exactas de payload
-derivadas del kernel. Cada invocación es un proceso independiente que recupera
-autoridad releyendo `recovery.bootstrapCommand` del snapshot; no añade métodos
-al kernel, no imprime capacidades y deja los códigos de `KernelError` intactos
-en stderr.
+derivadas del kernel, más `brief <sessionId> <attemptId>`, que imprime el
+prompt autocontenido de un despacho ya materializado —sobre, contrato del rol
+y contrato del `RoleReport`— sin que el subagente relea nada. Cada invocación
+es un proceso independiente que recupera autoridad releyendo
+`recovery.bootstrapCommand` del snapshot; no añade métodos al kernel, no
+imprime capacidades y deja los códigos de `KernelError` intactos en stderr.
 
 `protocol.json` es también la fuente autoritativa de rutas instaladas, assets,
 markers, directorios gestionados y overrides del host. El consumidor compartido
@@ -86,7 +88,7 @@ antes de la mutación final.
 - `kernel/protocol-manifest.mjs`: validación y proyección del inventario y de
   los overrides declarados por `protocol.json`.
 - `scripts/kernel-cli.mjs`: CLI delgado del kernel para procesos host —
-  `apply`, `inspect` y `help` derivado del código.
+  `apply`, `inspect`, `help` derivado del código y `brief` de cada despacho.
 - `schemas/`: contratos JSON de aceptación, reporte, evento y validación.
 - `conformance/`: gate ejecutable de inventario, schemas, overrides e interface.
 - `protocol.json`: inventario indivisible y schema de overrides admitidos.

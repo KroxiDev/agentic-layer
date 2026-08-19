@@ -35,7 +35,11 @@ description: Orquesta tareas de desarrollo mediante roles aislados, DevSession y
    `node .agents/scripts/kernel-cli.mjs help dispatch-attempt`. El kernel
    materializa un `WorkEnvelope` inmutable y autocontenido y deriva
    `sourceRevision` y `contextPaths`. Despachar solo el sobre y la instrucción
-   breve de ejecutar el contrato del rol; nunca una capacidad o el ledger.
+   breve de ejecutar el contrato del rol; nunca una capacidad o el ledger. El
+   prompt del subagente es la salida de
+   `node .agents/scripts/kernel-cli.mjs brief <sessionId> <attemptId>`, que ya
+   incluye el sobre, el contrato del rol y el contrato del reporte: el
+   subagente no relee roles, políticas ni esquemas.
 6. Recibir un `RoleReport` estructurado y presentarlo al kernel con
    `accept-role-report`. Los roles nunca reciben capacidad ni mutan estado. Usar
    `record-attempt-failure` para cerrar interrupciones sin fabricar reportes, y

@@ -12,6 +12,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const USAGE = `Uso:
   node .agents/scripts/kernel-cli.mjs help [tipo]
   node .agents/scripts/kernel-cli.mjs inspect <sessionId>
+  node .agents/scripts/kernel-cli.mjs brief <sessionId> <attemptId>
   node .agents/scripts/kernel-cli.mjs apply <tipo> --session <id> --command-id <id> \\
     --expected-revision <n> [--payload <archivo.json|->]
 
@@ -85,6 +86,62 @@ async function recoverAuthority(composition, sessionId) {
   return recovered.actorCapability;
 }
 
+// El brief es el prompt completo de un despacho ya materializado: contrato del
+// rol verbatim, sobre exacto y contrato del reporte derivado del schema vigente.
+function renderBrief(envelope, roleContract, schema) {
+  const finding = schema.properties.findings.items.properties;
+  return `# Despacho ${envelope.attemptId} — rol ${envelope.role}
+
+Sesión \`${envelope.sessionId}\` · fase \`${envelope.phase}\` · permiso
+\`${envelope.permission}\` · generación ${envelope.generation}.
+
+## Contrato del rol
+
+${roleContract.trim()}
+
+## WorkEnvelope
+
+\`\`\`json
+${JSON.stringify(envelope, null, 2)}
+\`\`\`
+
+## Contrato del RoleReport
+
+- Claves obligatorias: ${schema.required.join(", ")}.
+- \`completion\`: ${schema.properties.completion.enum.join(" | ")}.
+- \`decision\`: ${schema.properties.decision.enum.join(" | ")}.
+- \`findings[].classification\`: ${finding.classification.enum.join(" | ")}.
+- \`findings[].severity\`: ${finding.severity.enum.join(" | ")}.
+- Todo finding no informativo exige \`reproduction\` (\`commandDigest\`,
+  \`expected\`, \`observed\`); \`decision: "fail"\` exige al menos un finding
+  accionable.
+- \`evidence[]\`: \`{ kind: "command", commandDigest, exitCode, durationMs }\`;
+  \`decision: "pass"\` exige \`exitCode\` 0 en toda la evidencia.
+- Identidad exacta: \`schemaVersion\` ${schema.properties.schemaVersion.const},
+  \`sessionId\` \`${envelope.sessionId}\`, \`attemptId\` \`${envelope.attemptId}\`,
+  \`acceptanceContractHash\` \`${envelope.acceptanceContractHash}\`, \`role\`
+  \`${envelope.role}\`.
+
+Devolver únicamente el RoleReport JSON.
+`;
+}
+
+async function readBrief(sessionId, attemptId) {
+  const composition = createOrchestrationComposition({ root: ROOT });
+  const envelope = (await composition.inspect(sessionId))?.attempts?.[attemptId]?.envelope;
+  if (!envelope) {
+    throw new KernelError(
+      "attempt_not_found",
+      `La sesión ${sessionId} no expone el intento ${attemptId}.`,
+    );
+  }
+  const [roleContract, schemaSource] = await Promise.all([
+    readFile(resolve(ROOT, ".agents", "roles", `${envelope.role}.md`), "utf8"),
+    readFile(resolve(ROOT, ".agents", "schemas", "role-report.schema.json"), "utf8"),
+  ]);
+  return renderBrief(envelope, roleContract, JSON.parse(schemaSource));
+}
+
 async function main() {
   const [command, ...rest] = process.argv.slice(2);
   if (command === "help") {
@@ -100,6 +157,11 @@ async function main() {
     if (rest.length !== 1) usageError("inspect exige exactamente <sessionId>.");
     const composition = createOrchestrationComposition({ root: ROOT });
     printJson(await composition.inspect(rest[0]));
+    return;
+  }
+  if (command === "brief") {
+    if (rest.length !== 2) usageError("brief exige exactamente <sessionId> <attemptId>.");
+    process.stdout.write(await readBrief(rest[0], rest[1]));
     return;
   }
   if (command === "apply") {

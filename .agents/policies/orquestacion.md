@@ -251,7 +251,10 @@ continúa sin ejecutarse por defecto.
 Cada `dispatch-attempt` materializa un `WorkEnvelope` inmutable y
 autocontenido; las claves exactas de su payload las imprime
 `node .agents/scripts/kernel-cli.mjs help dispatch-attempt` y una clave de más
-produce `invalid_command`. Implementador y Documentador exigen `writer`;
+produce `invalid_command`. El prompt de cada despacho es la salida de
+`node .agents/scripts/kernel-cli.mjs brief <sessionId> <attemptId>`, que ya
+contiene el contrato del rol y el del reporte.
+Implementador y Documentador exigen `writer`;
 Explorador, Planificador y Evaluador exigen `read-only`. Un Tester de unidad
 puede ser `read-only` o `writer`, pero el segundo caso exige el `workUnitId` y
 el ownership de esa unidad; el Tester del lane `full:<generation>` y la
