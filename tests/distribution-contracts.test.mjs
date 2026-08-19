@@ -464,18 +464,23 @@ test("la distribución conserva el contrato completo de intentos en protocolo y 
     ),
   );
 
-  for (const field of [
-    "`baseRevision`",
-    "`threadId`",
-    "`permission`",
-    "`contextManifest`",
-    "`ownedPaths`",
-    "`validationStrategy`",
-    "`sourceRevision`",
-    "`contextPaths`",
-  ]) {
-    assert.ok(policy.includes(field), `La política omite ${field}.`);
-    assert.ok(skill.includes(field), `La skill omite ${field}.`);
+  // El contrato de campos del intento vive en el schema del WorkEnvelope
+  // (aserciones de arriba) y en la salida ejecutable del CLI (tests/kernel-cli):
+  // la prosa ya no lo duplica, pero debe apuntar a esa fuente ejecutable y
+  // conservar el nombre del código de error que delata cada garantía.
+  const { COMMAND_PAYLOAD_KEYS } = await import("../.agents/kernel/orchestration-kernel.mjs");
+  for (const field of envelope.required) {
+    const enforced =
+      COMMAND_PAYLOAD_KEYS["dispatch-attempt"].has(field) ||
+      ["schemaVersion", "sessionId", "attemptId"].includes(field) ||
+      Object.hasOwn(envelope.properties, field);
+    assert.ok(enforced, `El envelope exige ${field} sin definirlo.`);
+  }
+  for (const source of [policy, skill]) {
+    assert.match(source, /kernel-cli\.mjs help/);
+  }
+  for (const code of ["invalid_command", "invalid_attempt_permission", "invalid_role_report"]) {
+    assert.ok(policy.includes(code), `La política omite el código ${code}.`);
   }
   assert.match(policy, /Explorador, Planificador y Evaluador exigen\s+`read-only`/);
   assert.match(policy, /Implementador y\s+Documentador exigen `writer`/);
@@ -786,6 +791,7 @@ test("el contrato estructurado único se distribuye con ownership único y prese
     kernelPath,
     protocolModulePath,
     protocolManifestPath,
+    ".agents/scripts/kernel-cli.mjs",
     ...schemaPaths,
     subdevTemplatePath,
   ];

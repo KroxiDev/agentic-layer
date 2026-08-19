@@ -234,10 +234,11 @@ del impacto la exijan.
 La planificación `full` puede declarar entre una y tres unidades de
 implementación. Cada una declara `workUnitId`, `criterionIds`, `dependsOn`,
 `ownedPaths`, `permission: "writer"` y una `validationStrategy` admitida; el
-kernel deriva su oleada desde el DAG. Sus dependencias solo quedan satisfechas
-por validación atribuible del Tester. La estrategia compacta exige una sola
-unidad writer, sin dependencias, con su validación focalizada concreta
-persistida. No repetir una unidad validada salvo impacto demostrado.
+kernel deriva su oleada desde el DAG y rechaza contratos incompletos, ciclos y
+colisiones (`invalid_plan`). Sus dependencias solo quedan satisfechas por
+validación atribuible del Tester. La estrategia compacta exige una sola unidad
+writer, sin dependencias, con su validación focalizada concreta persistida. No
+repetir una unidad validada salvo impacto demostrado.
 
 Cada unidad recibe validación focalizada atribuible mediante un caso, patrón o
 procedimiento concreto. El Implementador conserva una comprobación
@@ -247,30 +248,24 @@ sola vez antes de la evaluación final. En la estrategia compacta, el Evaluador
 combinado independiente juzga o ejecuta la señal focalizada y la suite completa
 continúa sin ejecutarse por defecto.
 
-Cada `dispatch-attempt` declara `attemptId`, `baseRevision`, `threadId`, `phase`
-y su propio `permission` (`read-only` o `writer`), además de `objective`,
-`rules`, `tasks`, `findings` y `contextManifest` explícitos. Implementador y
-Documentador exigen `writer`; Explorador, Planificador y Evaluador exigen
-`read-only`. Un Tester de unidad puede ser `read-only` o `writer`, pero el
-segundo caso exige el `workUnitId` y el ownership de esa unidad. El Tester del
-lane `full:<generation>` y la reproducción previa sin unidad son siempre
-`read-only`.
+Cada `dispatch-attempt` materializa un `WorkEnvelope` inmutable y
+autocontenido; las claves exactas de su payload las imprime
+`node .agents/scripts/kernel-cli.mjs help dispatch-attempt` y una clave de más
+produce `invalid_command`. Implementador y Documentador exigen `writer`;
+Explorador, Planificador y Evaluador exigen `read-only`. Un Tester de unidad
+puede ser `read-only` o `writer`, pero el segundo caso exige el `workUnitId` y
+el ownership de esa unidad; el Tester del lane `full:<generation>` y la
+reproducción previa sin unidad son siempre `read-only`. El kernel valida
+permiso, rol, unidad, lane, lifecycle y ownership portable —exclusivo por ruta,
+sin escapes ni colisiones de ancestro/descendiente, insensible a mayúsculas y
+aliases de Windows— antes de persistir (`invalid_attempt_permission`,
+`invalid_transition`), calcula `sourceRevision`, y un intento abierto nunca se
+reescribe.
 
-El kernel valida permiso, rol, unidad, lane, lifecycle y ownership antes de
-persistir. El `WorkEnvelope` de `schemaVersion: 3` conserva revisión base, hilo,
-fase, permiso, criterios completos, `ownedPaths`, estrategia de validación,
-oleada, objetivo, reglas, tareas, findings y contexto atribuible; calcula
-`sourceRevision` desde la revisión vigente. No contiene capacidad de mutación
-ni una copia del ledger, y un intento abierto nunca se reescribe.
-
-Solo puede existir un solo escritor activo por working tree. Un writer lock
-durable usa la identidad canónica del working tree y se comparte entre todas
-sus DevSessions. Sin worktrees
-aislados aprobados, Implementadores y Testers con permiso de escritura se
-ejecutan secuencialmente. Cada ruta editable tiene un propietario exclusivo;
-rechazar rutas no canónicas, escapes y colisiones exactas o de
-ancestro/descendiente antes de despachar. La comparación es portable a Windows:
-ignora mayúsculas y aliases por puntos o espacios terminales en cada segmento.
+Solo puede existir un escritor activo por working tree: el kernel lo garantiza
+con una reserva durable compartida entre todas las DevSessions del árbol
+(`writer_locked`). Sin worktrees aislados aprobados, Implementadores y Testers
+con permiso de escritura se ejecutan secuencialmente.
 
 En `full`, ejecutar el fan-in después de que todas las unidades
 estén implementadas, validadas y consolidadas. En estrategia compacta, el
@@ -279,23 +274,18 @@ una sola mutación el gate de unidad y el eje `combined`. Fuera de esa excepció
 la evaluación final usa por defecto un solo Evaluador `read-only` y un eje
 combinado que cubre Estándares y Especificación, también en `full`. El
 Planificador solo puede registrar `evaluationStrategy: dual` antes del fan-in
-cuando `evaluationRisk` sea una de estas categorías deterministas:
+cuando `evaluationRisk` sea una de las categorías deterministas de la lista
+cerrada que valida el kernel (`invalid_plan`): `architectural-decision`,
+`security-or-integrity`, `public-compatibility-or-migration` o
+`considerable-fan-in`. La estrategia dual usa dos Evaluadores `read-only`
+independientes, uno por eje; sin una categoría válida, usar
+`evaluationStrategy: combined`. La aprobación exige conformidad de todos los
+ejes requeridos por la estrategia registrada.
 
-- `architectural-decision`;
-- `security-or-integrity`;
-- `public-compatibility-or-migration`;
-- `considerable-fan-in`, para varias unidades independientes cuyo fan-in tenga
-  riesgo considerable.
-
-La estrategia dual usa dos Evaluadores `read-only` independientes, uno por eje.
-Sin una categoría válida, usar `evaluationStrategy: combined`. La aprobación
-exige conformidad de todos los ejes requeridos por la estrategia registrada.
-
-Cada fan-in tiene una generación. Reabrir una unidad invalida todos los ejes e
-incrementa la generación; cada eje puede reintentarse de forma monotónica y
-trazable. Un reporte rojo o `fail` del Tester en la ruta separada, o un veredicto
-negativo del Evaluador compacto, deja la unidad no validada y habilita
-retrabajo del Implementador.
+Cada fan-in tiene una generación: reabrir una unidad invalida todos los ejes y
+la incrementa. Un reporte rojo o `fail` del Tester en la ruta separada, o un
+veredicto negativo del Evaluador compacto, deja la unidad no validada y
+habilita retrabajo del Implementador.
 
 ## Estrategias de validación por unidad
 
@@ -355,12 +345,9 @@ Documentador. Cuando ninguna condición aplica, registrar `No aplica` con un
 motivo breve en la DevSession y no abrir ni crear un contexto de Documentador.
 Este gate es condicional por evidencia y riesgo, no opcional por comodidad.
 No altera `architecture-propose` ni `architecture-record`, cuyas fases registran
-una propuesta o decisión durable según su workflow específico.
-
-En la ruta separada, el orden de cierre se conserva: fan-in, validación completa
-única en `full`, evaluación y Documentador condicional. En compacto, la
-aprobación combinada produce fan-in y evaluación atómicos antes del mismo gate
-documental.
+una propuesta o decisión durable según su workflow específico. El orden de
+cierre lo hace cumplir el lifecycle del kernel: fan-in y validación previos a
+la evaluación, y este gate después de la aprobación.
 
 ## Selección de workflow
 
@@ -418,14 +405,11 @@ materializa un `WorkEnvelope` autocontenido como único sobre normal. El caller
 debe aportar `objective`, `rules` y `tasks` como strings no vacíos, `findings`
 como lista estructurada y `contextManifest` como lista explícita de archivos
 consultables con ruta, hash y bytes. El kernel deduplica el manifiesto, deriva
-`contextPaths` y calcula `sourceRevision`; el caller no puede imponer ninguno
-de estos dos últimos campos.
-
-`contextPaths` conserva el orden elegido y usa rutas relativas canónicas. Se
-rechazan rutas absolutas, escapes, segmentos ambiguos, aliases por puntos o
-espacios terminales, duplicados portables a Windows, índices locales protegidos
-y directorios completos. El sobre muestra cada ruta sin copiar su contenido y
-el bloque administrado conserva las rutas canónicas y la revisión fuente.
+`contextPaths` en orden con rutas relativas canónicas —rechaza absolutas,
+escapes, aliases, duplicados portables, índices protegidos y directorios
+completos (`invalid_command`)— y calcula `sourceRevision`; el caller no puede
+imponer estos dos campos derivados. El sobre muestra cada ruta sin copiar su
+contenido.
 
 La selección mínima por rol es:
 
@@ -470,81 +454,72 @@ puede depender de ella.
 
 Las sesiones usan el módulo profundo
 `.agents/kernel/orchestration-kernel.mjs` mediante una única interface pública
-de dos operaciones:
-
-- `apply(command)`: autentica la capacidad del orquestador y concentra máquina
-  de estados, CAS, idempotencia global por `commandId`, presupuesto, aceptación,
-  lanes, persistencia y telemetría;
-- `inspect(sessionId)`: devuelve una vista sin capacidades ni secretos.
+de dos operaciones: `apply(command)`, que autentica la capacidad del
+orquestador y concentra máquina de estados, CAS, idempotencia global por
+`commandId`, presupuesto, aceptación, lanes, persistencia y telemetría; e
+`inspect(sessionId)`, que devuelve una vista sin capacidades ni secretos.
 
 El host productivo construye esas operaciones únicamente mediante
-`createOrchestrationComposition` de `.agents/kernel/composition.mjs`. La factory
-instala `FileSystemStateStore`, `SystemEnvironmentProbe`, reloj y telemetría
-reales, resuelve los overrides declarados por `protocol.json` y devuelve la
-capacidad bootstrap opaca como dato separado. No crea agentes, instala
-herramientas, modifica Git ni introduce otro runtime. Tras un reinicio, recrear
-la composición sobre la misma raíz y repetir exactamente `start-session` es la
-única recuperación de autoridad admitida.
+`createOrchestrationComposition` de `.agents/kernel/composition.mjs`, y la vía
+normal de conducirlas es el CLI delgado `node .agents/scripts/kernel-cli.mjs`:
+`inspect <sessionId>` imprime la vista, `apply <tipo> …` recupera autoridad y
+aplica, y `help <tipo>` imprime las claves exactas del payload derivadas del
+código. La composición no crea agentes, instala herramientas, modifica Git ni
+introduce otro runtime. Tras un reinicio, la única recuperación de autoridad
+admitida es repetir exactamente `start-session` sobre la misma raíz; el CLI la
+ejecuta releyendo `recovery.bootstrapCommand` del snapshot. La capacidad
+emitida es opaca, exclusiva de la sesión y los sobres y reportes nunca la
+contienen.
 
-El orquestador es el único caller mutador. `start-session` ejecuta el preflight
-antes del primer snapshot y emite una capacidad opaca, limitada y exclusiva de
-esa sesión. Los sobres y reportes nunca la contienen. Repetir el mismo
-`commandId` y payload devuelve el resultado original; reutilizarlo con otro
-payload produce `idempotency_conflict`, y un comando nuevo con una revisión
-obsoleta produce `stale_revision` sin mutar.
-
-Una interrupción o timeout se cierra con `record-attempt-failure`, causa de
-retry estructurada y timestamps atribuibles. El orquestador no fabrica un
-`RoleReport`: cerrar el intento libera su reserva y un retry abre un sobre
-nuevo.
-
-El estado autoritativo es un snapshot más un event log append-only. Markdown
-es únicamente una vista humana: ninguna regex narrativa decide una transición.
-Todo `RoleReport` declara `completion`, `decision`, `findings` y `evidence` de
-forma estructurada y referencia el hash vigente del `AcceptanceContract`.
+El orquestador es el único caller mutador y no fabrica un `RoleReport`: una
+interrupción o timeout se cierra con `record-attempt-failure` y causa de retry
+estructurada; cerrar el intento libera su reserva y un retry abre un sobre
+nuevo. El estado autoritativo es un snapshot más un event log append-only;
+Markdown es únicamente una vista humana y ninguna regex narrativa decide una
+transición.
 
 El `AcceptanceContract` queda versionado y congelado al aceptar el plan. Un
 cambio exige `amend-scope`, aprobación atribuible y un hash nuevo. Una tarea
 destructiva sin puntos de commit y semánticas pre/postcommit completas vuelve a
-`awaiting_input`; el kernel nunca inventa rollback, papelera ni cleanup.
+`awaiting_input`; el kernel nunca inventa rollback, papelera ni cleanup. El
+Evaluador aporta la clasificación cerrada de cada finding y su reproducción; el
+kernel deriva el efecto —retrabajo por una violación vigente, diferimiento con
+evidencia, o `scope_decision_required` ante un finding nuevo crítico— y un ID
+inexistente o una contradicción entre `decision` y findings rechaza el reporte
+completo sin cambiar revisión.
 
-Los findings se clasifican de forma cerrada:
+Las siguientes garantías ya las hace cumplir el kernel antes de persistir, con
+tests propios; la prosa solo las nombra con el código que las delata:
 
-- `acceptance_violation` cita un criterio vigente y puede abrir retrabajo;
-- `transversal_policy_violation` cita una política vigente y puede abrir
-  retrabajo;
-- `novel_adversarial_finding` crítico produce
-  `scope_decision_required`; si no es crítico se difiere con evidencia;
-- `informational` no bloquea.
+- tipos de comando y claves exactas de payload: `unknown_command` e
+  `invalid_command`; la lista viva la imprime
+  `node .agents/scripts/kernel-cli.mjs help <tipo>`;
+- permiso por rol y compatibilidad con unidad, lane y lifecycle:
+  `invalid_attempt_permission`, `invalid_transition`;
+- formas de `WorkEnvelope` y `RoleReport`, con schemas de `required` explícito
+  y `additionalProperties: false`: `invalid_role_report`;
+- plan, estrategias de validación, riesgos de evaluación y causas de retry
+  cerradas: `invalid_plan`, `invalid_command`;
+- idempotencia y CAS: repetir el mismo `commandId` y payload devuelve el
+  resultado original; otro payload produce `idempotency_conflict` y una
+  revisión obsoleta produce `stale_revision` sin mutar;
+- autoridad por capacidad opaca: `actor_not_authorized`, `capability_leak`;
+- un solo writer por working tree con reserva durable: `writer_locked`,
+  `writer_checkpoint_conflict`, `writer_recovery_unproven`;
+- preflight de entorno antes del primer snapshot: `environment_failed`;
+- presupuesto de retrabajo — la evaluación inicial no consume presupuesto y el
+  tope base de dos `evaluationReworkCycles` rige por igual en `full` y
+  compacto—: `rework_budget_exhausted` con `scope_decision_required`;
+- lane `full:<generation>`: la evaluación no abre hasta que su evidencia por
+  fingerprints esté verde, ambos ejes duales consumen la misma evidencia y un
+  cambio exige validación nueva.
 
-El Evaluador aporta clasificación y reproducción; el kernel deriva el efecto.
-Un ID inexistente o una contradicción entre `decision` y findings rechaza el
-reporte completo sin cambiar revisión.
-
-En `full`, después de consolidar todas las unidades existe el lane persistido
-`full:<generation>`. La evaluación no abre hasta que su evidencia, identificada
-por fingerprints de árbol, entorno y comandos, esté verde. Ambos ejes de una
-evaluación dual consumen la misma evidencia. El mismo fingerprint se reutiliza
-sin una segunda transición funcional; un cambio exige validación nueva.
-
-La evaluación inicial no consume presupuesto. Cada rechazo de una generación
-abre como máximo un ciclo, aunque ambos ejes encuentren el mismo defecto. El
-tope base de dos `evaluationReworkCycles` rige por igual en `full` y
-`light` compacto; el intento de abrir un tercero produce
-`rework_budget_exhausted` y `scope_decision_required`.
-
-Cada transición registra actor autenticado, timestamps UTC, duración
-monotónica, revisiones y estados, bytes y rutas del manifiesto de contexto,
-comandos de validación, causa de retry y espera de elevación cuando exista. No
-registra contenido completo de prompts, capacidades ni secretos. Si el
-`EventSink` falla después de guardar el snapshot, el ledger sigue coherente y
-la degradación queda observable.
-
-`MemoryStateStore`, `FakeClock`, `FakeEnvironmentProbe` y `MemoryEventSink`
-ejercitan la misma interface que los adapters de filesystem, reloj del sistema,
-entorno real y JSONL. Los proyectos solo pueden configurar los overrides
-declarados por `.agents/protocol.json`; modificar la interface del kernel es
-drift y falla la suite de conformidad.
+Cada transición registra telemetría atribuible sin contenido de prompts,
+capacidades ni secretos; si el `EventSink` falla después del snapshot, el
+ledger sigue coherente y la degradación queda observable. Los adapters de
+memoria ejercitan la misma interface que los de producción, los proyectos solo
+configuran los overrides declarados por `.agents/protocol.json`, y modificar la
+interface del kernel es drift que la suite de conformidad rechaza.
 
 ## Contexto de una tarea anterior
 
@@ -577,11 +552,9 @@ queda incompleta o bloqueada, conservar todo el bundle.
 
 El snapshot y el event log bajo `.agents/sessions/state/` forman el ledger
 durable; `templates/dev-session.md` es solo una vista humana. `start-session`
-es la única entrada de creación. Cada `dispatch-attempt` materializa un
-`WorkEnvelope` autocontenido, y solo `OrchestrationKernel.apply` puede cambiar
-el estado usando revisión esperada y capacidad del orquestador.
-
-El ledger registra objetivo, workflow, modo, estrategia light cuando aplique,
+es la única entrada de creación y solo `OrchestrationKernel.apply` puede
+cambiar el estado usando revisión esperada y capacidad del orquestador. El
+ledger registra objetivo, workflow, modo, estrategia light cuando aplique,
 unidades, ownership, intentos, evidencia, generaciones, evaluación,
 documentación y estado terminal. Antes de cada despacho, el orquestador
 selecciona únicamente las referencias admitidas por **Proyección mínima de
