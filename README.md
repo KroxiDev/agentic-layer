@@ -114,6 +114,8 @@ node .agents/scripts/kernel-cli.mjs inspect <sessionId>     # vista JSON del sna
 node .agents/scripts/kernel-cli.mjs brief <sessionId> <attemptId>  # prompt del despacho
 node .agents/scripts/kernel-cli.mjs apply <tipo> --session <id> \
   --command-id <id> --expected-revision <n> --payload <archivo.json|->
+node .agents/scripts/kernel-cli.mjs retry <sessionId> <attemptIdFallido> \
+  --attempt-id <nuevo> --command-id <id> --expected-revision <n>   # re-despacha el sobre
 ```
 
 Cada invocación es un proceso independiente: `apply` recupera autoridad
@@ -199,7 +201,7 @@ registro.
 - `.agents/kernel/protocol-manifest.mjs`: consumidor único del inventario y de
   la configuración declarados en `.agents/protocol.json`.
 - `.agents/scripts/kernel-cli.mjs`: CLI delgado para conducir `apply`,
-  `inspect`, `help` y `brief` del kernel desde procesos host.
+  `inspect`, `help`, `brief` y `retry` del kernel desde procesos host.
 - `.agents/schemas/`: contratos JSON actuales.
 - `.agents/conformance/`: verificación de estructura y distribución.
 - `.agents/roles/`, `.agents/workflows/`, `.agents/templates/`: proceso.

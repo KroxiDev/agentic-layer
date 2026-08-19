@@ -1763,7 +1763,13 @@ function applyToState(state, command, clock) {
     const attempt = state.attempts[payload.attemptId];
     if (!attempt || attempt.state !== "active") invalid("attempt_not_active", "El intento no está activo.");
     failAttempt(attempt, payload, clock);
-    if (attempt.role === "implementador" || (attempt.role === "tester" && !attempt.laneId)) {
+    // Un writer interrumpido deja el árbol desconocido; un Tester read-only de unidad no tocó nada.
+    const treeUnknown = attempt.permission === "writer";
+    const reworkCause = payload.retryCause === "evaluation-rework";
+    if (
+      attempt.role === "implementador" ||
+      (attempt.role === "tester" && !attempt.laneId && (treeUnknown || reworkCause))
+    ) {
       const unit = state.workUnits[attempt.workUnitId];
       unit.consolidated = false;
       unit.status = "needs_rework";

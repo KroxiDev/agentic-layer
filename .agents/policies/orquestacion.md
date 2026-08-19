@@ -484,9 +484,13 @@ contienen.
 El orquestador es el único caller mutador y no fabrica un `RoleReport`: una
 interrupción o timeout se cierra con `record-attempt-failure` y causa de retry
 estructurada; cerrar el intento libera su reserva y un retry abre un sobre
-nuevo. El estado autoritativo es un snapshot más un event log append-only;
-Markdown es únicamente una vista humana y ninguna regex narrativa decide una
-transición.
+nuevo. Ese fallo de plataforma (`timeout`, `interruption`, `stale-read`) se
+re-despacha con `node .agents/scripts/kernel-cli.mjs retry <sessionId>
+<attemptIdFallido>`, que reconstruye el payload desde el sobre persistido y no
+consume presupuesto de retrabajo; antes del retry el orquestador confirma que
+`baseRevision` sigue vigente, porque el retry reutiliza la original. El estado
+autoritativo es un snapshot más un event log append-only; Markdown es
+únicamente una vista humana y ninguna regex narrativa decide una transición.
 
 El `AcceptanceContract` queda versionado y congelado al aceptar el plan. Un
 cambio exige `amend-scope`, aprobación atribuible y un hash nuevo. Una tarea

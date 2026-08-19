@@ -2861,3 +2861,54 @@ test("la conformidad exige inventario, schemas y marcadores canónicos", async (
     code: "conformance_kernel_interface_drift",
   });
 });
+
+test("un fallo de plataforma solo invalida la unidad cuando el árbol quedó desconocido", async () => {
+  async function failUnitTester(overrides = {}) {
+    const { retryCause = "timeout", permission = "read-only" } = overrides;
+    const harness = createHarness();
+    await start(harness, { mode: "full" });
+    await plan(harness);
+    await dispatchAndReport(harness, { role: "implementador", workUnitId: "unit-1" });
+    const attempt = commandId("unit-tester");
+    await apply(harness, "dispatch-attempt", {
+      attemptId: attempt,
+      baseRevision: "git:test-base",
+      contextManifest: [],
+      findings: [],
+      objective: "Validar la unidad.",
+      permission,
+      phase: "unit-validation",
+      role: "tester",
+      rules: "Contrato.",
+      tasks: "Verificar la unidad.",
+      threadId: `thread-${attempt}`,
+      workUnitId: "unit-1",
+    });
+    await apply(harness, "record-attempt-failure", {
+      attemptId: attempt,
+      reason: "La plataforma no devolvió reporte.",
+      retryCause,
+    });
+    return { attempt, harness, view: await harness.kernel.inspect(harness.sessionId) };
+  }
+
+  // Un Tester de unidad read-only interrumpido por la plataforma no tocó el
+  // árbol: la unidad sigue implementada y basta re-despachar al Tester.
+  const platform = await failUnitTester();
+  assert.equal(platform.view.attempts[platform.attempt].state, "failed");
+  assert.equal(platform.view.lifecycle, "unit_validation");
+  assert.equal(platform.view.workUnits["unit-1"].status, "implemented");
+  const revalidated = await dispatchAndReport(platform.harness, {
+    role: "tester",
+    workUnitId: "unit-1",
+  });
+  assert.equal(revalidated.accepted.decision, "pass");
+
+  const rework = await failUnitTester({ retryCause: "evaluation-rework" });
+  assert.equal(rework.view.workUnits["unit-1"].status, "needs_rework");
+  assert.equal(rework.view.lifecycle, "executing");
+
+  const writer = await failUnitTester({ permission: "writer" });
+  assert.equal(writer.view.workUnits["unit-1"].status, "needs_rework");
+  assert.equal(writer.view.lifecycle, "executing");
+});

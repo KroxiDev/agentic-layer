@@ -303,3 +303,124 @@ test("una sesión completa se conduce por procesos separados sin exponer capacid
     type: "start-session",
   });
 });
+
+test("retry re-despacha desde el sobre persistido del intento fallido", async () => {
+  const repository = await adoptedRepository("kernel-cli-retry");
+  const contract = acceptanceContract();
+
+  function applyStep(type, commandId, expectedRevision, payload) {
+    return runCli(
+      repository,
+      [
+        "apply",
+        type,
+        "--session",
+        SESSION,
+        "--command-id",
+        commandId,
+        "--expected-revision",
+        String(expectedRevision),
+        ...(payload === undefined ? [] : ["--payload", "-"]),
+      ],
+      { input: payload === undefined ? undefined : JSON.stringify(payload) },
+    );
+  }
+
+  parseStdout(
+    applyStep("start-session", "retry-start", 0, {
+      mode: "light",
+      lightStrategy: "compact",
+      workflow: "feature",
+    }),
+  );
+  parseStdout(
+    applyStep("accept-plan", "retry-plan", 1, {
+      acceptanceContract: contract,
+      documentationRequired: false,
+      documentationReason: "No cambia documentación.",
+      workUnits: [
+        {
+          workUnitId: "unit-1",
+          criterionIds: ["AC-CLI-01-C01"],
+          dependsOn: [],
+          ownedPaths: ["src/unit.mjs"],
+          permission: "writer",
+          validationStrategy: "independent-rerun",
+        },
+      ],
+    }),
+  );
+  const dispatched = parseStdout(
+    applyStep(
+      "dispatch-attempt",
+      "retry-dispatch",
+      2,
+      dispatchPayload("attempt-perdido", "implementador", "writer", { workUnitId: "unit-1" }),
+    ),
+  );
+
+  // Un intento activo no admite retry: primero hay que cerrarlo con causa.
+  const active = parseStderr(
+    runCli(repository, [
+      "retry",
+      SESSION,
+      "attempt-perdido",
+      "--attempt-id",
+      "attempt-prematuro",
+      "--command-id",
+      "retry-prematuro",
+      "--expected-revision",
+      "3",
+    ]),
+  );
+  assert.equal(active.code, "attempt_not_retryable");
+
+  parseStdout(
+    applyStep("record-attempt-failure", "retry-failure", 3, {
+      attemptId: "attempt-perdido",
+      reason: "La plataforma no devolvió reporte.",
+      retryCause: "timeout",
+    }),
+  );
+
+  const retried = runCli(repository, [
+    "retry",
+    SESSION,
+    "attempt-perdido",
+    "--attempt-id",
+    "attempt-reintento",
+    "--command-id",
+    "retry-dispatch-2",
+    "--expected-revision",
+    "4",
+  ]);
+  const envelope = parseStdout(retried).envelope;
+  assert.doesNotMatch(retried.stdout, /actorCapability/);
+  assert.equal(envelope.attemptId, "attempt-reintento");
+  // El sobre se reconstruye entero desde el persistido; solo cambian la
+  // identidad del intento y la revisión fuente que el kernel deriva.
+  assert.deepEqual(
+    { ...envelope, attemptId: "attempt-perdido", sourceRevision: dispatched.envelope.sourceRevision },
+    dispatched.envelope,
+  );
+
+  const missing = parseStderr(
+    runCli(repository, [
+      "retry",
+      SESSION,
+      "attempt-inexistente",
+      "--attempt-id",
+      "attempt-otro",
+      "--command-id",
+      "retry-inexistente",
+      "--expected-revision",
+      "5",
+    ]),
+  );
+  assert.equal(missing.code, "attempt_not_found");
+  assert.equal(runCli(repository, ["retry", SESSION]).status, 2);
+  assert.equal(
+    runCli(repository, ["retry", SESSION, "attempt-perdido", "--attempt-id", "x"]).status,
+    2,
+  );
+});

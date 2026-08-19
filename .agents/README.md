@@ -210,7 +210,12 @@ reinicio.
 
 Si un rol se interrumpe sin reporte, `record-attempt-failure` cierra el intento
 con causa estructurada y libera su reserva. El retry crea otro intento y otro
-sobre; el orquestador nunca sintetiza un `RoleReport` en nombre del rol.
+sobre; el orquestador nunca sintetiza un `RoleReport` en nombre del rol. Un
+intento writer interrumpido invalida su unidad porque el árbol queda
+desconocido; un Tester de unidad read-only interrumpido por la plataforma no
+tocó nada y la unidad sigue lista para revalidarse. El subcomando `retry
+<sessionId> <attemptIdFallido>` del CLI reconstruye el payload de ese
+re-despacho desde el sobre persistido.
 
 El snapshot y el event log forman el ledger durable, no un input de despacho.
 Antes de cada fase, `dispatch-attempt` crea el único `WorkEnvelope` normal con
