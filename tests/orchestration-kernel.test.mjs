@@ -860,6 +860,71 @@ test("completion needs_input pausa sin convertir la consulta en fallo y reanuda 
   assert.equal(view.workUnits["unit-1"].status, "pending");
 });
 
+test("context_insufficient cierra el intento sin castigo y habilita el re-despacho ampliado", async () => {
+  const harness = createHarness();
+  await start(harness);
+  await plan(harness);
+  await dispatchWriter(harness, "attempt-ci-1");
+  const declared = await apply(harness, "accept-role-report", {
+    attemptId: "attempt-ci-1",
+    report: roleReport(harness, "attempt-ci-1", "implementador", {
+      completion: "context_insufficient",
+      decision: "fail",
+      missingContext: ["tests/objetivo.test.mjs"],
+      evidence: [],
+      humanSummary: "El sobre no enumera el test objetivo.",
+    }),
+  });
+  assert.equal(declared.decision, "context_insufficient");
+  assert.deepEqual(declared.missingContext, ["tests/objetivo.test.mjs"]);
+  const view = await harness.kernel.inspect(harness.sessionId);
+  assert.equal(view.lifecycle, "executing");
+  assert.equal(view.workUnits["unit-1"].status, "pending");
+  assert.equal(view.evaluationReworkCycles, 0);
+  assert.equal(view.attempts["attempt-ci-1"].state, "completed");
+
+  const redispatched = await apply(harness, "dispatch-attempt", {
+    attemptId: "attempt-ci-2",
+    baseRevision: "git:test-base",
+    contextManifest: [{ path: "tests/objetivo.test.mjs", hash: digestObject("ctx"), bytes: 64 }],
+    findings: [],
+    objective: "Implementar la unidad writer.",
+    permission: "writer",
+    phase: "implementation",
+    role: "implementador",
+    rules: "Aplicar el contrato.",
+    tasks: "Completar la unidad.",
+    threadId: "thread-attempt-ci-2",
+    workUnitId: "unit-1",
+  });
+  assert.ok(redispatched.envelope.contextPaths.includes("tests/objetivo.test.mjs"));
+});
+
+test("el kernel rechaza reportes de contexto insuficiente mal formados", async () => {
+  const harness = createHarness();
+  await start(harness);
+  await plan(harness);
+  await dispatchWriter(harness, "attempt-ci-invalid");
+  const submit = (report) =>
+    apply(harness, "accept-role-report", { attemptId: "attempt-ci-invalid", report });
+  const declaration = (overrides) =>
+    roleReport(harness, "attempt-ci-invalid", "implementador", {
+      completion: "context_insufficient",
+      decision: "fail",
+      missingContext: ["tests/objetivo.test.mjs"],
+      evidence: [],
+      ...overrides,
+    });
+  const withoutMissingContext = declaration();
+  delete withoutMissingContext.missingContext;
+  await assert.rejects(submit(withoutMissingContext), { code: "invalid_role_report" });
+  await assert.rejects(submit(declaration({ decision: "pass" })), { code: "invalid_role_report" });
+  await assert.rejects(
+    submit(roleReport(harness, "attempt-ci-invalid", "implementador", { missingContext: ["x"] })),
+    { code: "invalid_role_report" },
+  );
+});
+
 test("la capacidad única protege ownership, idempotencia y CAS sin filtrarse al sobre", async () => {
   const harness = createHarness();
   const startId = commandId("start-idempotent");

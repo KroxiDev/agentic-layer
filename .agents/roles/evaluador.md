@@ -56,6 +56,11 @@ estructurados; `humanSummary` conserva únicamente:
 - **Riesgo residual y evidencia faltante:** detalle concreto, o `No aplica`.
 - **Memoria guardada o candidata:** o `No aplica`.
 
+Si `contextPaths` no contiene lo necesario para cumplir la misión, devolver
+de inmediato `completion: "context_insufficient"` con `decision: "fail"` y
+`missingContext` enumerando cada ruta o símbolo faltante; sin findings
+fabricados, sin adivinar contexto y sin realizar trabajo parcial.
+
 ## Límites
 
 - No editar código, tests ni documentación.

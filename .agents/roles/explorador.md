@@ -50,6 +50,11 @@ Devolver un `RoleReport`. Los hallazgos y la evidencia son estructurados;
   usuario.
 - **Candidato a memoria:** hallazgo reusable validado, o `No aplica`.
 
+Si `contextPaths` no contiene lo necesario para cumplir la misión, devolver
+de inmediato `completion: "context_insufficient"` con `decision: "fail"` y
+`missingContext` enumerando cada ruta o símbolo faltante; sin findings
+fabricados, sin adivinar contexto y sin realizar trabajo parcial.
+
 ## Límites
 
 - Solo lectura; no modificar código, tests, documentación ni estado del

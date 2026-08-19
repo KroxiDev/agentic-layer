@@ -301,6 +301,9 @@ Reporte con `completion`, `decision`, `findings` y `evidence` estructurados.
 Todo finding no informativo requiere `reproduction`; uno informativo puede
 omitirla. El schema JSON y el runtime aplican la misma regla. `humanSummary` es
 una vista humana y no decide transiciones.
+`completion: "context_insufficient"` con `decision: "fail"` y `missingContext`
+declara un sobre incompleto: cierra el intento sin tocar el ciclo de vida ni el
+presupuesto de retrabajo y habilita re-despachar la misma misión ampliada.
 _Evitar_: veredicto inferido por regex, commit del rol, prosa autoritativa.
 
 **Lane integral**:

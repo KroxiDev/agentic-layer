@@ -439,6 +439,13 @@ orquestador sin abrir el ledger ni ampliar el contexto. Corregir la selección
 exige cerrar o fallar el intento y abrir uno nuevo con causa y sobre nuevo; un
 sobre abierto no se modifica retrospectivamente.
 
+Antes de despachar, el orquestador verifica con CodeGraph que los símbolos y
+tests nombrados por los criterios de la unidad resuelven dentro de
+`contextPaths`. Un reporte con `completion: "context_insufficient"` declara un
+sobre incompleto: no es un fallo del rol ni consume presupuesto de retrabajo.
+Ante ese reporte, el orquestador re-despacha la misma misión al mismo rol con
+el manifiesto ampliado con las rutas de `missingContext`.
+
 El `RoleReport` de `schemaVersion: 3` usa la misma forma admitida por el runtime.
 Todo finding no informativo exige `reproduction`; uno informativo puede
 omitirla y el kernel conserva esa ausencia. Un reporte estructuralmente

@@ -27,7 +27,7 @@
     "role": {
       "enum": ["documentador", "evaluador", "explorador", "implementador", "planificador", "tester"]
     },
-    "completion": { "enum": ["completed", "needs_input"] },
+    "completion": { "enum": ["completed", "needs_input", "context_insufficient"] },
     "decision": { "enum": ["pass", "fail"] },
     "findings": {
       "type": "array",
@@ -139,7 +139,13 @@
         }
       }
     },
-    "humanSummary": { "type": "string", "pattern": "\\S" }
+    "humanSummary": { "type": "string", "pattern": "\\S" },
+    "missingContext": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1,
+      "uniqueItems": true
+    }
   },
   "allOf": [
     {
@@ -170,8 +176,11 @@
     },
     {
       "if": {
-        "properties": { "decision": { "const": "fail" } },
-        "required": ["decision"]
+        "properties": {
+          "decision": { "const": "fail" },
+          "completion": { "not": { "const": "context_insufficient" } }
+        },
+        "required": ["decision", "completion"]
       },
       "then": {
         "properties": {
@@ -192,6 +201,23 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": { "completion": { "const": "context_insufficient" } },
+        "required": ["completion"]
+      },
+      "then": {
+        "required": ["missingContext"],
+        "properties": { "decision": { "const": "fail" } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "completion": { "not": { "const": "context_insufficient" } } },
+        "required": ["completion"]
+      },
+      "then": { "properties": { "missingContext": false } }
     }
   ]
 }

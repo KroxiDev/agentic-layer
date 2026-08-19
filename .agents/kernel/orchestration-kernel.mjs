@@ -752,6 +752,7 @@ function validateRoleReport(report, state, attempt) {
       "evidence",
       "findings",
       "humanSummary",
+      "missingContext",
       "role",
       "schemaVersion",
       "sessionId",
@@ -769,11 +770,22 @@ function validateRoleReport(report, state, attempt) {
   if (report.acceptanceContractHash !== attempt.contractHash) {
     invalid("acceptance_contract_mismatch", "El reporte no usa el hash contractual del intento.");
   }
-  if (!new Set(["completed", "needs_input"]).has(report.completion)) {
-    invalid("invalid_role_report", "completion debe ser completed o needs_input.");
+  if (!new Set(["completed", "context_insufficient", "needs_input"]).has(report.completion)) {
+    invalid("invalid_role_report", "completion debe ser completed, needs_input o context_insufficient.");
   }
   if (!new Set(["fail", "pass"]).has(report.decision)) {
     invalid("invalid_role_report", "decision debe ser pass o fail.");
+  }
+  if (report.completion === "context_insufficient") {
+    if (report.decision !== "fail") {
+      invalid("invalid_role_report", "context_insufficient exige decision=fail.");
+    }
+    assertStringArray(report.missingContext, "missingContext", "invalid_role_report");
+    if (!report.missingContext.length || report.missingContext.some((entry) => !entry.trim())) {
+      invalid("invalid_role_report", "missingContext exige rutas o símbolos concretos.");
+    }
+  } else if (Object.hasOwn(report, "missingContext")) {
+    invalid("invalid_role_report", "missingContext solo acompaña a context_insufficient.");
   }
   if (!Array.isArray(report.findings) || !Array.isArray(report.evidence)) {
     invalid("invalid_role_report", "findings y evidence deben ser listas.");
@@ -821,7 +833,11 @@ function validateRoleReport(report, state, attempt) {
   if (report.decision === "pass" && violations.length) {
     invalid("invalid_role_report", "decision=pass contradice una violación estructurada.");
   }
-  if (report.decision === "fail" && !findings.some((finding) => finding.classification !== "informational")) {
+  if (
+    report.decision === "fail" &&
+    report.completion !== "context_insufficient" &&
+    !findings.some((finding) => finding.classification !== "informational")
+  ) {
     invalid("invalid_role_report", "decision=fail exige al menos un finding accionable.");
   }
   return { ...clone(report), findings };
@@ -1657,6 +1673,14 @@ function applyToState(state, command, clock) {
     const report = validateRoleReport(payload.report, state, attempt);
     completeAttempt(attempt, report, clock);
     for (const finding of report.findings) mergeFinding(state, finding, attempt.attemptId);
+    if (report.completion === "context_insufficient") {
+      return {
+        result: {
+          decision: "context_insufficient",
+          missingContext: clone(report.missingContext),
+        },
+      };
+    }
     if (report.completion === "needs_input") {
       const resumeLifecycle = state.lifecycle;
       state.lifecycle = "awaiting_input";

@@ -45,6 +45,9 @@ description: Orquesta tareas de desarrollo mediante roles aislados, DevSession y
    `record-attempt-failure` para cerrar interrupciones sin fabricar reportes, y
    `record-user-input`, `record-validation`, `amend-scope` y
    `resolve-scope-decision` únicamente en sus estados admitidos.
+   Un reporte `context_insufficient` no consume retrabajo: re-despachar la
+   misma misión al mismo rol con el manifiesto ampliado con las rutas de
+   `missingContext`.
 7. Aplicar desde la política los gates de unidad, lane `full:<generation>`,
    evaluación, decisión de alcance y documentación. No inferir veredictos desde
    `humanSummary` ni convertir un finding nuevo en retrabajo automático.

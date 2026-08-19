@@ -55,6 +55,11 @@ Devolver un `RoleReport`. El resultado observable vive en `completion`,
 - **Desvíos o dudas:** justificación y efecto sobre el alcance.
 - **Candidato a memoria:** o `No aplica`.
 
+Si `contextPaths` no contiene lo necesario para cumplir la misión, devolver
+de inmediato `completion: "context_insufficient"` con `decision: "fail"` y
+`missingContext` enumerando cada ruta o símbolo faltante; sin findings
+fabricados, sin adivinar contexto y sin realizar trabajo parcial.
+
 ## Límites
 
 - No redefinir objetivo, criterios ni seams.

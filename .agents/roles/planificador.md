@@ -69,6 +69,11 @@ presenta únicamente esta especificación legible:
 - **Decisiones pendientes:** ronda de grilling, o `Ninguna`.
 - **Candidato a memoria:** o `No aplica`.
 
+Si `contextPaths` no contiene lo necesario para cumplir la misión, devolver
+de inmediato `completion: "context_insufficient"` con `decision: "fail"` y
+`missingContext` enumerando cada ruta o símbolo faltante; sin findings
+fabricados, sin adivinar contexto y sin realizar trabajo parcial.
+
 ## Límites
 
 - Solo lectura; no implementar ni editar archivos.

@@ -463,6 +463,8 @@ test("la distribución conserva el contrato completo de intentos en protocolo y 
       rule.then?.required?.includes("reproduction"),
     ),
   );
+  assert.ok(roleReport.properties.completion.enum.includes("context_insufficient"));
+  assert.ok(policy.includes("context_insufficient"), "La política omite context_insufficient.");
 
   // El contrato de campos del intento vive en el schema del WorkEnvelope
   // (aserciones de arriba) y en la salida ejecutable del CLI (tests/kernel-cli):

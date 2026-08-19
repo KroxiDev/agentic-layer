@@ -59,6 +59,11 @@ Devolver un `RoleReport`. El veredicto y los hallazgos son estructurados;
 - **Omisiones:** validaciones no ejecutadas y motivo, especialmente en `light`.
 - **Candidato a memoria:** o `No aplica`.
 
+Si `contextPaths` no contiene lo necesario para cumplir la misión, devolver
+de inmediato `completion: "context_insufficient"` con `decision: "fail"` y
+`missingContext` enumerando cada ruta o símbolo faltante; sin findings
+fabricados, sin adivinar contexto y sin realizar trabajo parcial.
+
 ## Límites
 
 - No corregir código de producción ni documentación.

@@ -43,6 +43,11 @@ son estructurados; `humanSummary` conserva únicamente:
 - **Memoria guardada:** identificador o resumen, o `No aplica`.
 - **Pendientes reales:** o `Ninguno`.
 
+Si `contextPaths` no contiene lo necesario para cumplir la misión, devolver
+de inmediato `completion: "context_insufficient"` con `decision: "fail"` y
+`missingContext` enumerando cada ruta o símbolo faltante; sin findings
+fabricados, sin adivinar contexto y sin realizar trabajo parcial.
+
 ## Límites
 
 - Modificar solo documentación pertinente.
