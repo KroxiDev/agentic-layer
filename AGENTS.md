@@ -87,7 +87,8 @@ validaciones compatibles y consultar cualquier conflicto real.
   `scripts/agentic-check.mjs`, `.agents/kernel/composition.mjs`,
   `.agents/kernel/orchestration-kernel.mjs`,
   `.agents/kernel/protocol-manifest.mjs`, `.agents/protocol.json`,
-  `.agents/skills/orquestar/SKILL.md` y `CLAUDE.md`.
+  `.agents/scripts/kernel-cli.mjs`, `.agents/skills/orquestar/SKILL.md` y
+  `CLAUDE.md`.
 
 ## Validación
 
@@ -111,7 +112,8 @@ validaciones compatibles y consultar cualquier conflicto real.
 - Framework: `node:test`, sin dependencias externas.
 <!-- agentic-contract-field testLocation -->
 - Ubicación: `tests/*.test.mjs`, por interfaz pública; el kernel se cubre en
-  `tests/orchestration-kernel.test.mjs`, la composición distribuida en
+  `tests/orchestration-kernel.test.mjs`, su CLI en `tests/kernel-cli.test.mjs`,
+  la composición distribuida en
   `tests/productive-composition.test.mjs` y los helpers CLI compartidos viven en
   `tests/agentic-test-helpers.mjs`.
 <!-- agentic-contract-field testLifecycle -->

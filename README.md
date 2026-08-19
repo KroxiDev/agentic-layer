@@ -105,6 +105,23 @@ se repite exactamente el comando `start-session` original con la nueva
 `bootstrapCapability`; el kernel reemite la capacidad de la sesión sin repetir
 la transición.
 
+La vía normal de conducir el kernel desde un host es el CLI delgado
+`.agents/scripts/kernel-cli.mjs`, un adapter de esa misma composición:
+
+```bash
+node .agents/scripts/kernel-cli.mjs help dispatch-attempt   # claves exactas del payload
+node .agents/scripts/kernel-cli.mjs inspect <sessionId>     # vista JSON del snapshot
+node .agents/scripts/kernel-cli.mjs apply <tipo> --session <id> \
+  --command-id <id> --expected-revision <n> --payload <archivo.json|->
+```
+
+Cada invocación es un proceso independiente: `apply` recupera autoridad
+repitiendo el `start-session` persistido en `recovery.bootstrapCommand` del
+snapshot y nunca imprime la capacidad. Un `KernelError` sale por stderr con su
+`code` intacto (`stale_revision`, `idempotency_conflict`, `invalid_command`, …)
+y exit code distinto de cero; `help <tipo>` deriva las claves admitidas del
+propio kernel, sin listas paralelas.
+
 ## Contexto mínimo
 
 La DevSession es el ledger de coordinación, no el prompt de un rol. El caller
@@ -180,6 +197,8 @@ registro.
 - `.agents/kernel/composition.mjs`: única composición productiva del runtime.
 - `.agents/kernel/protocol-manifest.mjs`: consumidor único del inventario y de
   la configuración declarados en `.agents/protocol.json`.
+- `.agents/scripts/kernel-cli.mjs`: CLI delgado para conducir `apply`,
+  `inspect` y `help` del kernel desde procesos host.
 - `.agents/schemas/`: contratos JSON actuales.
 - `.agents/conformance/`: verificación de estructura y distribución.
 - `.agents/roles/`, `.agents/workflows/`, `.agents/templates/`: proceso.

@@ -74,7 +74,7 @@ const VALIDATION_STRATEGIES = new Set([
   "independent-rerun",
   "verified-evidence-reuse",
 ]);
-const COMMAND_PAYLOAD_KEYS = {
+export const COMMAND_PAYLOAD_KEYS = Object.freeze({
   "accept-plan": new Set([
     "acceptanceContract",
     "documentationReason",
@@ -117,7 +117,7 @@ const COMMAND_PAYLOAD_KEYS = {
     "requirements",
     "workflow",
   ]),
-};
+});
 
 function sameWriterOwner(left, right) {
   return Boolean(

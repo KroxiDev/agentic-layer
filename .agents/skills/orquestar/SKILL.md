@@ -14,26 +14,28 @@ description: Orquesta tareas de desarrollo mediante roles aislados, DevSession y
    modo, fases y excepciones solo desde esos contratos canónicos. Usar
    `agentic-light-sequence` para una sesión `light`, siempre compacta y con una
    sola unidad.
-3. Para una sesión nueva, crear el host mediante la composición productiva
-   [`createOrchestrationComposition`](../../kernel/composition.mjs), ejecutar
-   `start-session` con su capacidad bootstrap y conservar la capacidad opaca
-   emitida fuera de sobres, prompts y reportes. Usar `inspect` para leer y
-   `apply` con `commandId` y revisión esperada para toda mutación. Tras un
-   reinicio, recrear la composición sobre la misma raíz y repetir exactamente
-   el comando inicial para recuperar autoridad; no reconstruir manualmente los
-   adapters del `OrchestrationKernel`.
+3. Conducir el kernel con el CLI delgado
+   [`kernel-cli.mjs`](../../scripts/kernel-cli.mjs):
+   `node .agents/scripts/kernel-cli.mjs apply start-session …` crea la sesión,
+   `inspect <sessionId>` lee la vista, `apply <tipo> …` muta con `commandId` y
+   revisión esperada, y `help <tipo>` imprime las claves exactas del payload
+   sin leer el kernel. El CLI es un adapter de la composición productiva
+   [`createOrchestrationComposition`](../../kernel/composition.mjs): tras un
+   reinicio recupera autoridad repitiendo exactamente el `start-session`
+   persistido en el snapshot y nunca imprime la capacidad opaca. No escribir
+   composición inline ni reconstruir manualmente los adapters del
+   `OrchestrationKernel`; conservar la capacidad emitida fuera de sobres,
+   prompts y reportes.
 4. Pedir al Planificador el plan exigido por la política, aceptar su
    `AcceptanceContract` versionado y despachar únicamente fases y unidades
    listas. En compacto, exigir una sola unidad y su validación focalizada antes
    de abrir implementación.
 5. Antes de cada `dispatch-attempt`, aplicar la selección mínima de la política
-   y declarar rol, `permission`, `baseRevision`, `threadId`, fase, objetivo,
-   reglas, tareas, `findings` y `contextManifest`. El kernel materializa un
-   `WorkEnvelope` inmutable con hash y tipo de contrato, identidades, versión,
-   generación, `sourceRevision`, criterios completos, `ownedPaths`,
-   `validationStrategy`, `wave` y `contextPaths`. Despachar solo el sobre y la
-   instrucción breve de ejecutar el contrato del rol; nunca una capacidad o el
-   ledger.
+   y construir el payload con las claves exactas que imprime
+   `node .agents/scripts/kernel-cli.mjs help dispatch-attempt`. El kernel
+   materializa un `WorkEnvelope` inmutable y autocontenido y deriva
+   `sourceRevision` y `contextPaths`. Despachar solo el sobre y la instrucción
+   breve de ejecutar el contrato del rol; nunca una capacidad o el ledger.
 6. Recibir un `RoleReport` estructurado y presentarlo al kernel con
    `accept-role-report`. Los roles nunca reciben capacidad ni mutan estado. Usar
    `record-attempt-failure` para cerrar interrupciones sin fabricar reportes, y

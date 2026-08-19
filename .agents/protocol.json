@@ -98,6 +98,11 @@
       "schemaTitle": "WorkEnvelope"
     },
     {
+      "path": ".agents/scripts/kernel-cli.mjs",
+      "kind": "cli",
+      "markers": ["agentic-kernel-cli"]
+    },
+    {
       "path": ".agents/sessions/.gitignore",
       "source": ".agents/sessions/gitignore.asset",
       "kind": "asset"
@@ -121,7 +126,7 @@
       "path": ".agents/skills/orquestar/SKILL.md",
       "kind": "skill",
       "markers": ["<!-- agentic-protocol -->"],
-      "contains": ["../../kernel/composition.mjs"]
+      "contains": ["../../kernel/composition.mjs", "../../scripts/kernel-cli.mjs"]
     },
     {
       "path": ".agents/templates/dev-session.md",
@@ -237,6 +242,7 @@
       "contains": [
         ".agents/kernel/composition.mjs",
         ".agents/kernel/orchestration-kernel.mjs",
+        ".agents/scripts/kernel-cli.mjs",
         "WorkEnvelope",
         "RoleReport"
       ]

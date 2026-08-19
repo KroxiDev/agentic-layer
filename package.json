@@ -65,6 +65,7 @@
     ".agents/schemas/session-event.schema.json",
     ".agents/schemas/validation-evidence.schema.json",
     ".agents/schemas/work-envelope.schema.json",
+    ".agents/scripts/kernel-cli.mjs",
     ".agents/sessions/gitignore.asset",
     ".agents/skills/agentic-diagnostico-bugs/SKILL.md",
     ".agents/skills/agentic-diagnostico-bugs/references/hitl-loop.template.md",

@@ -18,6 +18,13 @@ iniciar o recuperar autoridad. No crea agentes, instala herramientas ni toca
 Git. Recrearlo sobre la misma raíz permite inspeccionar el snapshot y recuperar
 la capacidad repitiendo exactamente `start-session`.
 
+`scripts/kernel-cli.mjs` es la vía normal de conducir esa composición desde el
+host: `apply`, `inspect` y `help <tipo>` con las claves exactas de payload
+derivadas del kernel. Cada invocación es un proceso independiente que recupera
+autoridad releyendo `recovery.bootstrapCommand` del snapshot; no añade métodos
+al kernel, no imprime capacidades y deja los códigos de `KernelError` intactos
+en stderr.
+
 `protocol.json` es también la fuente autoritativa de rutas instaladas, assets,
 markers, directorios gestionados y overrides del host. El consumidor compartido
 `kernel/protocol-manifest.mjs` valida esa declaración y la proyecta hacia
@@ -78,6 +85,8 @@ antes de la mutación final.
   adapters sin ampliar las operaciones `apply/inspect`.
 - `kernel/protocol-manifest.mjs`: validación y proyección del inventario y de
   los overrides declarados por `protocol.json`.
+- `scripts/kernel-cli.mjs`: CLI delgado del kernel para procesos host —
+  `apply`, `inspect` y `help` derivado del código.
 - `schemas/`: contratos JSON de aceptación, reporte, evento y validación.
 - `conformance/`: gate ejecutable de inventario, schemas, overrides e interface.
 - `protocol.json`: inventario indivisible y schema de overrides admitidos.
@@ -100,7 +109,7 @@ antes de la mutación final.
   distribuidos y ejecuta `node --check` sobre todos.
 - `../scripts/agentic-init.mjs`: inicializador y actualizador sin dependencias externas.
 - `../tests/*.test.mjs`: pruebas por interfaz de adopción, `update`, Codex,
-  kernel, composición productiva y distribución/contratos;
+  kernel, CLI del kernel, composición productiva y distribución/contratos;
   `agentic-test-helpers.mjs`
   concentra fixtures sin estado global mutable.
 
@@ -114,6 +123,7 @@ referencia:
 | Activación, modos, presupuestos, unidades, validación, evaluación y cierre | [Política de orquestación](policies/orquestacion.md) | Enlazar la política sin copiar categorías, límites ni excepciones. |
 | Estado durable e invariantes ejecutables | [`OrchestrationKernel`](kernel/orchestration-kernel.mjs) | El orquestador usa solo `apply/inspect`; los roles devuelven reportes sin mutar. |
 | Composición de adapters productivos y bootstrap | [`createOrchestrationComposition`](kernel/composition.mjs) | El host aporta raíz, capacidades y configuración declarada; no reconstruye dependencias privadas. |
+| Conducción del kernel desde procesos host | [`scripts/kernel-cli.mjs`](scripts/kernel-cli.mjs) | El orquestador usa el CLI en lugar de composición inline; los roles nunca lo invocan. |
 | Orden e intención propios de cada flujo | [`workflows/`](workflows/) | Conservar marcadores `agentic-phase` y referenciar reglas comunes. |
 | Entradas, proceso, salida y límites exclusivos de un rol | [`roles/`](roles/) | Mantener el contrato aislado y enlazar la política transversal. |
 | Routing operativo | [`skills/orquestar/SKILL.md`](skills/orquestar/SKILL.md) | Cargar política, workflow y kernel actuales sin duplicar reglas. |

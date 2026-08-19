@@ -66,6 +66,7 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 │   ├── agentic-update.test.mjs  # update y rollback
 │   ├── codex-config.test.mjs    # configuración Codex
 │   ├── orchestration-kernel.test.mjs
+│   ├── kernel-cli.test.mjs      # conducción del kernel por procesos separados
 │   ├── productive-composition.test.mjs
 │   ├── distribution-contracts.test.mjs
 │   └── agentic-test-helpers.mjs # fixtures aislados compartidos
@@ -86,6 +87,8 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 │   │   ├── adapters.mjs           # stores, clocks, probes y sinks
 │   │   ├── protocol-manifest.mjs   # valida y proyecta protocol.json
 │   │   └── protocol.mjs           # hashing y contratos base
+│   ├── scripts/
+│   │   └── kernel-cli.mjs         # CLI delgado apply/inspect/help del kernel
 │   ├── schemas/                   # AcceptanceContract, RoleReport, eventos y evidencia
 │   ├── conformance/               # gate de protocolo y drift
 │   ├── roles/                   # seis roles: entradas, proceso, salida, límites
@@ -126,6 +129,7 @@ automática — ver [ADR 0001](adr/0001-adopcion-por-copia.md).
 | `.agents/policies/` | Orquestación, SDD/TDD y Regla de Oro para código y pruebas | Profundo: gobierna todo el proceso |
 | `.agents/roles/` | Seis contratos de salida con límites explícitos | Profundo: cada rol oculta su método |
 | `.agents/kernel/composition.mjs` | Construir los adapters productivos y exponer `apply/inspect` más bootstrap opaco | Delgado: único composition root |
+| `.agents/scripts/kernel-cli.mjs` | Conducir `apply/inspect` desde procesos host y exponer `help` derivado del código | Delgado: adapter de la composición |
 | `.agents/kernel/orchestration-kernel.mjs` | Estado, CAS, idempotencia, ownership, aceptación, lanes, presupuesto, persistencia y telemetría | Profundo: solo `apply/inspect` |
 | `.agents/kernel/adapters.mjs` | Filesystem/memoria, reloj, preflight y event sinks | Profundo: seams de producción y tests |
 | `.agents/protocol.json` y `.agents/kernel/protocol-manifest.mjs` | Inventario instalado, assets, directorios gestionados y overrides del host | Fuente declarativa y consumidor compartido |
@@ -294,6 +298,15 @@ opaco; no agrega operaciones al kernel. Construye `FileSystemStateStore`,
 `SystemEnvironmentProbe`, reloj y telemetría JSONL, y no crea agentes, instala
 herramientas ni modifica Git. Recrearlo sobre la misma raíz permite leer una
 DevSession y recuperar autoridad únicamente mediante el retry exacto mostrado.
+
+`.agents/scripts/kernel-cli.mjs` es la frontera de host sobre esa composición:
+cada invocación (`apply`, `inspect`, `help <tipo>`) es un proceso efímero que
+ejecuta ese mismo retry leyendo `recovery.bootstrapCommand` de la vista de
+`inspect` — el kernel persiste el `start-session` exacto, sin capacidad, dentro
+del snapshot — y aplica después el comando pedido. La capacidad nunca se
+serializa: `help` deriva las claves de payload de `COMMAND_PAYLOAD_KEYS`
+exportado por el kernel y los `KernelError` conservan su `code` en stderr — ver
+[ADR 0012](adr/0012-cli-del-kernel-como-frontera-de-host.md).
 
 `StateStore` serializa cada sesión y publica snapshots atómicos.
 `FileSystemStateStore` vuelve a demostrar la contención física antes de crear,

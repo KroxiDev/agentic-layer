@@ -244,6 +244,14 @@ telemetría. Expone las operaciones `apply/inspect` y, como dato separado, la
 capacidad bootstrap opaca necesaria para iniciar o recuperar autoridad.
 _Evitar_: host alternativo, construcción manual de adapters, daemon, ejecutor de agentes.
 
+**CLI del kernel**:
+Adapter delgado `.agents/scripts/kernel-cli.mjs` que conduce la composición
+productiva desde procesos host: `apply`, `inspect` y `help <tipo>` con las
+claves exactas de payload derivadas del código. Recupera autoridad repitiendo
+el `start-session` persistido en `recovery.bootstrapCommand` del snapshot y
+nunca imprime la capacidad.
+_Evitar_: segundo runtime, herramienta del proyecto adoptante, `bin/agentic.mjs`.
+
 **Manifiesto del protocolo**:
 `.agents/protocol.json`, fuente declarativa única de artefactos instalados,
 assets, markers, directorios gestionados, interface del kernel y overrides del
